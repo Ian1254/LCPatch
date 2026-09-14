@@ -42,7 +42,7 @@ class AppUpdateRepository(private val context: Context) {
             (0 until releases.length()).asSequence()
                 .map(releases::getJSONObject)
                 .filter { !it.optBoolean("draft", false) }
-                .maxWithOrNull { a, b -> compareVersions(
+                .maxWithOrNull { a, b -> Versioning.compare(
                     a.optString("tag_name").removePrefix("v"),
                     b.optString("tag_name").removePrefix("v")
                 ) }
@@ -68,32 +68,7 @@ class AppUpdateRepository(private val context: Context) {
         )
     }
 
-    fun isNewer(candidate: String, current: String): Boolean = compareVersions(candidate, current) > 0
-
-    internal fun compareVersions(left: String, right: String): Int {
-        val a = SemVer.parse(left)
-        val b = SemVer.parse(right)
-        compareValues(a.major, b.major).takeIf { it != 0 }?.let { return it }
-        compareValues(a.minor, b.minor).takeIf { it != 0 }?.let { return it }
-        compareValues(a.patch, b.patch).takeIf { it != 0 }?.let { return it }
-        if (a.pre.isEmpty() && b.pre.isNotEmpty()) return 1
-        if (a.pre.isNotEmpty() && b.pre.isEmpty()) return -1
-        val count = maxOf(a.pre.size, b.pre.size)
-        repeat(count) { index ->
-            val av = a.pre.getOrNull(index) ?: return -1
-            val bv = b.pre.getOrNull(index) ?: return 1
-            val ai = av.toIntOrNull()
-            val bi = bv.toIntOrNull()
-            val result = when {
-                ai != null && bi != null -> compareValues(ai, bi)
-                ai != null -> -1
-                bi != null -> 1
-                else -> av.compareTo(bv)
-            }
-            if (result != 0) return result
-        }
-        return 0
-    }
+    fun isNewer(candidate: String, current: String): Boolean = Versioning.compare(candidate, current) > 0
 
     suspend fun download(
         release: AppRelease,
@@ -201,26 +176,4 @@ class AppUpdateRepository(private val context: Context) {
             val code = responseCode
             require(code in 200..299) { "GitHub 回應 $code" }
         }
-
-    private data class SemVer(
-        val major: Int,
-        val minor: Int,
-        val patch: Int,
-        val pre: List<String>
-    ) {
-        companion object {
-            fun parse(value: String): SemVer {
-                val normalized = value.removePrefix("v").substringBefore('+')
-                val coreAndPre = normalized.split('-', limit = 2)
-                val core = coreAndPre[0].split('.')
-                require(core.size >= 3) { "無效版本號：$value" }
-                return SemVer(
-                    major = core[0].toInt(),
-                    minor = core[1].toInt(),
-                    patch = core[2].toInt(),
-                    pre = coreAndPre.getOrNull(1)?.split('.')?.filter { it.isNotEmpty() } ?: emptyList()
-                )
-            }
-        }
-    }
 }
