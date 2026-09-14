@@ -1,0 +1,22 @@
+The bundled ChineseFont-PUA.ttf is Sarasa Gothic SC Bold 1.0.29 with the
+LCPatch PUA cmap. It is the same font payload used by the supplied, previously
+device-tested font-fix APK.
+
+Copyright (c) 2015-2025, Renzhi Li (aka. Belleve Invis).
+Portions Copyright the Inter Project Authors, Adobe Systems Incorporated and
+Google Inc.
+
+The font is licensed under the SIL Open Font License, Version 1.1. The complete
+license text is available at:
+https://github.com/be5invis/Sarasa-Gothic/blob/main/LICENSE
+
+Modifications made for LCPatch:
+- BMP Private Use Area cmap entries are used by the translation conversion.
+
+Source font:
+https://github.com/be5invis/Sarasa-Gothic/releases/tag/v1.0.29
+
+Rebuild command:
+The redistributable font payload is retained at
+tools/font-source/SarasaGothicSC-Bold-1.0.29-PUA.ttf. The upstream project
+documents how to rebuild its TTF files from source.

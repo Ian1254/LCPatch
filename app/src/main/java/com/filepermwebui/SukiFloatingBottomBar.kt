@@ -1,0 +1,125 @@
+package com.lcpatch
+
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.blur.BlendColorEntry
+import top.yukonga.miuix.kmp.blur.BlurColors
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
+import top.yukonga.miuix.kmp.blur.textureBlur
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Home
+import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+@Composable
+internal fun SukiFloatingBottomBar(
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    backdrop: LayerBackdrop?
+) {
+    val selectedOffset by animateDpAsState(
+        targetValue = if (selectedIndex == 0) 4.dp else 84.dp,
+        animationSpec = spring(dampingRatio = 0.88f, stiffness = 250f),
+        label = "floating-navigation-indicator"
+    )
+    val containerColor = MiuixTheme.colorScheme.surfaceContainer
+    val barModifier = Modifier
+        .width(168.dp)
+        .height(64.dp)
+        .then(
+            if (backdrop != null) {
+                Modifier.textureBlur(
+                    backdrop = backdrop,
+                    shape = CircleShape,
+                    blurRadius = 36f,
+                    colors = BlurColors(
+                        blendColors = listOf(BlendColorEntry(containerColor.copy(alpha = 0.90f)))
+                    )
+                )
+            } else {
+                Modifier.background(containerColor.copy(alpha = 0.94f), CircleShape)
+            }
+        )
+        .clip(CircleShape)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(modifier = barModifier) {
+            Box(
+                modifier = Modifier
+                    .offset(x = selectedOffset, y = 4.dp)
+                    .width(80.dp)
+                    .height(56.dp)
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.08f), CircleShape)
+            )
+            Row(modifier = Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = 4.dp)) {
+                SukiNavigationItem("概觀", MiuixIcons.Home, selectedIndex == 0) { onSelected(0) }
+                SukiNavigationItem("設定", MiuixIcons.Settings, selectedIndex == 1) { onSelected(1) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val color by animateColorAsState(
+        targetValue = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        animationSpec = androidx.compose.animation.core.tween(280),
+        label = "navigation-item-color"
+    )
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
+    ) {
+        Icon(icon, contentDescription = label, modifier = Modifier.size(25.dp), tint = color)
+        Text(label, color = color, fontSize = 11.sp)
+    }
+}

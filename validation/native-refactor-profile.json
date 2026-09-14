@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "unity_sha256": "d238c5bbd98213312bf98e98ef89bf95db3354d560a56ddd2547384e7ae10710",
+  "unity_build_id": "4a724e4ee2e69265",
+  "entry": "0xb851d0",
+  "accessor": "0xb66130",
+  "entry_signature": "ff4302d1fe2b00f9f85f06a9f65707a9f44f08a9586300b0f503032af403022a",
+  "accessor_signature": "081c40f900010291c0035fd6",
+  "confidence": 1.0,
+  "sequence_similarity": 1.0,
+  "structural_score": 1.0,
+  "runner_up": 0.0,
+  "candidate_count": 1,
+  "safety": "Use only with runtime signature checks; never hook on confidence alone."
+}

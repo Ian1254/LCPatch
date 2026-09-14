@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "artifact": "dist/LCPatch-1.0.0.apk",
+  "sha256": "34BA3DBCE2D286BE06C0A7B398EF6BA06D8A2274CE5B88FD0F10A3163CFB84E9",
+  "sizeBytes": 19519067,
+  "package": "com.lcpatch",
+  "applicationLabel": "LCPatch",
+  "versionName": "1.0.0",
+  "versionCode": 1,
+  "architecture": "arm64-v8a",
+  "hookCore": {
+    "path": "lib/arm64-v8a/liblcpatch_core.so",
+    "sha256": "DE54B3B7FD6030C03670D5F0B0D47E535BD3FB5448EE12172460A61880AFC4AA",
+    "localizeHookMode": "libunity-and-libil2cpp-plt-file-imports",
+    "source": "native-refactor/lcpatch_core.cpp",
+    "legacyLibbypassPackaged": false
+  },
+  "bundledPuaFont": {
+    "path": "assets/ChineseFont-PUA.ttf",
+    "sizeBytes": 23911100,
+    "sha256": "4573F1074A56EA5F6295D7AE2355CA3C7CB5186AB8AA4989ADDDBD2C1A9C58D9",
+    "format": "static TrueType",
+    "source": "tools/font-source/SarasaGothicSC-Bold-1.0.29-PUA.ttf",
+    "sourceLicense": "SIL Open Font License 1.1",
+    "puaMappings": 3912
+  },
+  "launcherIcon": {
+    "path": "app/src/main/res/drawable/ic_launcher.png",
+    "sha256": "C0D89DA20F61F5348B4327A841DF36FB12826F0D415A4C4B3B2CE1FA7AB2014D",
+    "changedForOpenSourceMigration": false
+  },
+  "signing": {
+    "scheme": "v3",
+    "certificateSha256": "6E015D15A3728767F6F8C387581E3F03FE4549A94AECC8A26F90D33C71E60794",
+    "zipAlignedFor16KiB": true
+  },
+  "checks": {
+    "nativeSourceBuild": "passed",
+    "unitTests": "passed",
+    "releaseLint": "passed",
+    "r8": "passed",
+    "apkSignature": "passed",
+    "zipAlignment": "passed",
+    "deviceGameLaunch": "not run"
+  }
+}
