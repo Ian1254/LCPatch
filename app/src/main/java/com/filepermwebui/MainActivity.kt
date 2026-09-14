@@ -568,6 +568,12 @@ class MainActivity : ComponentActivity() {
                     )
                     ABOUT -> about(
                         game = game,
+                        updateChannel = updateChannel,
+                        onUpdateChannel = { value ->
+                            updateChannel = value
+                            appPrefs.edit().putString("update_channel", value).apply()
+                            latestRelease = null
+                        },
                         release = latestRelease,
                         checkingUpdate = checkingUpdate,
                         updateProgress = updateProgress,
@@ -934,6 +940,8 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.about(
         game: GameInfo,
+        updateChannel: String,
+        onUpdateChannel: (String) -> Unit,
         release: AppRelease?,
         checkingUpdate: Boolean,
         updateProgress: TransferProgress?,
@@ -988,9 +996,7 @@ class MainActivity : ComponentActivity() {
                     items = listOf("穩定版", "測試版"),
                     selectedIndex = if (updateChannel == "beta") 1 else 0,
                     onSelectedIndexChange = { index ->
-                        updateChannel = if (index == 1) "beta" else "stable"
-                        appPrefs.edit().putString("update_channel", updateChannel).apply()
-                        latestRelease = null
+                        onUpdateChannel(if (index == 1) "beta" else "stable")
                     }
                 )
                 Spacer(Modifier.height(7.dp))
