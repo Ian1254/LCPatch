@@ -67,6 +67,8 @@ GitHub Actions 會在推送至 `main`、建立 Pull Request 或手動執行時�
 
 自動簽署使用 `LCPATCH_KEYSTORE_BASE64`、`LCPATCH_STORE_PASSWORD`、`LCPATCH_KEY_ALIAS` 與 `LCPATCH_KEY_PASSWORD` 四個 repository Secrets。本機的 `signing/`、APK、native 產物與建置快取均已由 `.gitignore` 排除。可重現的 CI 建置步驟以 [Android build workflow](.github/workflows/android.yml) 為準。
 
+Windows 本機建置需準備 Java 17 以上、Android SDK、NDK 27.2.12479018、CMake 與 Ninja，設定 `ANDROID_SDK_ROOT` 後在儲存庫根目錄執行 `./build.ps1`。腳本會以 Gradle Wrapper 產生未簽署的 release APK；正式散布仍應使用自行保管的簽署金鑰。
+
 ## 授權與第三方元件
 
 LCPatch 原始碼依 Apache License 2.0 授權。實際使用的開源元件如下：

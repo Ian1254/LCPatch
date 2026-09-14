@@ -1,7 +1,7 @@
 {
   "schema": 2,
   "artifact": "dist/LCPatch-1.0.0.apk",
-  "sha256": "CC4C0736327833AC3EB27C519114659F8D956A4FBE86A38BF57AB6683DA285CA",
+  "sha256": "FC1B079DA6132F4102E3C8AE4D5DF1E3341547EA5EB847EA18AEFE20390C207B",
   "sizeBytes": 19519067,
   "package": "com.lcpatch",
   "applicationLabel": "LCPatch",
@@ -10,7 +10,7 @@
   "architecture": "arm64-v8a",
   "hookCore": {
     "path": "lib/arm64-v8a/liblcpatch_core.so",
-    "sha256": "DE54B3B7FD6030C03670D5F0B0D47E535BD3FB5448EE12172460A61880AFC4AA",
+    "sha256": "5D14C05B1A45702A5D8AE274D52FC1ACDD5B66050504ACB13BD89A7A25B1EB8D",
     "localizeHookMode": "libunity-and-libil2cpp-plt-file-imports",
     "source": "native-refactor/lcpatch_core.cpp",
     "legacyLibbypassPackaged": false

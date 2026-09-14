@@ -15,7 +15,7 @@ Modifications made for LCPatch:
 Source font:
 https://github.com/be5invis/Sarasa-Gothic/releases/tag/v1.0.29
 
-Rebuild command:
-The redistributable font payload is retained at
+Redistributable source payload:
+The modified font payload is retained at
 tools/font-source/SarasaGothicSC-Bold-1.0.29-PUA.ttf. The upstream project
 documents how to rebuild its TTF files from source.

@@ -8,8 +8,8 @@ The core keeps only:
 - isolated read-only `open`, `openat` and `fopen` redirects in the PLT/GOT of
   `libunity.so` and `libil2cpp.so` for game requests below
   `Localize/<language>/`, with per-file fallback to the original game asset;
-- a single verified Unity font hook reading the game cache `ChineseFont.ttf`;
-- the verified Limbus 1.113.1 Unity font hook;
+- a single verified Unity font hook for Limbus 1.113.1 that reads the game cache
+  `ChineseFont.ttf`;
 - ELF, GNU Build ID, entry and accessor signature guards;
 - a unique-candidate structural locator for later Unity builds;
 - bounded TrueType loading and structured logcat messages.
@@ -31,8 +31,11 @@ stale `RuntimeModule` field names, and removal of an include cycle in the
 memory-readability helper. `SymbolResolver` is disabled because this core uses
 `dlsym` only for exported libc symbols.
 
-Run `native-refactor/build.ps1` from PowerShell to configure, compile, strip and
-copy the ARM64 library into the Android source set. The known 1.113.1 build uses
+Install Java 17 or newer, Android SDK with NDK 27.2.12479018, CMake and Ninja.
+Set `ANDROID_SDK_ROOT`, then run `build.ps1` from the repository root to build
+the native core and unsigned release APK. Run `native-refactor/build.ps1` alone
+to configure, compile, strip and copy the ARM64 library into the Android source
+set. The known 1.113.1 build uses
 the exact Build ID and instruction signatures. Later builds are accepted only
 when the accessor signature and its validated caller produce one unique result;
 zero or multiple candidates leave the font hook disabled.

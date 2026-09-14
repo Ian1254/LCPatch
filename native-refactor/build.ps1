@@ -1,10 +1,16 @@
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path $PSScriptRoot -Parent
-$toolRoot = Join-Path $projectRoot '..\lc_modern\build-tools'
-$ndk = Join-Path $toolRoot 'sdk\ndk\27.2.12479018'
-$cmake = Join-Path $projectRoot 'runtime\cmake-python\cmake\data\bin\cmake.exe'
-$ninja = Join-Path $projectRoot 'runtime\cmake-python\bin\ninja.exe'
+$sdkRoot = if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { $env:ANDROID_HOME }
+if (-not $sdkRoot) {
+    throw 'Set ANDROID_SDK_ROOT (or ANDROID_HOME) to an Android SDK containing NDK 27.2.12479018.'
+}
+$ndk = Join-Path $sdkRoot 'ndk\27.2.12479018'
+if (-not (Test-Path -LiteralPath $ndk)) {
+    throw "Android NDK 27.2.12479018 was not found at $ndk."
+}
+$cmake = (Get-Command cmake -ErrorAction Stop).Source
+$ninja = (Get-Command ninja -ErrorAction Stop).Source
 $build = Join-Path $PSScriptRoot 'build-arm64'
 $output = Join-Path $projectRoot 'app\src\main\jniLibs\arm64-v8a\liblcpatch_core.so'
 
