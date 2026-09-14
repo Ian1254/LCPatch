@@ -33,11 +33,11 @@ internal fun TintedBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit
                 shape = RectangleShape,
                 blurRadius = 36f,
                 colors = BlurColors(
-                    blendColors = listOf(BlendColorEntry(surface.copy(alpha = 0.92f)))
+                    blendColors = listOf(BlendColorEntry(surface.copy(alpha = 0.72f)))
                 )
             )
         } else {
-            Modifier.background(surface.copy(alpha = 0.94f))
+            Modifier.background(surface.copy(alpha = 0.88f))
         }
     ) {
         content()
