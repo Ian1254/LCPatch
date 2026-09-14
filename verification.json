@@ -1,7 +1,7 @@
 {
   "schema": 2,
   "artifact": "dist/LCPatch-1.0.0.apk",
-  "sha256": "34BA3DBCE2D286BE06C0A7B398EF6BA06D8A2274CE5B88FD0F10A3163CFB84E9",
+  "sha256": "4080FD2936D21D69D52E894234C7507461DD1EA88613B8576E195842D5F48932",
   "sizeBytes": 19519067,
   "package": "com.lcpatch",
   "applicationLabel": "LCPatch",
