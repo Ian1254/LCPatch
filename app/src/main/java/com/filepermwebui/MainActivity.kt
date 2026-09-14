@@ -469,7 +469,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 when (visiblePage) {
                     OVERVIEW -> overview(
-                        game, events, activeName, activeScript, scopeStatus, translationEnabled,
+                        game, events, activeName, activeScript, scopeStatus, rootStatus, translationEnabled,
                         onTranslationEnabled = { enabled ->
                             scope.launch {
                                 runCatching { translations.setTranslationEnabled(enabled) }
@@ -479,7 +479,9 @@ class MainActivity : ComponentActivity() {
                         },
                         targetLanguage = targetLanguage,
                         runtimeInspection = runtimeInspection,
-                        onDownload = { page = DOWNLOAD }, onDownloaded = { page = DOWNLOADED }
+                        onDownload = { page = DOWNLOAD },
+                        onDownloaded = { page = DOWNLOADED },
+                        onFixEnvironment = { page = ONBOARDING }
                     )
                     SETTINGS -> settings(
                         events,
@@ -511,7 +513,16 @@ class MainActivity : ComponentActivity() {
                         },
                         clear = { logs.clear(); revision++; message = "日誌已清除" }
                     )
-                    ABOUT -> about(game)
+                    ABOUT -> about(
+                        game = game,
+                        release = latestRelease,
+                        checkingUpdate = checkingUpdate,
+                        updateProgress = updateProgress,
+                        updateReady = downloadedUpdate != null,
+                        checkUpdate = ::checkAppUpdate,
+                        downloadUpdate = { latestRelease?.let(downloadAppUpdate) },
+                        installUpdate = ::installDownloadedUpdate
+                    )
                     DISPLAY -> displaySettings(
                         themeMode = themeMode,
                         navigationStyle = navigationStyle,
@@ -659,10 +670,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun LazyListScope.overview(
-        game: GameInfo, events: List<LogEvent>, activeName: String, activeScript: String, scopeStatus: String,
+        game: GameInfo, events: List<LogEvent>, activeName: String, activeScript: String,
+        scopeStatus: String, rootStatus: String,
         translationEnabled: Boolean, onTranslationEnabled: (Boolean) -> Unit,
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection,
-        onDownload: () -> Unit, onDownloaded: () -> Unit
+        onDownload: () -> Unit, onDownloaded: () -> Unit, onFixEnvironment: () -> Unit
     ) {
         item {
             val healthy = scopeStatus == "已啟用"
@@ -687,6 +699,26 @@ class MainActivity : ComponentActivity() {
                         Text(if (healthy) "LCPatch ${BuildConfig.VERSION_NAME}" else if (hasError) "請授予 Limbus Company 作用域" else "請確認模組與作用域狀態", fontSize = 15.sp)
                     }
                     Text(if (healthy) "Limbus Company · ${game.version}" else "模組狀態 · $scopeStatus", modifier = Modifier.align(Alignment.BottomStart).padding(16.dp), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+        item {
+            val gameReady = game.installed
+            val scopeReady = scopeStatus == "已啟用"
+            val rootReady = rootStatus == "已授權"
+            val runtimeReady = runtimeInspection.ready && runtimeInspection.fontReady
+            Card(insideMargin = PaddingValues(18.dp)) {
+                Text("環境健檢", style = MiuixTheme.textStyles.title2)
+                Spacer(Modifier.height(10.dp))
+                HealthCheckRow("Limbus Company", gameReady, if (gameReady) game.version else "尚未安裝")
+                HealthCheckRow("LSPosed 作用域", scopeReady, scopeStatus)
+                HealthCheckRow("Root 權限", rootReady, rootStatus)
+                HealthCheckRow("漢化快取", runtimeReady, if (runtimeReady) "已就緒" else "尚未就緒")
+                if (!gameReady || !scopeReady || !rootReady) {
+                    Spacer(Modifier.height(10.dp))
+                    Button(modifier = Modifier.fillMaxWidth(), onClick = onFixEnvironment) {
+                        Text("檢查並修正")
+                    }
                 }
             }
         }
@@ -838,7 +870,16 @@ class MainActivity : ComponentActivity() {
         else items(events) { LogCard(it) }
     }
 
-    private fun LazyListScope.about(game: GameInfo) {
+    private fun LazyListScope.about(
+        game: GameInfo,
+        release: AppRelease?,
+        checkingUpdate: Boolean,
+        updateProgress: TransferProgress?,
+        updateReady: Boolean,
+        checkUpdate: () -> Unit,
+        downloadUpdate: () -> Unit,
+        installUpdate: () -> Unit
+    ) {
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painter = painterResource(R.drawable.ic_launcher), contentDescription = null, modifier = Modifier.size(96.dp).clip(CircleShape))
@@ -869,6 +910,64 @@ class MainActivity : ComponentActivity() {
                 Detail("文字轉換", "opencc4j 1.14.0")
                 Detail("目標架構", "arm64-v8a")
                 Detail("儲存目錄", "/sdcard/LCPatch")
+            }
+        }
+        item {
+            val newer = release?.let {
+                updates.isNewer(it.version, BuildConfig.VERSION_NAME)
+            } == true
+            Card(insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
+                Text("應用程式更新", style = MiuixTheme.textStyles.title2)
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    when {
+                        checkingUpdate -> "正在從 GitHub Releases 檢查…"
+                        updateReady -> "新版 APK 已下載"
+                        newer -> "可更新至 LCPatch " + release?.version
+                        release != null -> "目前已是最新版 " + BuildConfig.VERSION_NAME
+                        else -> "目前版本 " + BuildConfig.VERSION_NAME
+                    },
+                    color = if (newer || updateReady) MiuixTheme.colorScheme.primary
+                    else MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+                updateProgress?.let { progress ->
+                    val fraction = if (progress.total > 0) {
+                        (progress.bytes.toFloat() / progress.total).coerceIn(0f, 1f)
+                    } else null
+                    Spacer(Modifier.height(10.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = fraction)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        formatBytes(progress.bytes) +
+                            if (progress.total > 0) " / " + formatBytes(progress.total) else "",
+                        fontSize = 13.sp
+                    )
+                }
+                if (newer && !release?.notes.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        release!!.notes,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                when {
+                    updateReady -> Button(modifier = Modifier.fillMaxWidth(), onClick = installUpdate) {
+                        Text("安裝更新")
+                    }
+                    newer -> Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = updateProgress == null,
+                        onClick = downloadUpdate
+                    ) { Text(if (updateProgress == null) "下載更新" else "正在下載…") }
+                    else -> TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = if (checkingUpdate) "正在檢查…" else "檢查更新",
+                        enabled = !checkingUpdate,
+                        onClick = checkUpdate
+                    )
+                }
             }
         }
         item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字體以及語言覆蓋設定。遊戲更新後會先驗證目標結構，配置不相符時停止載入，以降低閃退風險。", translucent = true) }
@@ -913,6 +1012,28 @@ class MainActivity : ComponentActivity() {
             Text(label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary); Text(value)
         }
         Spacer(Modifier.height(6.dp))
+    }
+
+    @Composable
+    private fun HealthCheckRow(label: String, ready: Boolean, detail: String) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                painter = painterResource(
+                    if (ready) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline
+                ),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = if (ready) Color(0xFF43A861) else MiuixTheme.colorScheme.error
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, fontWeight = FontWeight.Medium)
+                Text(detail, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
+            }
+        }
     }
 
     @Composable private fun InfoCard(title: String, body: String, translucent: Boolean = false) {
