@@ -1,9 +1,8 @@
-name: Android build
+name: Android CI
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -14,9 +13,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -52,59 +48,12 @@ jobs:
           "$ANDROID_SDK_ROOT/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
             --strip-all app/src/main/jniLibs/arm64-v8a/liblcpatch_core.so
 
-      - name: Test and assemble
+      - name: Test, lint and assemble
         run: ./gradlew --no-daemon testDebugUnitTest lintVitalRelease assembleRelease
 
       - name: Upload unsigned APK
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v6
         with:
           name: LCPatch-unsigned
           path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
-
-      - name: Sign tagged release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          KEYSTORE_BASE64: ${{ secrets.LCPATCH_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.LCPATCH_STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.LCPATCH_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.LCPATCH_KEY_PASSWORD }}
-        run: |
-          test -n "$KEYSTORE_BASE64" || { echo 'Missing LCPATCH_KEYSTORE_BASE64'; exit 1; }
-          test -n "$STORE_PASSWORD" || { echo 'Missing LCPATCH_STORE_PASSWORD'; exit 1; }
-          test -n "$KEY_ALIAS" || { echo 'Missing LCPATCH_KEY_ALIAS'; exit 1; }
-          test -n "$KEY_PASSWORD" || { echo 'Missing LCPATCH_KEY_PASSWORD'; exit 1; }
-          mkdir -p build/ci-signing dist
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > build/ci-signing/lcpatch.p12
-          VERSION="${GITHUB_REF_NAME#v}"
-          APP_VERSION="$(jq -r '.elements[0].versionName' app/build/outputs/apk/release/output-metadata.json)"
-          test "$VERSION" = "$APP_VERSION" || { echo "Tag $VERSION does not match app version $APP_VERSION"; exit 1; }
-          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -P 16 -f 4 \
-            app/build/outputs/apk/release/app-release-unsigned.apk build/ci-signing/aligned.apk
-          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" sign \
-            --ks build/ci-signing/lcpatch.p12 --ks-type PKCS12 \
-            --ks-key-alias "$KEY_ALIAS" --ks-pass "pass:$STORE_PASSWORD" --key-pass "pass:$KEY_PASSWORD" \
-            --v1-signing-enabled false --v2-signing-enabled false --v3-signing-enabled true \
-            --out "dist/LCPatch-$VERSION.apk" build/ci-signing/aligned.apk
-          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose --print-certs "dist/LCPatch-$VERSION.apk"
-          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 4 "dist/LCPatch-$VERSION.apk"
-          sha256sum "dist/LCPatch-$VERSION.apk" > "dist/LCPatch-$VERSION.apk.sha256"
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          PRERELEASE_ARGS=()
-          if [[ "$VERSION" == *-* ]]; then
-            PRERELEASE_ARGS+=(--prerelease)
-          fi
-          gh release create "$GITHUB_REF_NAME" \
-            "dist/LCPatch-$VERSION.apk" \
-            "dist/LCPatch-$VERSION.apk.sha256" \
-            --title "LCPatch $VERSION" --generate-notes --verify-tag \
-            "${PRERELEASE_ARGS[@]}"
