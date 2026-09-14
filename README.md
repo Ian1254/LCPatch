@@ -63,16 +63,9 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 X
 - `app/src/main/java/com/filepermwebui/LogProvider.kt`：跨程序日誌儲存。
 - `app/src/main/java/com/filepermwebui/MainActivity.kt`：Compose／Miuix 管理介面。
 
-GitHub Actions 會在推送至 `main`、建立 Pull Request 或手動執行時，從原始碼建立 native 核心、執行單元測試與 release lint，並上傳未簽署 APK artifact。推送 `v*` 標籤時，工作流程會使用 GitHub Actions Secrets 內的 PKCS12 金鑰簽署 APK，驗證 APK v3 簽章與 16 KB 對齊後建立 Release。
+GitHub Actions 會在推送至 `main`、建立 Pull Request 或手動執行時，從原始碼建立 native 核心、執行單元測試與 release lint，並上傳未簽署 APK artifact。推送與 App 版本一致的 `v*` 標籤時，工作流程會使用加密的 Actions Secrets 完成 zipalign、APK v3 簽章與 16 KB 對齊驗證，再建立 GitHub Release 並附上 SHA-256 文件。
 
-建立簽署 Release 需要以下 Secrets：
-
-- `LCPATCH_KEYSTORE_BASE64`
-- `LCPATCH_STORE_PASSWORD`
-- `LCPATCH_KEY_ALIAS`
-- `LCPATCH_KEY_PASSWORD`
-
-本機的 `signing/`、APK、native 產物與建置快取均已由 `.gitignore` 排除。可重現的 CI 建置步驟以 [Android build workflow](.github/workflows/android.yml) 為準。
+自動簽署使用 `LCPATCH_KEYSTORE_BASE64`、`LCPATCH_STORE_PASSWORD`、`LCPATCH_KEY_ALIAS` 與 `LCPATCH_KEY_PASSWORD` 四個 repository Secrets。本機的 `signing/`、APK、native 產物與建置快取均已由 `.gitignore` 排除。可重現的 CI 建置步驟以 [Android build workflow](.github/workflows/android.yml) 為準。
 
 ## 授權與第三方元件
 
