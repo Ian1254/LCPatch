@@ -1,6 +1,7 @@
 package com.lcpatch
 
 import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -10,6 +11,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -123,6 +126,7 @@ private data class PageScrollPosition(val index: Int, val offset: Int)
 class MainActivity : ComponentActivity() {
     private val logs by lazy { LogRepository(this) }
     private val translations by lazy { TranslationRepository(this) }
+    private val updates by lazy { AppUpdateRepository(this) }
     private val appPrefs by lazy { getSharedPreferences("app_state", MODE_PRIVATE) }
     override fun onResume() {
         super.onResume()
@@ -144,17 +148,23 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun App(themeMode: String, onThemeMode: (String) -> Unit) {
+        val taskState: MainTaskViewModel = viewModel()
         var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
         var revision by remember { mutableIntStateOf(0) }
-        var message by remember { mutableStateOf<String?>(null) }
+        var message by taskState.message
+        var messageIsError by taskState.messageIsError
+        var latestRelease by taskState.latestRelease
+        var checkingUpdate by taskState.checkingUpdate
+        var updateProgress by taskState.updateProgress
+        var downloadedUpdate by taskState.downloadedUpdate
         var catalog by remember { mutableStateOf<List<TranslationEntry>>(emptyList()) }
         var catalogLoading by remember { mutableStateOf(false) }
         var catalogError by remember { mutableStateOf<String?>(null) }
-        var transfer by remember { mutableStateOf<TransferProgress?>(null) }
-        var applyProgress by remember { mutableStateOf<ApplyProgress?>(null) }
-        var applying by remember { mutableStateOf(false) }
-        var processingPackPath by remember { mutableStateOf<String?>(null) }
-        var applyingPackPath by remember { mutableStateOf<String?>(null) }
+        var transfer by taskState.transfer
+        var applyProgress by taskState.applyProgress
+        var applying by taskState.applying
+        var processingPackPath by taskState.processingPackPath
+        var applyingPackPath by taskState.applyingPackPath
         var downloadedPacks by remember { mutableStateOf<List<DownloadedTranslation>>(emptyList()) }
         var activeName by remember { mutableStateOf(translations.activeName()) }
         var activeScript by remember { mutableStateOf(translations.activeScript()) }
@@ -162,8 +172,8 @@ class MainActivity : ComponentActivity() {
         var targetLanguage by remember { mutableStateOf(translations.targetLanguage()) }
         var fontName by remember { mutableStateOf(translations.fontName()) }
         var runtimeInspection by remember { mutableStateOf(RuntimeInspection()) }
-        var scopeStatus by remember { mutableStateOf("正在連接") }
-        var rootStatus by remember { mutableStateOf("尚未授權") }
+        var scopeStatus by rememberSaveable { mutableStateOf("正在連接") }
+        var rootStatus by rememberSaveable { mutableStateOf("尚未授權") }
         var navigationStyle by remember { mutableStateOf(appPrefs.getString("navigation_style", "floating") ?: "floating") }
         val overviewListState = rememberLazyListState()
         val settingsListState = rememberLazyListState()
@@ -254,11 +264,18 @@ class MainActivity : ComponentActivity() {
         }
         fun refreshCatalog() {
             if (catalogLoading) return
-            catalogLoading = true; catalogError = null
-            scope.launch {
+            taskState.clearError()
+            catalogLoading = true
+            catalogError = null
+            taskState.launchTask {
                 runCatching { translations.fetchCatalog() }
                     .onSuccess { catalog = it }
-                    .onFailure { catalogError = it.message ?: "無法取得漢化清單" }
+                    .onFailure {
+                        catalogError = it.message ?: "無法取得漢化清單"
+                        taskState.error(
+                            "無法取得漢化清單：" + (it.message ?: "請檢查網路連線")
+                        ) { refreshCatalog() }
+                    }
                 catalogLoading = false
             }
         }
@@ -266,8 +283,8 @@ class MainActivity : ComponentActivity() {
             if (page == DOWNLOAD && catalog.isEmpty() && !catalogLoading) refreshCatalog()
             if (page == DOWNLOADED || page == CONVERSION) downloadedPacks = translations.downloaded()
         }
-        LaunchedEffect(message) {
-            if (message != null) {
+        LaunchedEffect(message, messageIsError) {
+            if (message != null && !messageIsError) {
                 delay(6000)
                 message = null
             }
@@ -297,7 +314,7 @@ class MainActivity : ComponentActivity() {
             translations.setTargetLanguage(language)
             applying = true
             applyProgress = ApplyProgress("正在切換覆蓋語言", 0, 1)
-            scope.launch {
+            taskState.launchTask {
                 runCatching {
                     val packs = translations.downloaded()
                     withContext(Dispatchers.Main.immediate) { downloadedPacks = packs }
@@ -322,6 +339,107 @@ class MainActivity : ComponentActivity() {
                 applyProgress = null
             }
         }
+        fun installDownloadedUpdate() {
+            val apk = downloadedUpdate ?: return
+            val uri = FileProvider.getUriForFile(this, "com.lcpatch.files", apk)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching { startActivity(intent) }
+                .onFailure { taskState.error("無法開啟系統安裝畫面：" + it.message) }
+        }
+
+        lateinit var downloadAppUpdate: (AppRelease) -> Unit
+        downloadAppUpdate = { release ->
+            if (updateProgress == null) {
+                taskState.clearError()
+                updateProgress = TransferProgress(release.apkName, 0, -1, 0)
+                taskState.launchTask {
+                    runCatching {
+                        updates.download(release) { value ->
+                            withContext(Dispatchers.Main.immediate) { updateProgress = value }
+                        }
+                    }.onSuccess {
+                        downloadedUpdate = it
+                        updateProgress = null
+                        taskState.success("LCPatch " + release.version + " 已下載，可以開始安裝")
+                    }.onFailure {
+                        updateProgress = null
+                        taskState.error(
+                            "更新下載失敗：" + (it.message ?: it.javaClass.simpleName)
+                        ) { downloadAppUpdate(release) }
+                    }
+                }
+            }
+        }
+
+        fun checkAppUpdate() {
+            if (checkingUpdate) return
+            checkingUpdate = true
+            taskState.clearError()
+            taskState.launchTask {
+                runCatching { updates.latestRelease() }
+                    .onSuccess { release ->
+                        latestRelease = release
+                        taskState.success(
+                            if (updates.isNewer(release.version, BuildConfig.VERSION_NAME)) {
+                                "發現新版本 " + release.version
+                            } else "目前已是最新版"
+                        )
+                    }
+                    .onFailure {
+                        taskState.error(
+                            "檢查更新失敗：" + (it.message ?: it.javaClass.simpleName)
+                        ) { checkAppUpdate() }
+                    }
+                checkingUpdate = false
+            }
+        }
+
+        lateinit var installTranslation: (TranslationEntry) -> Unit
+        installTranslation = { entry ->
+            if (transfer?.finished != false && !applying) {
+                taskState.clearError()
+                transfer = TransferProgress(entry.name, 0, -1, 0)
+                taskState.launchTask {
+                    try {
+                        val downloaded = translations.download(
+                            entry,
+                            progress = { value ->
+                                withContext(Dispatchers.Main.immediate) { transfer = value }
+                            },
+                            preparation = { value ->
+                                withContext(Dispatchers.Main.immediate) { applyProgress = value }
+                            }
+                        )
+                        applying = true
+                        activeName = translations.apply(downloaded) { value ->
+                            withContext(Dispatchers.Main.immediate) { applyProgress = value }
+                        }
+                        activeScript = translations.activeScript()
+                        downloadedPacks = translations.downloaded()
+                        transfer = null
+                        taskState.success("已下載並套用 " + activeName + "，請重新啟動遊戲")
+                    } catch (error: Throwable) {
+                        transfer = null
+                        taskState.error(
+                            "下載或套用失敗：" + (error.message ?: error.javaClass.simpleName)
+                        ) { installTranslation(entry) }
+                        LogRepository.append(
+                            this@MainActivity,
+                            "ERROR",
+                            "translation.install_failed",
+                            error.message ?: error.javaClass.simpleName
+                        )
+                    } finally {
+                        applying = false
+                        applyProgress = null
+                    }
+                }
+            }
+        }
+
         BackHandler(enabled = page != OVERVIEW && (page != ONBOARDING || onboardingDone)) {
             page = parentPage(page)
         }
@@ -401,7 +519,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 when (visiblePage) {
                     OVERVIEW -> overview(
-                        game, events, activeName, activeScript, scopeStatus, translationEnabled,
+                        game, events, activeName, activeScript, scopeStatus, rootStatus, translationEnabled,
                         onTranslationEnabled = { enabled ->
                             scope.launch {
                                 runCatching { translations.setTranslationEnabled(enabled) }
@@ -411,7 +529,9 @@ class MainActivity : ComponentActivity() {
                         },
                         targetLanguage = targetLanguage,
                         runtimeInspection = runtimeInspection,
-                        onDownload = { page = DOWNLOAD }, onDownloaded = { page = DOWNLOADED }
+                        onDownload = { page = DOWNLOAD },
+                        onDownloaded = { page = DOWNLOADED },
+                        onFixEnvironment = { page = ONBOARDING }
                     )
                     SETTINGS -> settings(
                         events,
@@ -443,7 +563,16 @@ class MainActivity : ComponentActivity() {
                         },
                         clear = { logs.clear(); revision++; message = "日誌已清除" }
                     )
-                    ABOUT -> about(game)
+                    ABOUT -> about(
+                        game = game,
+                        release = latestRelease,
+                        checkingUpdate = checkingUpdate,
+                        updateProgress = updateProgress,
+                        updateReady = downloadedUpdate != null,
+                        checkUpdate = ::checkAppUpdate,
+                        downloadUpdate = { latestRelease?.let(downloadAppUpdate) },
+                        installUpdate = ::installDownloadedUpdate
+                    )
                     DISPLAY -> displaySettings(
                         themeMode = themeMode,
                         navigationStyle = navigationStyle,
@@ -469,42 +598,22 @@ class MainActivity : ComponentActivity() {
                             page = OVERVIEW
                         }
                     )
-                    DOWNLOAD -> downloadPage(catalog, catalogLoading, catalogError, transfer, applyProgress, applying,
+                    DOWNLOAD -> downloadPage(
+                        catalog,
+                        catalogLoading,
+                        catalogError,
+                        transfer,
+                        applyProgress,
+                        applying,
                         refresh = ::refreshCatalog,
-                        install = { entry ->
-                            if (transfer?.finished != false && !applying) {
-                                transfer = TransferProgress(entry.name, 0, -1, 0)
-                                scope.launch {
-                                    try {
-                                        val downloaded = translations.download(
-                                            entry,
-                                            progress = { value -> withContext(Dispatchers.Main.immediate) { transfer = value } },
-                                            preparation = { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } }
-                                        )
-                                        applying = true
-                                        activeName = translations.apply(downloaded) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } }
-                                        activeScript = translations.activeScript()
-                                        downloadedPacks = translations.downloaded()
-                                        transfer = null
-                                        message = "已下載並套用 $activeName，請重新啟動遊戲"
-                                    } catch (error: Throwable) {
-                                        transfer = null
-                                        message = "下載或套用失敗：${error.message}"
-                                        LogRepository.append(this@MainActivity, "ERROR", "translation.install_failed", error.message ?: error.javaClass.simpleName)
-                                    } finally {
-                                        applying = false
-                                        applyProgress = null
-                                    }
-                                }
-                            }
-                        }
+                        install = installTranslation
                     )
                     DOWNLOADED -> downloadedPage(downloadedPacks, activeName, applyProgress, applying, processingPackPath, applyingPackPath,
                         convert = { pack, conversion ->
                             if (!applying) {
                                 applying = true
                                 processingPackPath = pack.path
-                                scope.launch {
+                                taskState.launchTask {
                                     runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
                                         .onSuccess { result ->
                                             val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
@@ -531,7 +640,7 @@ class MainActivity : ComponentActivity() {
                         if (!applying) {
                             applying = true
                             applyingPackPath = pack.path
-                            scope.launch {
+                            taskState.launchTask {
                                 runCatching { translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
                                     .onSuccess { activeName = it; activeScript = translations.activeScript(); message = "已套用 $it，請重新啟動遊戲" }
                                     .onFailure { message = "套用失敗：${it.message}" }
@@ -545,7 +654,7 @@ class MainActivity : ComponentActivity() {
                         if (!applying) {
                             applying = true
                             processingPackPath = pack.path
-                            scope.launch {
+                            taskState.launchTask {
                                 runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
                                     .onSuccess { result ->
                                         val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
@@ -581,9 +690,37 @@ class MainActivity : ComponentActivity() {
                             .align(Alignment.BottomCenter)
                             .padding(start = 18.dp, end = 18.dp, bottom = padding.calculateBottomPadding() + 14.dp),
                         insideMargin = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-                        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)
+                        colors = CardDefaults.defaultColors(
+                            color = if (messageIsError) MiuixTheme.colorScheme.error.copy(alpha = 0.14f)
+                            else MiuixTheme.colorScheme.surfaceContainer
+                        )
                     ) {
                         Text(notice, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        if (messageIsError) {
+                            Spacer(Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (taskState.retryAction != null) {
+                                    TextButton(
+                                        modifier = Modifier.weight(1f),
+                                        text = "重試",
+                                        onClick = taskState::retry
+                                    )
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1f),
+                                    text = "查看日誌",
+                                    onClick = { page = LOGS; taskState.dismissNotice() }
+                                )
+                                TextButton(
+                                    modifier = Modifier.weight(1f),
+                                    text = "關閉",
+                                    onClick = taskState::dismissNotice
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -591,10 +728,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun LazyListScope.overview(
-        game: GameInfo, events: List<LogEvent>, activeName: String, activeScript: String, scopeStatus: String,
+        game: GameInfo, events: List<LogEvent>, activeName: String, activeScript: String,
+        scopeStatus: String, rootStatus: String,
         translationEnabled: Boolean, onTranslationEnabled: (Boolean) -> Unit,
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection,
-        onDownload: () -> Unit, onDownloaded: () -> Unit
+        onDownload: () -> Unit, onDownloaded: () -> Unit, onFixEnvironment: () -> Unit
     ) {
         item {
             val healthy = scopeStatus == "已啟用"
@@ -619,6 +757,26 @@ class MainActivity : ComponentActivity() {
                         Text(if (healthy) "LCPatch ${BuildConfig.VERSION_NAME}" else if (hasError) "請授予 Limbus Company 作用域" else "請確認模組與作用域狀態", fontSize = 15.sp)
                     }
                     Text(if (healthy) "Limbus Company · ${game.version}" else "模組狀態 · $scopeStatus", modifier = Modifier.align(Alignment.BottomStart).padding(16.dp), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+        item {
+            val gameReady = game.installed
+            val scopeReady = scopeStatus == "已啟用"
+            val rootReady = rootStatus == "已授權"
+            val runtimeReady = runtimeInspection.ready && runtimeInspection.fontReady
+            Card(insideMargin = PaddingValues(18.dp)) {
+                Text("環境健檢", style = MiuixTheme.textStyles.title2)
+                Spacer(Modifier.height(10.dp))
+                HealthCheckRow("Limbus Company", gameReady, if (gameReady) game.version else "尚未安裝")
+                HealthCheckRow("LSPosed 作用域", scopeReady, scopeStatus)
+                HealthCheckRow("Root 權限", rootReady, rootStatus)
+                HealthCheckRow("漢化快取", runtimeReady, if (runtimeReady) "已就緒" else "尚未就緒")
+                if (!gameReady || !scopeReady || !rootReady) {
+                    Spacer(Modifier.height(10.dp))
+                    Button(modifier = Modifier.fillMaxWidth(), onClick = onFixEnvironment) {
+                        Text("檢查並修正")
+                    }
                 }
             }
         }
@@ -770,7 +928,16 @@ class MainActivity : ComponentActivity() {
         else items(events) { LogCard(it) }
     }
 
-    private fun LazyListScope.about(game: GameInfo) {
+    private fun LazyListScope.about(
+        game: GameInfo,
+        release: AppRelease?,
+        checkingUpdate: Boolean,
+        updateProgress: TransferProgress?,
+        updateReady: Boolean,
+        checkUpdate: () -> Unit,
+        downloadUpdate: () -> Unit,
+        installUpdate: () -> Unit
+    ) {
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painter = painterResource(R.drawable.ic_launcher), contentDescription = null, modifier = Modifier.size(96.dp).clip(CircleShape))
@@ -801,6 +968,64 @@ class MainActivity : ComponentActivity() {
                 Detail("文字轉換", "opencc4j 1.14.0")
                 Detail("目標架構", "arm64-v8a")
                 Detail("儲存目錄", "/sdcard/LCPatch")
+            }
+        }
+        item {
+            val newer = release?.let {
+                updates.isNewer(it.version, BuildConfig.VERSION_NAME)
+            } == true
+            Card(insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
+                Text("應用程式更新", style = MiuixTheme.textStyles.title2)
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    when {
+                        checkingUpdate -> "正在從 GitHub Releases 檢查…"
+                        updateReady -> "新版 APK 已下載"
+                        newer -> "可更新至 LCPatch " + release?.version
+                        release != null -> "目前已是最新版 " + BuildConfig.VERSION_NAME
+                        else -> "目前版本 " + BuildConfig.VERSION_NAME
+                    },
+                    color = if (newer || updateReady) MiuixTheme.colorScheme.primary
+                    else MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+                updateProgress?.let { progress ->
+                    val fraction = if (progress.total > 0) {
+                        (progress.bytes.toFloat() / progress.total).coerceIn(0f, 1f)
+                    } else null
+                    Spacer(Modifier.height(10.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = fraction)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        formatBytes(progress.bytes) +
+                            if (progress.total > 0) " / " + formatBytes(progress.total) else "",
+                        fontSize = 13.sp
+                    )
+                }
+                if (newer && !release?.notes.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        release!!.notes,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                when {
+                    updateReady -> Button(modifier = Modifier.fillMaxWidth(), onClick = installUpdate) {
+                        Text("安裝更新")
+                    }
+                    newer -> Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = updateProgress == null,
+                        onClick = downloadUpdate
+                    ) { Text(if (updateProgress == null) "下載更新" else "正在下載…") }
+                    else -> TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = if (checkingUpdate) "正在檢查…" else "檢查更新",
+                        enabled = !checkingUpdate,
+                        onClick = checkUpdate
+                    )
+                }
             }
         }
         item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字體以及語言覆蓋設定。遊戲更新後會先驗證目標結構，配置不相符時停止載入，以降低閃退風險。", translucent = true) }
@@ -845,6 +1070,28 @@ class MainActivity : ComponentActivity() {
             Text(label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary); Text(value)
         }
         Spacer(Modifier.height(6.dp))
+    }
+
+    @Composable
+    private fun HealthCheckRow(label: String, ready: Boolean, detail: String) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                painter = painterResource(
+                    if (ready) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline
+                ),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = if (ready) Color(0xFF43A861) else MiuixTheme.colorScheme.error
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, fontWeight = FontWeight.Medium)
+                Text(detail, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
+            }
+        }
     }
 
     @Composable private fun InfoCard(title: String, body: String, translucent: Boolean = false) {

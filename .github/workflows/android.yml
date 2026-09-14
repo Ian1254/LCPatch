@@ -99,7 +99,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          PRERELEASE_ARGS=()
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE_ARGS+=(--prerelease)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             "dist/LCPatch-$VERSION.apk" \
             "dist/LCPatch-$VERSION.apk.sha256" \
-            --title "LCPatch $VERSION" --generate-notes --verify-tag
+            --title "LCPatch $VERSION" --generate-notes --verify-tag \
+            "${PRERELEASE_ARGS[@]}"
