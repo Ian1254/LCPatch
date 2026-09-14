@@ -31,7 +31,7 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install Android build packages
-        run: sdkmanager --channel=3 'platforms;android-37' 'build-tools;36.0.0' 'ndk;27.2.12479018'
+        run: sdkmanager --channel=3 'platforms;android-37.0' 'build-tools;36.0.0' 'ndk;27.2.12479018'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
