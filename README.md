@@ -38,3 +38,11 @@ LCPatch 是使用可完整重建之 `liblcpatch_core.so` 的 ARM64 Xposed 模組
 `.github/workflows/android.yml` 會在 main、Pull Request 及手動執行時，由原始碼重建 native 核心、執行測試與 lint，並上傳未簽署 APK artifact。推送 `v*` 標籤時會使用 GitHub Secrets 內的 PKCS12 金鑰簽署 APK，驗證 v3 簽章與 16 KB 對齊後建立 GitHub Release。
 
 儲存庫需設定四個 Actions Secrets：`LCPATCH_KEYSTORE_BASE64`、`LCPATCH_STORE_PASSWORD`、`LCPATCH_KEY_ALIAS`、`LCPATCH_KEY_PASSWORD`。本機的 `signing/`、建置快取與 APK 已由 `.gitignore` 排除，不可提交到 GitHub。
+
+## 免責聲明
+
+LCPatch 是非官方第三方專案，與 Project Moon 及各漢化組沒有隸屬或授權關係。專案不提供遊戲本體或受著作權保護的遊戲資源；漢化內容的權利與責任由各來源及使用者依其授權條款承擔。
+
+本工具需要 Root 與 LSPosed，並可能建立、替換或清理 LCPatch 管理目錄及遊戲可讀取的本地化快取文件。使用前請備份重要資料，確認下載來源與目標語言設定，並自行承擔資料遺失、遊戲異常、帳號限制或系統不相容等風險。
+
+本專案由生成式 AI 協助設計、撰寫與檢查，仍可能存在實作錯誤、安全缺陷或未涵蓋的裝置差異。AI 協助不等同完整的人工安全審核。依 Apache License 2.0，本軟體以現狀提供，不附帶任何明示或默示保證；使用者應在理解原始碼與風險後自行決定是否使用。
