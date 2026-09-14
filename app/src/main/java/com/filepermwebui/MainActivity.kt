@@ -72,6 +72,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -175,6 +176,7 @@ class MainActivity : ComponentActivity() {
         var scopeStatus by rememberSaveable { mutableStateOf("正在連接") }
         var rootStatus by rememberSaveable { mutableStateOf("尚未授權") }
         var navigationStyle by remember { mutableStateOf(appPrefs.getString("navigation_style", "floating") ?: "floating") }
+        var updateChannel by remember { mutableStateOf(appPrefs.getString("update_channel", "stable") ?: "stable") }
         val overviewListState = rememberLazyListState()
         val settingsListState = rememberLazyListState()
         val logsListState = rememberLazyListState()
@@ -379,7 +381,7 @@ class MainActivity : ComponentActivity() {
             checkingUpdate = true
             taskState.clearError()
             taskState.launchTask {
-                runCatching { updates.latestRelease() }
+                runCatching { updates.latestRelease(includePrerelease = updateChannel == "beta") }
                     .onSuccess { release ->
                         latestRelease = release
                         taskState.success(
@@ -505,7 +507,7 @@ class MainActivity : ComponentActivity() {
                         DOWNLOADED -> downloadedScrollBehavior; DISPLAY -> displayScrollBehavior; else -> conversionScrollBehavior
                     }
                     Box(Modifier.fillMaxSize()) {
-                        if (visiblePage == ABOUT) Box(modifier = Modifier.fillMaxSize().aboutShimmer())
+                        // 關於頁不再疊加動畫遮罩，避免內容被異常著色
                         key(visiblePage) {
                             LazyColumn(
                 state = visibleListState,
@@ -540,6 +542,7 @@ class MainActivity : ComponentActivity() {
                         onFolder = { folderPicker.launch(logs.selectedFolder()) },
                         onLogs = { page = LOGS },
                         onAbout = { page = ABOUT },
+                        onUpdate = { page = ABOUT },
                         onDisplay = { page = DISPLAY },
                         onConversion = { page = CONVERSION },
                         onPermissions = { page = ONBOARDING },
@@ -836,7 +839,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun LazyListScope.settings(
-        events: List<LogEvent>, onFolder: () -> Unit, onLogs: () -> Unit, onAbout: () -> Unit,
+        events: List<LogEvent>, onFolder: () -> Unit, onLogs: () -> Unit, onAbout: () -> Unit, onUpdate: () -> Unit,
         onDisplay: () -> Unit, onConversion: () -> Unit, onPermissions: () -> Unit, targetLanguage: OverrideLanguage,
         applyProgress: ApplyProgress?, applying: Boolean,
         fontName: String, onLanguage: (OverrideLanguage) -> Unit,
@@ -880,6 +883,7 @@ class MainActivity : ComponentActivity() {
                 ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "主題、模糊效果與底欄", onClick = onDisplay)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "日誌", summary = "自動更新 · ${events.size} 筆事件${if (events.any { it.level == "ERROR" }) " · 含錯誤" else ""}", onClick = onLogs)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", summary = logs.selectedFolderLabel(), onClick = onFolder)
+                ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "關於", summary = "版本、元件與相容策略", onClick = onAbout)
             }
         }
@@ -940,7 +944,7 @@ class MainActivity : ComponentActivity() {
     ) {
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Image(painter = painterResource(R.drawable.ic_launcher), contentDescription = null, modifier = Modifier.size(96.dp).clip(CircleShape))
+                Image(painter = painterResource(R.drawable.ic_launcher), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(96.dp).clip(CircleShape))
                 Spacer(Modifier.height(14.dp))
                 Text("LCPatch", fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(3.dp))
@@ -976,6 +980,19 @@ class MainActivity : ComponentActivity() {
             } == true
             Card(insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
                 Text("應用程式更新", style = MiuixTheme.textStyles.title2)
+                Spacer(Modifier.height(8.dp))
+                OverlayDropdownPreference(
+                    modifier = PreferenceItemModifier,
+                    title = "更新渠道",
+                    summary = if (updateChannel == "beta") "測試版與正式版" else "僅正式版",
+                    items = listOf("穩定版", "測試版"),
+                    selectedIndex = if (updateChannel == "beta") 1 else 0,
+                    onSelectedIndexChange = { index ->
+                        updateChannel = if (index == 1) "beta" else "stable"
+                        appPrefs.edit().putString("update_channel", updateChannel).apply()
+                        latestRelease = null
+                    }
+                )
                 Spacer(Modifier.height(7.dp))
                 Text(
                     when {
