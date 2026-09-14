@@ -21,14 +21,23 @@ class AppUpdateRepository(private val context: Context) {
             "https://api.github.com/repos/Ian1254/LCPatch/releases/latest"
     }
 
-    suspend fun latestRelease(): AppRelease = withContext(Dispatchers.IO) {
-        val connection = open(LATEST_RELEASE)
+    suspend fun latestRelease(includePrerelease: Boolean = false): AppRelease = withContext(Dispatchers.IO) {
+        val endpoint = if (includePrerelease) {
+            "https://api.github.com/repos/Ian1254/LCPatch/releases?per_page=20"
+        } else LATEST_RELEASE
+        val connection = open(endpoint)
         val json = try {
             connection.inputStream.bufferedReader().use { it.readText() }
         } finally {
             connection.disconnect()
         }
-        val release = JSONObject(json)
+        val release = if (includePrerelease) {
+            val releases = org.json.JSONArray(json)
+            (0 until releases.length()).asSequence()
+                .map(releases::getJSONObject)
+                .firstOrNull { !it.optBoolean("draft", false) }
+                ?: error("GitHub Releases 沒有可用版本")
+        } else JSONObject(json)
         val assets = release.getJSONArray("assets")
         val apk = (0 until assets.length()).asSequence()
             .map(assets::getJSONObject)

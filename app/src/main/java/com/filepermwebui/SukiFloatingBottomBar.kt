@@ -64,11 +64,11 @@ internal fun SukiFloatingBottomBar(
                     shape = CircleShape,
                     blurRadius = 36f,
                     colors = BlurColors(
-                        blendColors = listOf(BlendColorEntry(containerColor.copy(alpha = 0.90f)))
+                        blendColors = listOf(BlendColorEntry(containerColor.copy(alpha = 0.76f)))
                     )
                 )
             } else {
-                Modifier.background(containerColor.copy(alpha = 0.94f), CircleShape)
+                Modifier.background(containerColor.copy(alpha = 0.88f), CircleShape)
             }
         )
         .clip(CircleShape)
