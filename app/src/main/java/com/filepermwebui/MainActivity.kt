@@ -264,11 +264,18 @@ class MainActivity : ComponentActivity() {
         }
         fun refreshCatalog() {
             if (catalogLoading) return
-            catalogLoading = true; catalogError = null
-            scope.launch {
+            taskState.clearError()
+            catalogLoading = true
+            catalogError = null
+            taskState.launchTask {
                 runCatching { translations.fetchCatalog() }
                     .onSuccess { catalog = it }
-                    .onFailure { catalogError = it.message ?: "無法取得漢化清單" }
+                    .onFailure {
+                        catalogError = it.message ?: "無法取得漢化清單"
+                        taskState.error(
+                            "無法取得漢化清單：" + (it.message ?: "請檢查網路連線")
+                        ) { refreshCatalog() }
+                    }
                 catalogLoading = false
             }
         }
@@ -387,6 +394,49 @@ class MainActivity : ComponentActivity() {
                         ) { checkAppUpdate() }
                     }
                 checkingUpdate = false
+            }
+        }
+
+        lateinit var installTranslation: (TranslationEntry) -> Unit
+        installTranslation = { entry ->
+            if (transfer?.finished != false && !applying) {
+                taskState.clearError()
+                transfer = TransferProgress(entry.name, 0, -1, 0)
+                taskState.launchTask {
+                    try {
+                        val downloaded = translations.download(
+                            entry,
+                            progress = { value ->
+                                withContext(Dispatchers.Main.immediate) { transfer = value }
+                            },
+                            preparation = { value ->
+                                withContext(Dispatchers.Main.immediate) { applyProgress = value }
+                            }
+                        )
+                        applying = true
+                        activeName = translations.apply(downloaded) { value ->
+                            withContext(Dispatchers.Main.immediate) { applyProgress = value }
+                        }
+                        activeScript = translations.activeScript()
+                        downloadedPacks = translations.downloaded()
+                        transfer = null
+                        taskState.success("已下載並套用 " + activeName + "，請重新啟動遊戲")
+                    } catch (error: Throwable) {
+                        transfer = null
+                        taskState.error(
+                            "下載或套用失敗：" + (error.message ?: error.javaClass.simpleName)
+                        ) { installTranslation(entry) }
+                        LogRepository.append(
+                            this@MainActivity,
+                            "ERROR",
+                            "translation.install_failed",
+                            error.message ?: error.javaClass.simpleName
+                        )
+                    } finally {
+                        applying = false
+                        applyProgress = null
+                    }
+                }
             }
         }
 
@@ -548,42 +598,22 @@ class MainActivity : ComponentActivity() {
                             page = OVERVIEW
                         }
                     )
-                    DOWNLOAD -> downloadPage(catalog, catalogLoading, catalogError, transfer, applyProgress, applying,
+                    DOWNLOAD -> downloadPage(
+                        catalog,
+                        catalogLoading,
+                        catalogError,
+                        transfer,
+                        applyProgress,
+                        applying,
                         refresh = ::refreshCatalog,
-                        install = { entry ->
-                            if (transfer?.finished != false && !applying) {
-                                transfer = TransferProgress(entry.name, 0, -1, 0)
-                                scope.launch {
-                                    try {
-                                        val downloaded = translations.download(
-                                            entry,
-                                            progress = { value -> withContext(Dispatchers.Main.immediate) { transfer = value } },
-                                            preparation = { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } }
-                                        )
-                                        applying = true
-                                        activeName = translations.apply(downloaded) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } }
-                                        activeScript = translations.activeScript()
-                                        downloadedPacks = translations.downloaded()
-                                        transfer = null
-                                        message = "已下載並套用 $activeName，請重新啟動遊戲"
-                                    } catch (error: Throwable) {
-                                        transfer = null
-                                        message = "下載或套用失敗：${error.message}"
-                                        LogRepository.append(this@MainActivity, "ERROR", "translation.install_failed", error.message ?: error.javaClass.simpleName)
-                                    } finally {
-                                        applying = false
-                                        applyProgress = null
-                                    }
-                                }
-                            }
-                        }
+                        install = installTranslation
                     )
                     DOWNLOADED -> downloadedPage(downloadedPacks, activeName, applyProgress, applying, processingPackPath, applyingPackPath,
                         convert = { pack, conversion ->
                             if (!applying) {
                                 applying = true
                                 processingPackPath = pack.path
-                                scope.launch {
+                                taskState.launchTask {
                                     runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
                                         .onSuccess { result ->
                                             val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
@@ -610,7 +640,7 @@ class MainActivity : ComponentActivity() {
                         if (!applying) {
                             applying = true
                             applyingPackPath = pack.path
-                            scope.launch {
+                            taskState.launchTask {
                                 runCatching { translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
                                     .onSuccess { activeName = it; activeScript = translations.activeScript(); message = "已套用 $it，請重新啟動遊戲" }
                                     .onFailure { message = "套用失敗：${it.message}" }
@@ -624,7 +654,7 @@ class MainActivity : ComponentActivity() {
                         if (!applying) {
                             applying = true
                             processingPackPath = pack.path
-                            scope.launch {
+                            taskState.launchTask {
                                 runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
                                     .onSuccess { result ->
                                         val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
@@ -660,9 +690,37 @@ class MainActivity : ComponentActivity() {
                             .align(Alignment.BottomCenter)
                             .padding(start = 18.dp, end = 18.dp, bottom = padding.calculateBottomPadding() + 14.dp),
                         insideMargin = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-                        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)
+                        colors = CardDefaults.defaultColors(
+                            color = if (messageIsError) MiuixTheme.colorScheme.error.copy(alpha = 0.14f)
+                            else MiuixTheme.colorScheme.surfaceContainer
+                        )
                     ) {
                         Text(notice, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        if (messageIsError) {
+                            Spacer(Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (taskState.retryAction != null) {
+                                    TextButton(
+                                        modifier = Modifier.weight(1f),
+                                        text = "重試",
+                                        onClick = taskState::retry
+                                    )
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1f),
+                                    text = "查看日誌",
+                                    onClick = { page = LOGS; taskState.dismissNotice() }
+                                )
+                                TextButton(
+                                    modifier = Modifier.weight(1f),
+                                    text = "關閉",
+                                    onClick = taskState::dismissNotice
+                                )
+                            }
+                        }
                     }
                 }
             }
