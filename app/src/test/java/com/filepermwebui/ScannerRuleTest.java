@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.Assume;
 import org.junit.Test;
 
 public class ScannerRuleTest {
@@ -26,8 +27,12 @@ public class ScannerRuleTest {
         else {
             Path cursor=Path.of(System.getProperty("user.dir")).toAbsolutePath(); path=null;
             while(cursor!=null&&path==null){Path candidate=cursor.resolve("lc_fontfix/libunity-1.113.1.so");if(Files.isRegularFile(candidate))path=candidate;else cursor=cursor.getParent();}
-            if(path==null)throw new IllegalStateException("libunity-1.113.1.so fixture not found");
+            if(path==null){
+                Assume.assumeTrue("libunity-1.113.1.so fixture is not available", false);
+                return;
+            }
         }
+        if(!Files.isRegularFile(path))throw new IllegalStateException("configured libunity fixture not found: "+path);
         byte[] b=Files.readAllBytes(path);
         byte[] sig={0x08,0x1c,0x40,(byte)0xf9,0x00,0x01,0x02,(byte)0x91,(byte)0xc0,0x03,0x5f,(byte)0xd6};
         List<Integer> accessors=new ArrayList<>(),candidates=new ArrayList<>();
