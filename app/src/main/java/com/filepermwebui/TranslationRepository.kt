@@ -468,7 +468,7 @@ class TranslationRepository(private val context: Context) {
 
     private fun connection(value: String): HttpURLConnection = (URL(value).openConnection() as HttpURLConnection).apply {
         connectTimeout = 20_000; readTimeout = 60_000; instanceFollowRedirects = true
-        setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) LCPatch/2.1")
+        setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) LCPatch/${BuildConfig.VERSION_NAME}")
         require(responseCode in 200..299) { "伺服器回應 $responseCode" }
     }
     private fun safeName(value: String): String = value.replace(Regex("[\\/:*?\"<>|]"), "_").trim().take(80).ifBlank { "translation" }

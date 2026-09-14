@@ -3,16 +3,21 @@ Copyright 2026 LCPatch contributors
 
 Third-party components:
 
-- Dobby, Apache License 2.0
+- Dobby, commit 5dfc8546954ce3b3198132ab13fddb89ee92cdd7,
+  Apache License 2.0
   https://github.com/jmpews/Dobby
-- Compose Miuix, Apache License 2.0
+- Compose Miuix 0.9.3, Apache License 2.0
   https://github.com/compose-miuix-ui/miuix
-- opencc4j, Apache License 2.0
+- opencc4j 1.14.0, Apache License 2.0
   https://github.com/houbb/opencc4j
+- libxposed API and service 102.0.0, Apache License 2.0
+  https://github.com/libxposed
 - AndroidX and Jetpack Compose, Apache License 2.0
   https://source.android.com/docs/setup/about/licenses
-- Sarasa Gothic, SIL Open Font License 1.1
+- Sarasa Gothic 1.0.29, SIL Open Font License 1.1
   https://github.com/be5invis/Sarasa-Gothic
+- LCPatch PUA mapping, CC0 1.0
+  https://creativecommons.org/publicdomain/zero/1.0/
 
-The user-provided game artwork used as the launcher icon is excluded from the
+The launcher artwork and third-party translation content are excluded from the
 LCPatch Apache-2.0 license grant.

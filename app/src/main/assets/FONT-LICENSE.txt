@@ -1,6 +1,5 @@
-The bundled ChineseFont-PUA.ttf is Sarasa Gothic SC Bold 1.0.29 with the
-LCPatch PUA cmap. It is the same font payload used by the supplied, previously
-device-tested font-fix APK.
+The bundled ChineseFont-PUA.ttf is based on Sarasa Gothic SC Bold 1.0.29 and
+contains the LCPatch PUA cmap used by the translation conversion.
 
 Copyright (c) 2015-2025, Renzhi Li (aka. Belleve Invis).
 Portions Copyright the Inter Project Authors, Adobe Systems Incorporated and

@@ -96,7 +96,7 @@ class LogRepository(private val context: Context) {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, "LCPatch 日誌")
             putExtra(Intent.EXTRA_STREAM, output)
-            putExtra(Intent.EXTRA_TEXT, "LCPatch 診斷文件，可附到 Codex 對話分析。")
+            putExtra(Intent.EXTRA_TEXT, "LCPatch 診斷文件，可附於問題回報以協助分析。")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }, "分享日誌")
     }
