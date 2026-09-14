@@ -1,6 +1,7 @@
 package com.lcpatch
 
 import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -10,6 +11,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -123,6 +126,7 @@ private data class PageScrollPosition(val index: Int, val offset: Int)
 class MainActivity : ComponentActivity() {
     private val logs by lazy { LogRepository(this) }
     private val translations by lazy { TranslationRepository(this) }
+    private val updates by lazy { AppUpdateRepository(this) }
     private val appPrefs by lazy { getSharedPreferences("app_state", MODE_PRIVATE) }
     override fun onResume() {
         super.onResume()
@@ -144,17 +148,23 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun App(themeMode: String, onThemeMode: (String) -> Unit) {
+        val taskState: MainTaskViewModel = viewModel()
         var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
         var revision by remember { mutableIntStateOf(0) }
-        var message by remember { mutableStateOf<String?>(null) }
+        var message by taskState.message
+        var messageIsError by taskState.messageIsError
+        var latestRelease by taskState.latestRelease
+        var checkingUpdate by taskState.checkingUpdate
+        var updateProgress by taskState.updateProgress
+        var downloadedUpdate by taskState.downloadedUpdate
         var catalog by remember { mutableStateOf<List<TranslationEntry>>(emptyList()) }
         var catalogLoading by remember { mutableStateOf(false) }
         var catalogError by remember { mutableStateOf<String?>(null) }
-        var transfer by remember { mutableStateOf<TransferProgress?>(null) }
-        var applyProgress by remember { mutableStateOf<ApplyProgress?>(null) }
-        var applying by remember { mutableStateOf(false) }
-        var processingPackPath by remember { mutableStateOf<String?>(null) }
-        var applyingPackPath by remember { mutableStateOf<String?>(null) }
+        var transfer by taskState.transfer
+        var applyProgress by taskState.applyProgress
+        var applying by taskState.applying
+        var processingPackPath by taskState.processingPackPath
+        var applyingPackPath by taskState.applyingPackPath
         var downloadedPacks by remember { mutableStateOf<List<DownloadedTranslation>>(emptyList()) }
         var activeName by remember { mutableStateOf(translations.activeName()) }
         var activeScript by remember { mutableStateOf(translations.activeScript()) }
@@ -162,8 +172,8 @@ class MainActivity : ComponentActivity() {
         var targetLanguage by remember { mutableStateOf(translations.targetLanguage()) }
         var fontName by remember { mutableStateOf(translations.fontName()) }
         var runtimeInspection by remember { mutableStateOf(RuntimeInspection()) }
-        var scopeStatus by remember { mutableStateOf("正在連接") }
-        var rootStatus by remember { mutableStateOf("尚未授權") }
+        var scopeStatus by rememberSaveable { mutableStateOf("正在連接") }
+        var rootStatus by rememberSaveable { mutableStateOf("尚未授權") }
         var navigationStyle by remember { mutableStateOf(appPrefs.getString("navigation_style", "floating") ?: "floating") }
         val overviewListState = rememberLazyListState()
         val settingsListState = rememberLazyListState()
@@ -266,8 +276,8 @@ class MainActivity : ComponentActivity() {
             if (page == DOWNLOAD && catalog.isEmpty() && !catalogLoading) refreshCatalog()
             if (page == DOWNLOADED || page == CONVERSION) downloadedPacks = translations.downloaded()
         }
-        LaunchedEffect(message) {
-            if (message != null) {
+        LaunchedEffect(message, messageIsError) {
+            if (message != null && !messageIsError) {
                 delay(6000)
                 message = null
             }
@@ -297,7 +307,7 @@ class MainActivity : ComponentActivity() {
             translations.setTargetLanguage(language)
             applying = true
             applyProgress = ApplyProgress("正在切換覆蓋語言", 0, 1)
-            scope.launch {
+            taskState.launchTask {
                 runCatching {
                     val packs = translations.downloaded()
                     withContext(Dispatchers.Main.immediate) { downloadedPacks = packs }
@@ -322,6 +332,64 @@ class MainActivity : ComponentActivity() {
                 applyProgress = null
             }
         }
+        fun installDownloadedUpdate() {
+            val apk = downloadedUpdate ?: return
+            val uri = FileProvider.getUriForFile(this, "com.lcpatch.files", apk)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching { startActivity(intent) }
+                .onFailure { taskState.error("無法開啟系統安裝畫面：" + it.message) }
+        }
+
+        lateinit var downloadAppUpdate: (AppRelease) -> Unit
+        downloadAppUpdate = { release ->
+            if (updateProgress == null) {
+                taskState.clearError()
+                updateProgress = TransferProgress(release.apkName, 0, -1, 0)
+                taskState.launchTask {
+                    runCatching {
+                        updates.download(release) { value ->
+                            withContext(Dispatchers.Main.immediate) { updateProgress = value }
+                        }
+                    }.onSuccess {
+                        downloadedUpdate = it
+                        updateProgress = null
+                        taskState.success("LCPatch " + release.version + " 已下載，可以開始安裝")
+                    }.onFailure {
+                        updateProgress = null
+                        taskState.error(
+                            "更新下載失敗：" + (it.message ?: it.javaClass.simpleName)
+                        ) { downloadAppUpdate(release) }
+                    }
+                }
+            }
+        }
+
+        fun checkAppUpdate() {
+            if (checkingUpdate) return
+            checkingUpdate = true
+            taskState.clearError()
+            taskState.launchTask {
+                runCatching { updates.latestRelease() }
+                    .onSuccess { release ->
+                        latestRelease = release
+                        taskState.success(
+                            if (updates.isNewer(release.version, BuildConfig.VERSION_NAME)) {
+                                "發現新版本 " + release.version
+                            } else "目前已是最新版"
+                        )
+                    }
+                    .onFailure {
+                        taskState.error(
+                            "檢查更新失敗：" + (it.message ?: it.javaClass.simpleName)
+                        ) { checkAppUpdate() }
+                    }
+                checkingUpdate = false
+            }
+        }
+
         BackHandler(enabled = page != OVERVIEW && (page != ONBOARDING || onboardingDone)) {
             page = parentPage(page)
         }
