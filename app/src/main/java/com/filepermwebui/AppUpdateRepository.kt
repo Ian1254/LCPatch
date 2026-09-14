@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -119,7 +120,7 @@ class AppUpdateRepository(private val context: Context) {
             var lastTime = System.nanoTime()
             try {
                 connection.inputStream.use { input ->
-                    part.outputStream(append = resumed).buffered().use { target ->
+                    FileOutputStream(part, resumed).buffered().use { target ->
                         val buffer = ByteArray(64 * 1024)
                         while (true) {
                             coroutineContext.ensureActive()
