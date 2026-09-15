@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.List
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +71,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
@@ -443,7 +446,7 @@ class MainActivity : ComponentActivity() {
         }
 
         BackHandler(enabled = page != OVERVIEW && (page != ONBOARDING || onboardingDone)) {
-            page = parentPage(page)
+            page = if (page == SETTINGS || page == LOGS) OVERVIEW else parentPage(page)
         }
 
         Scaffold(
@@ -464,11 +467,11 @@ class MainActivity : ComponentActivity() {
                 }
             },
             bottomBar = {
-                if (page == OVERVIEW || page == SETTINGS) {
+                if (page == OVERVIEW || page == SETTINGS || page == LOGS) {
                     if (navigationStyle == "floating") {
                         SukiFloatingBottomBar(
-                            selectedIndex = if (page == OVERVIEW || page == DOWNLOAD || page == DOWNLOADED) 0 else 1,
-                            onSelected = { page = if (it == 0) OVERVIEW else SETTINGS },
+                            selectedIndex = when (page) { OVERVIEW -> 0; LOGS -> 1; else -> 2 },
+                            onSelected = { page = listOf(OVERVIEW, LOGS, SETTINGS)[it] },
                             backdrop = barBackdrop
                         )
                     } else {
@@ -476,15 +479,37 @@ class MainActivity : ComponentActivity() {
                             NavigationBar(
                             color = Color.Transparent
                         ) {
-                                NavigationBarItem(selected = page == OVERVIEW || page == DOWNLOAD || page == DOWNLOADED, onClick = { page = OVERVIEW }, icon = MiuixIcons.Home, label = "概觀")
-                                NavigationBarItem(selected = page == SETTINGS || page == LOGS || page == ABOUT || page == DISPLAY, onClick = { page = SETTINGS }, icon = MiuixIcons.Settings, label = "設定")
+                                NavigationBarItem(selected = page == OVERVIEW, onClick = { page = OVERVIEW }, icon = MiuixIcons.Home, label = "概觀")
+                                NavigationBarItem(selected = page == LOGS, onClick = { page = LOGS }, icon = Icons.Default.List, label = "日誌")
+                                NavigationBarItem(selected = page == SETTINGS, onClick = { page = SETTINGS }, icon = MiuixIcons.Settings, label = "設定")
                             }
                         }
                     }
                 }
             }
         ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().then(if (barBackdrop != null) Modifier.layerBackdrop(barBackdrop) else Modifier)) {
+            var horizontalDrag by remember { mutableStateOf(0f) }
+            val swipeModifier = if (page == OVERVIEW || page == LOGS || page == SETTINGS) {
+                Modifier.pointerInput(page) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { horizontalDrag = 0f },
+                        onHorizontalDrag = { _, amount -> horizontalDrag += amount },
+                        onDragEnd = {
+                            val topPages = listOf(OVERVIEW, LOGS, SETTINGS)
+                            val current = topPages.indexOf(page)
+                            val target = when {
+                                horizontalDrag < -96f -> (current + 1).coerceAtMost(topPages.lastIndex)
+                                horizontalDrag > 96f -> (current - 1).coerceAtLeast(0)
+                                else -> current
+                            }
+                            page = topPages[target]
+                            horizontalDrag = 0f
+                        },
+                        onDragCancel = { horizontalDrag = 0f }
+                    )
+                }
+            } else Modifier
+            Box(modifier = Modifier.fillMaxSize().then(swipeModifier).then(if (barBackdrop != null) Modifier.layerBackdrop(barBackdrop) else Modifier)) {
                 AnimatedContent(
                     targetState = page,
                     transitionSpec = {
@@ -536,11 +561,9 @@ class MainActivity : ComponentActivity() {
                         onFixEnvironment = { page = ONBOARDING }
                     )
                     SETTINGS -> settings(
-                        events,
                         applyProgress = applyProgress,
                         applying = applying,
                         onFolder = { folderPicker.launch(logs.selectedFolder()) },
-                        onLogs = { page = LOGS },
                         onAbout = { page = ABOUT },
                         onUpdate = { page = ABOUT },
                         onDisplay = { page = DISPLAY },
@@ -845,7 +868,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun LazyListScope.settings(
-        events: List<LogEvent>, onFolder: () -> Unit, onLogs: () -> Unit, onAbout: () -> Unit, onUpdate: () -> Unit,
+        onFolder: () -> Unit, onAbout: () -> Unit, onUpdate: () -> Unit,
         onDisplay: () -> Unit, onConversion: () -> Unit, onPermissions: () -> Unit, targetLanguage: OverrideLanguage,
         applyProgress: ApplyProgress?, applying: Boolean,
         fontName: String, onLanguage: (OverrideLanguage) -> Unit,
@@ -887,7 +910,6 @@ class MainActivity : ComponentActivity() {
             Card {
                 ArrowPreference(modifier = PreferenceItemModifier, title = "權限與初始設定", summary = "模組作用域與 Root 權限", onClick = onPermissions)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "主題、模糊效果與底欄", onClick = onDisplay)
-                ArrowPreference(modifier = PreferenceItemModifier, title = "日誌", summary = "自動更新 · ${events.size} 筆事件${if (events.any { it.level == "ERROR" }) " · 含錯誤" else ""}", onClick = onLogs)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", summary = logs.selectedFolderLabel(), onClick = onFolder)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "關於", summary = "版本、元件與相容策略", onClick = onAbout)
