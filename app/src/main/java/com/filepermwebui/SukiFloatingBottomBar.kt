@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,14 +26,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
@@ -50,11 +57,15 @@ internal fun SukiFloatingBottomBar(
     onSelected: (Int) -> Unit,
     backdrop: LayerBackdrop?
 ) {
-    val selectedOffset by animateDpAsState(
+    val density = LocalDensity.current
+    var dragging by remember { mutableStateOf(false) }
+    var dragOffset by remember { mutableFloatStateOf(4f + selectedIndex * 80f) }
+    val animatedOffset by animateDpAsState(
         targetValue = (4 + selectedIndex * 80).dp,
         animationSpec = spring(dampingRatio = 0.88f, stiffness = 250f),
         label = "floating-navigation-indicator"
     )
+    val selectedOffset = if (dragging) dragOffset.dp else animatedOffset
     val containerColor = MiuixTheme.colorScheme.surfaceContainer
     val barModifier = Modifier
         .width(248.dp)
@@ -74,6 +85,24 @@ internal fun SukiFloatingBottomBar(
             }
         )
         .clip(CircleShape)
+        .pointerInput(selectedIndex, density) {
+            detectHorizontalDragGestures(
+                onDragStart = {
+                    dragging = true
+                    dragOffset = 4f + selectedIndex * 80f
+                },
+                onHorizontalDrag = { change, amount ->
+                    change.consume()
+                    dragOffset = (dragOffset + amount / density.density).coerceIn(4f, 164f)
+                },
+                onDragEnd = {
+                    val target = ((dragOffset - 4f) / 80f).roundToInt().coerceIn(0, 2)
+                    dragging = false
+                    onSelected(target)
+                },
+                onDragCancel = { dragging = false }
+            )
+        }
 
     Box(
         modifier = Modifier
