@@ -5,8 +5,6 @@ import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import org.json.JSONObject
@@ -57,7 +55,6 @@ class TranslationRepository(private val context: Context) {
         private const val NATIVE_DISABLED = "/sdcard/Android/data/com.ProjectMoon.LimbusCompany/cache/Localize/.lcpatch-cn-disabled"
         private const val PUA_MARKER = ".lcpatch-pua"
         private const val GAME_PACKAGE = "com.ProjectMoon.LimbusCompany"
-        private val ROOT_OPERATION_LOCK = Any()
     }
     private val downloads = File(context.filesDir, "translations/downloads").apply { mkdirs() }
     private val staging = File(context.filesDir, "translations/staging").apply { mkdirs() }
@@ -65,7 +62,7 @@ class TranslationRepository(private val context: Context) {
 
     suspend fun fetchCatalog(): List<TranslationEntry> = withContext(Dispatchers.IO) {
         val primary = runCatching {
-            connection(SOURCE).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
+            HttpClient.open(SOURCE).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
         }.map(::parseTranslationCatalog).getOrDefault(emptyList()).filterNot {
             it.name.contains("零協") || it.author.contains("零協") || it.author.contains("都市零協會")
         }
@@ -75,7 +72,7 @@ class TranslationRepository(private val context: Context) {
     }
 
     private fun fetchOfficialLatest(): List<TranslationEntry> {
-        val raw = connection(OFFICIAL_LATEST).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
+        val raw = HttpClient.open(OFFICIAL_LATEST, accept = "application/vnd.github+json").run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
         val release = JSONObject(raw)
         val tag = release.optString("tag_name", "latest")
         val assets = release.getJSONArray("assets")
@@ -102,47 +99,39 @@ class TranslationRepository(private val context: Context) {
         progress: suspend (TransferProgress) -> Unit,
         preparation: suspend (ApplyProgress) -> Unit = {}
     ): DownloadedTranslation = withContext(Dispatchers.IO) {
-        val connection = connection(entry.url)
-        val total = connection.contentLengthLong
         val fileName = "${safeName(entry.name)}.zip"
         val part = File(downloads, "$fileName.part")
         val output = File(downloads, fileName)
-        var bytes = 0L
-        var lastBytes = 0L
-        var lastTime = System.nanoTime()
-        connection.inputStream.use { input ->
-            part.outputStream().buffered().use { stream ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    stream.write(buffer, 0, count); bytes += count
-                    val now = System.nanoTime()
-                    if (now - lastTime >= 150_000_000L) {
-                        val speed = ((bytes - lastBytes) * 1_000_000_000L / (now - lastTime)).coerceAtLeast(0)
-                        progress(TransferProgress(fileName, bytes, total, speed))
-                        lastBytes = bytes; lastTime = now
-                    }
-                }
-            }
+        try {
+            val result = downloadResumable(
+                url = entry.url,
+                part = part,
+                displayName = fileName,
+                progress = progress
+            )
+            require(part.length() > 4 && part.inputStream().use { it.read() == 0x50 && it.read() == 0x4b }) { "下載內容不是 ZIP 漢化包" }
+            ZipFile(part).use { require(it.entries().asSequence().any { item -> localizeRelativePath(item.name) != null }) { "漢化包缺少 Localize 資料夾" } }
+            if (output.exists()) output.delete()
+            require(part.renameTo(output)) { "無法保存下載檔" }
+            prefs.edit().putString("download.${output.name}", entry.name).apply()
+            val prepared = File(staging, "download-${safeName(entry.name)}").also { it.deleteRecursively(); it.mkdirs() }
+            unpackLocalize(output, prepared)
+            File(prepared, ".lcpatch-script").writeText(inferScript(entry.name))
+            encodeDirectoryToPua(prepared, preparation)
+            File(prepared, PUA_MARKER).writeText("1")
+            val publicPath = "$PUBLIC_DOWNLOADS/${safeName(entry.name)}"
+            require(runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && rm -rf ${quote(publicPath)} && cp -R ${quote(prepared.absolutePath)} ${quote(publicPath)} && chmod -R 0755 ${quote(publicPath)}")) { "無法保存已解壓漢化" }
+            output.delete()
+            progress(TransferProgress(fileName, result.bytes, if (result.total > 0) result.total else result.bytes, 0, true))
+            LogRepository.append(context, "INFO", "download.completed", "${entry.name} 已下載並解壓到獨立目錄")
+            DownloadedTranslation(entry.name, publicPath, inferScript(entry.name), true)
+        } catch (error: Throwable) {
+            val looksLikeZip = runCatching {
+                part.length() > 4 && part.inputStream().use { it.read() == 0x50 && it.read() == 0x4b }
+            }.getOrDefault(false)
+            if (!looksLikeZip) part.delete()
+            throw error
         }
-        connection.disconnect()
-        require(part.length() > 4 && part.inputStream().use { it.read() == 0x50 && it.read() == 0x4b }) { "下載內容不是 ZIP 漢化包" }
-        ZipFile(part).use { require(it.entries().asSequence().any { item -> localizeRelativePath(item.name) != null }) { "漢化包缺少 Localize 資料夾" } }
-        if (output.exists()) output.delete()
-        require(part.renameTo(output)) { "無法保存下載檔" }
-        prefs.edit().putString("download.${output.name}", entry.name).apply()
-        val prepared = File(staging, "download-${safeName(entry.name)}").also { it.deleteRecursively(); it.mkdirs() }
-        unpackLocalize(output, prepared)
-        File(prepared, ".lcpatch-script").writeText(inferScript(entry.name))
-        encodeDirectoryToPua(prepared, preparation)
-        File(prepared, PUA_MARKER).writeText("1")
-        val publicPath = "$PUBLIC_DOWNLOADS/${safeName(entry.name)}"
-        require(runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && rm -rf ${quote(publicPath)} && cp -R ${quote(prepared.absolutePath)} ${quote(publicPath)} && chmod -R 0755 ${quote(publicPath)}")) { "無法保存已解壓漢化" }
-        output.delete()
-        progress(TransferProgress(fileName, bytes, if (total > 0) total else bytes, 0, true))
-        LogRepository.append(context, "INFO", "download.completed", "${entry.name} 已下載並解壓到獨立目錄")
-        DownloadedTranslation(entry.name, publicPath, inferScript(entry.name), true)
     }
 
     private suspend fun applyPrepared(raw: File, displayName: String, progress: suspend (ApplyProgress) -> Unit): String {
@@ -162,9 +151,8 @@ class TranslationRepository(private val context: Context) {
         val nativeAction = if (translationEnabled()) runtimeSwapCommand(File(unpacked, "Localize/cn").absolutePath)
             else "rm -rf ${quote(NATIVE_DISABLED)} && mv ${quote(NATIVE_COMPAT)} ${quote(NATIVE_DISABLED)} 2>/dev/null || true"
         val command = "am force-stop $GAME_PACKAGE && $nativeAction"
-        val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
-        val response = process.inputStream.bufferedReader().use { it.readText() }
-        require(process.waitFor() == 0) { response.ifBlank { "root 套用失敗" } }
+        val result = RootShell.run(command)
+        require(result.success) { result.output.ifBlank { "root 套用失敗" } }
         val inspection = inspectRuntime()
         require(inspection.ready) { "遊戲快取驗證失敗：找不到 ${targetLanguage().prefix} 漢化文件" }
         require(inspection.fontReady) { "遊戲快取驗證失敗：中文字型未寫入" }
@@ -180,16 +168,15 @@ class TranslationRepository(private val context: Context) {
 
     suspend fun downloaded(): List<DownloadedTranslation> = withContext(Dispatchers.IO) {
         repairStorage()
-        val process = ProcessBuilder("su", "-c", "find ${quote(PUBLIC_DOWNLOADS)} -mindepth 1 -maxdepth 1 -type d -print").redirectErrorStream(true).start()
-        val paths = process.inputStream.bufferedReader().readLines()
-        if (process.waitFor() != 0) return@withContext emptyList()
-        paths.mapNotNull { original ->
+        val result = RootShell.run("find ${quote(PUBLIC_DOWNLOADS)} -mindepth 1 -maxdepth 1 -type d -print")
+        if (!result.success) return@withContext emptyList()
+        result.output.lineSequence().filter(String::isNotBlank).mapNotNull { original ->
             val oldName = File(original).name
             val cleanName = safeName(oldName)
             val canonical = "$PUBLIC_DOWNLOADS/$cleanName"
             if (original != canonical) runRoot("mv -f ${quote(original)} ${quote(canonical)}")
             DownloadedTranslation(cleanName, canonical, readScript(canonical, cleanName), rootFileExists("$canonical/$PUA_MARKER"))
-        }.distinctBy { it.path }.sortedBy { it.name.lowercase() }
+        }.toList().distinctBy { it.path }.sortedBy { it.name.lowercase() }
     }
 
     suspend fun apply(entry: DownloadedTranslation, progress: suspend (ApplyProgress) -> Unit = {}): String = withContext(Dispatchers.IO) {
@@ -401,18 +388,17 @@ class TranslationRepository(private val context: Context) {
     }
 
     private fun readScript(path: String, name: String): String {
-        val process = ProcessBuilder("su", "-c", "cat ${quote("$path/.lcpatch-script")} 2>/dev/null").redirectErrorStream(true).start()
-        val value = process.inputStream.bufferedReader().use { it.readText().trim() }
-        return if (process.waitFor() == 0 && value in setOf("簡體", "繁體")) value else inferScript(name)
+        val result = RootShell.run("cat ${quote("$path/.lcpatch-script")} 2>/dev/null")
+        val value = result.output.trim()
+        return if (result.success && value in setOf("簡體", "繁體")) value else inferScript(name)
     }
 
     private fun repairStorage() {
         val aliases = listOf("/sdcard/LCPatch/汉化", "/sdcard/lcpatch/漢化", "/sdcard/LC Patch/漢化", "/sdcard/limbus mod/汉化")
         val migrate = aliases.joinToString(" && ") { old -> "if [ -d ${quote(old)} ]; then cp -Rn ${quote("$old/.")} ${quote(PUBLIC_DOWNLOADS)}; fi" }
         runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && $migrate")
-        val legacyList = ProcessBuilder("su", "-c", "find ${quote(PUBLIC_DOWNLOADS)} -maxdepth 1 -type f -iname '*.zip' -print").redirectErrorStream(true).start()
-        val legacyPaths = legacyList.inputStream.bufferedReader().readLines()
-        if (legacyList.waitFor() == 0) legacyPaths.forEach { path ->
+        val legacyList = RootShell.run("find ${quote(PUBLIC_DOWNLOADS)} -maxdepth 1 -type f -iname '*.zip' -print")
+        if (legacyList.success) legacyList.output.lineSequence().filter(String::isNotBlank).forEach { path ->
             val label = safeName(File(path).nameWithoutExtension)
             val cache = File(downloads, "legacy-$label.zip")
             val prepared = File(staging, "legacy-$label").also { it.deleteRecursively(); it.mkdirs() }
@@ -450,27 +436,13 @@ class TranslationRepository(private val context: Context) {
         require(File(destination, "Localize").isDirectory) { "漢化包缺少 Localize 資料夾" }
     }
 
-    private fun runRoot(command: String): Boolean = synchronized(ROOT_OPERATION_LOCK) {
-        try {
-            val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
-            process.inputStream.bufferedReader().use { it.readText() }
-            process.waitFor() == 0
-        } catch (_: Throwable) { false }
+    private fun runRoot(command: String): Boolean = RootShell.run(command).success
+
+    private fun runRootOutput(command: String): Pair<Boolean, String> {
+        val result = RootShell.run(command)
+        return result.success to result.output
     }
 
-    private fun runRootOutput(command: String): Pair<Boolean, String> = synchronized(ROOT_OPERATION_LOCK) {
-        try {
-            val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
-            val output = process.inputStream.bufferedReader().use { it.readText() }
-            (process.waitFor() == 0) to output
-        } catch (_: Throwable) { false to "" }
-    }
-
-    private fun connection(value: String): HttpURLConnection = (URL(value).openConnection() as HttpURLConnection).apply {
-        connectTimeout = 20_000; readTimeout = 60_000; instanceFollowRedirects = true
-        setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) LCPatch/${BuildConfig.VERSION_NAME}")
-        require(responseCode in 200..299) { "伺服器回應 $responseCode" }
-    }
     private fun safeName(value: String): String = value.replace(Regex("[\\/:*?\"<>|]"), "_").trim().take(80).ifBlank { "translation" }
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }

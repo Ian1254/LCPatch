@@ -86,7 +86,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.TimeUnit
 import java.io.File
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Button
@@ -316,14 +315,18 @@ class MainActivity : ComponentActivity() {
                 message = null
             }
         }
-        LaunchedEffect(Unit) {
-            refreshCatalog()
-            while (true) {
-                ModernApp.refreshScope()
-                delay(300)
-                scopeStatus = when { ModernApp.scopeKnown && ModernApp.scopeGranted -> "已啟用"; ModernApp.scopeKnown -> "尚未授權遊戲"; else -> "尚未連接" }
-                delay(1700)
+        suspend fun refreshScopeStatus() {
+            ModernApp.refreshScope()
+            delay(300)
+            scopeStatus = when {
+                ModernApp.scopeKnown && ModernApp.scopeGranted -> "已啟用"
+                ModernApp.scopeKnown -> "尚未授權遊戲"
+                else -> "尚未連接"
             }
+        }
+        LaunchedEffect(Unit) { refreshCatalog() }
+        LaunchedEffect(page) {
+            if (page == OVERVIEW || page == ONBOARDING) refreshScopeStatus()
         }
         val title = when (page) { OVERVIEW -> "LCPatch"; SETTINGS -> "設定"; LOGS -> "日誌"; ABOUT -> "關於"; UPDATE -> "應用程式更新"; DOWNLOAD -> "下載漢化"; DOWNLOADED -> "選擇套用"; DISPLAY -> "介面與顯示"; CONVERSION -> "繁簡轉換"; ONBOARDING -> "環境與權限"; else -> "LCPatch" }
         val onboardingDone = appPrefs.getBoolean("onboarding_done", false)
@@ -510,16 +513,7 @@ class MainActivity : ComponentActivity() {
                     if (navigationStyle == "floating") {
                         SukiFloatingBottomBar(
                             selectedIndex = pagerState.settledPage,
-                            navigationPosition = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
-                                .coerceIn(0f, topPages.lastIndex.toFloat()),
                             onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
-                            onDragProgress = { position ->
-                                val nearestPage = position.roundToInt().coerceIn(0, topPages.lastIndex)
-                                pagerState.requestScrollToPage(
-                                    page = nearestPage,
-                                    pageOffsetFraction = (position - nearestPage).coerceIn(-0.5f, 0.5f)
-                                )
-                            },
                             backdrop = activeBarBackdrop
                         )
                     } else {
@@ -606,26 +600,8 @@ class MainActivity : ComponentActivity() {
                         },
                         clear = { logs.clear(); revision++; message = "日誌已清除" }
                     )
-                    ABOUT -> about(
-                        updateOnly = false,
-                        game = game,
-                        updateChannel = updateChannel,
-                        onUpdateChannel = { value ->
-                            updateChannel = value
-                            appPrefs.edit().putString("update_channel", value).apply()
-                            latestRelease = null
-                        },
-                        release = latestRelease,
-                        checkingUpdate = checkingUpdate,
-                        updateProgress = updateProgress,
-                        updateReady = downloadedUpdate != null,
-                        checkUpdate = ::checkAppUpdate,
-                        downloadUpdate = { latestRelease?.let(downloadAppUpdate) },
-                        installUpdate = ::installDownloadedUpdate
-                    )
-                    UPDATE -> about(
-                        updateOnly = true,
-                        game = game,
+                    ABOUT -> aboutPage(game)
+                    UPDATE -> updatePage(
                         updateChannel = updateChannel,
                         onUpdateChannel = { value ->
                             updateChannel = value
@@ -651,7 +627,12 @@ class MainActivity : ComponentActivity() {
                     ONBOARDING -> onboardingPage(
                         scopeStatus = scopeStatus,
                         rootStatus = rootStatus,
-                        onCheckScope = { ModernApp.refreshScope(); message = "正在重新檢查模組狀態" },
+                        onCheckScope = {
+                            scope.launch {
+                                refreshScopeStatus()
+                                message = "模組狀態已更新"
+                            }
+                        },
                         onRequestRoot = {
                             if (rootStatus != "正在請求") {
                                 rootStatus = "正在請求"
@@ -757,10 +738,10 @@ class MainActivity : ComponentActivity() {
                     targetState = if (page in topPages) TOP_LEVEL_CONTAINER else page,
                     transitionSpec = {
                         val direction = navigationDirection
-                        (slideInHorizontally(tween(360, easing = PageTransitionEasing)) { direction * it / 10 } +
-                            fadeIn(tween(300, easing = PageTransitionEasing))) togetherWith
-                            (slideOutHorizontally(tween(300, easing = PageTransitionEasing)) { -direction * it / 12 } +
-                                fadeOut(tween(220, easing = PageTransitionEasing)))
+                        (slideInHorizontally(tween(380, easing = PageTransitionEasing)) { direction * it } +
+                            fadeIn(tween(140, easing = PageTransitionEasing))) togetherWith
+                            (slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it / 4 } +
+                                fadeOut(tween(180, easing = PageTransitionEasing)))
                     },
                     label = "page-transition"
                 ) { animatedPage ->
@@ -1011,20 +992,7 @@ class MainActivity : ComponentActivity() {
         else items(events) { LogCard(it) }
     }
 
-    private fun LazyListScope.about(
-        updateOnly: Boolean,
-        game: GameInfo,
-        updateChannel: String,
-        onUpdateChannel: (String) -> Unit,
-        release: AppRelease?,
-        checkingUpdate: Boolean,
-        updateProgress: TransferProgress?,
-        updateReady: Boolean,
-        checkUpdate: () -> Unit,
-        downloadUpdate: () -> Unit,
-        installUpdate: () -> Unit
-    ) {
-        if (!updateOnly) {
+    private fun LazyListScope.aboutPage(game: GameInfo) {
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painter = painterResource(R.drawable.ic_launcher), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(96.dp).clip(CircleShape))
@@ -1057,8 +1025,22 @@ class MainActivity : ComponentActivity() {
                 Detail("儲存目錄", "/sdcard/LCPatch")
             }
         }
-        }
-        if (updateOnly)         item {
+        item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字體以及語言覆蓋設定。遊戲更新後會先驗證目標結構，配置不相符時停止載入，以降低閃退風險。", translucent = true) }
+        item { InfoCard("開放原始碼與致謝", "介面採用 compose-miuix-ui，LSPosed 整合採用 libxposed API 102，繁簡轉換採用 opencc4j。漢化內容與授權條款歸各翻譯組及原作者所有。", translucent = true) }
+    }
+
+    private fun LazyListScope.updatePage(
+        updateChannel: String,
+        onUpdateChannel: (String) -> Unit,
+        release: AppRelease?,
+        checkingUpdate: Boolean,
+        updateProgress: TransferProgress?,
+        updateReady: Boolean,
+        checkUpdate: () -> Unit,
+        downloadUpdate: () -> Unit,
+        installUpdate: () -> Unit
+    ) {
+        item {
             val newer = release?.let {
                 updates.isNewer(it.version, BuildConfig.VERSION_NAME)
             } == true
@@ -1126,10 +1108,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-        }
-        if (!updateOnly) {
-        item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字體以及語言覆蓋設定。遊戲更新後會先驗證目標結構，配置不相符時停止載入，以降低閃退風險。", translucent = true) }
-        item { InfoCard("開放原始碼與致謝", "介面採用 compose-miuix-ui，LSPosed 整合採用 libxposed API 102，繁簡轉換採用 opencc4j。漢化內容與授權條款歸各翻譯組及原作者所有。", translucent = true) }
         }
     }
 
@@ -1268,12 +1246,7 @@ class MainActivity : ComponentActivity() {
         }, "LCPatch-game-restart").start()
     }
 
-    private fun requestRoot(): Boolean = try {
-        val process = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
-        val finished = process.waitFor(15, TimeUnit.SECONDS)
-        if (!finished) process.destroyForcibly()
-        finished && process.exitValue() == 0
-    } catch (_: Throwable) { false }
+    private fun requestRoot(): Boolean = RootShell.run("id", timeoutMs = 15_000L).success
 
     private fun LazyListScope.downloadPage(
         entries: List<TranslationEntry>, loading: Boolean, error: String?, transfer: TransferProgress?,
