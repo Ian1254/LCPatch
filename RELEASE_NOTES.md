@@ -18,4 +18,4 @@ LCPatch 1.2.0 為目前 1.2 系列的正式版本。本版集中完成導航轉�
 
 ## 驗證範圍
 
-正式發布前將通過 Android CI 與 Release workflow 的完整驗證，包括單元測試、Lint、原生元件建置、Release APK 組裝、APK 簽章及簽章驗證。
+本版發布流程包含單元測試、Lint、原生元件建置、Release APK 組裝、APK 簽章及簽章驗證。
