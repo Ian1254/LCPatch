@@ -3,6 +3,10 @@ name: Android Release
 on:
   push:
     tags: ['v*']
+    branches: [main]
+    paths:
+      - 'app/build.gradle.kts'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
     inputs:
       version:
@@ -30,8 +34,10 @@ jobs:
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             VERSION="${INPUT_VERSION#v}"
-          else
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n1)"
           fi
           test -n "$VERSION" || { echo 'Release version is empty'; exit 1; }
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || {
@@ -120,10 +126,10 @@ jobs:
           fi
 
           TARGET_ARGS=()
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            TARGET_ARGS+=(--target "$GITHUB_SHA")
-          else
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             TARGET_ARGS+=(--verify-tag)
+          else
+            TARGET_ARGS+=(--target "$GITHUB_SHA")
           fi
 
           gh release create "$RELEASE_TAG" \
