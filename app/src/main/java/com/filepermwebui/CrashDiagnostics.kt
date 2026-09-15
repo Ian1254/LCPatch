@@ -3,8 +3,6 @@ package com.lcpatch
 import android.content.Context
 import android.os.SystemClock
 import java.security.MessageDigest
-import java.util.ArrayDeque
-import java.util.concurrent.TimeUnit
 
 object CrashDiagnostics {
     private const val GAME = "com.ProjectMoon.LimbusCompany"
@@ -54,32 +52,8 @@ object CrashDiagnostics {
         prefs.edit().putLong("last_native_time", latest).apply()
     }
 
-    private fun runRootCapture(command: String): String = try {
-        val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
-        val lines = ArrayDeque<String>()
-        val outputLock = Any()
-        var chars = 0
-        val readerThread = Thread({
-            try {
-                process.inputStream.bufferedReader().useLines { sequence ->
-                    sequence.forEach { line ->
-                        synchronized(outputLock) {
-                            lines.addLast(line)
-                            chars += line.length + 1
-                            while (chars > MAX_CHARS && lines.isNotEmpty()) {
-                                chars -= lines.removeFirst().length + 1
-                            }
-                        }
-                    }
-                }
-            } catch (_: Throwable) { }
-        }, "LCPatch-crash-reader").apply { isDaemon = true; start() }
-        if (!process.waitFor(8, TimeUnit.SECONDS)) process.destroyForcibly()
-        readerThread.join(1000)
-        synchronized(outputLock) { lines.joinToString("\n") }
-    } catch (_: Throwable) {
-        ""
-    }
+    private fun runRootCapture(command: String): String =
+        RootShell.run(command, timeoutMs = 8_000L, maxOutputChars = MAX_CHARS).output
 
     private fun extractLatestGameCrash(raw: String): String {
         if (raw.isBlank()) return ""

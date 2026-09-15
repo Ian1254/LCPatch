@@ -2,16 +2,11 @@ package com.lcpatch
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
-import kotlin.coroutines.coroutineContext
 
 data class AppRelease(
     val version: String,
@@ -31,7 +26,7 @@ class AppUpdateRepository(private val context: Context) {
         val endpoint = if (includePrerelease) {
             "https://api.github.com/repos/Ian1254/LCPatch/releases?per_page=20"
         } else LATEST_RELEASE
-        val connection = open(endpoint)
+        val connection = HttpClient.open(endpoint, accept = "application/vnd.github+json")
         val json = try {
             connection.inputStream.bufferedReader().use { it.readText() }
         } finally {
@@ -77,59 +72,24 @@ class AppUpdateRepository(private val context: Context) {
         val directory = File(context.cacheDir, "updates").apply { mkdirs() }
         val part = File(directory, release.apkName + ".part")
         val output = File(directory, release.apkName)
-        var completed = false
         try {
-            var existing = part.takeIf { it.exists() }?.length() ?: 0L
-            var connection = open(release.apkUrl, existing.takeIf { it > 0 })
-            val resumed = existing > 0 && connection.responseCode == HttpURLConnection.HTTP_PARTIAL
-            if (existing > 0 && !resumed) {
-                connection.disconnect()
-                part.delete()
-                existing = 0L
-                connection = open(release.apkUrl)
-            }
-            val contentLength = connection.contentLengthLong
-            val total = if (resumed && contentLength > 0) existing + contentLength else contentLength
-            var bytes = existing
-            var lastBytes = bytes
-            var lastTime = System.nanoTime()
-            try {
-                connection.inputStream.use { input ->
-                    FileOutputStream(part, resumed).buffered().use { target ->
-                        val buffer = ByteArray(256 * 1024)
-                        while (true) {
-                            coroutineContext.ensureActive()
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            target.write(buffer, 0, count)
-                            bytes += count
-                            val now = System.nanoTime()
-                            if (now - lastTime >= 500_000_000L) {
-                                val speed = ((bytes - lastBytes) * 1_000_000_000L /
-                                    (now - lastTime)).coerceAtLeast(0)
-                                progress(TransferProgress(release.apkName, bytes, total, speed))
-                                lastBytes = bytes
-                                lastTime = now
-                            }
-                        }
-                    }
-                }
-            } finally {
-                connection.disconnect()
-            }
-
+            val result = downloadResumable(
+                url = release.apkUrl,
+                part = part,
+                displayName = release.apkName,
+                progress = progress
+            )
             require(part.length() > 4 && part.inputStream().use {
                 it.read() == 0x50 && it.read() == 0x4b
             }) { "下載內容不是有效 APK" }
             verifySha256(part, expectedSha256(release.sha256Url))
             if (output.exists()) output.delete()
             require(part.renameTo(output)) { "無法保存更新 APK" }
-            completed = true
             progress(
                 TransferProgress(
                     release.apkName,
                     output.length(),
-                    total.takeIf { it > 0 } ?: output.length(),
+                    result.total.takeIf { it > 0L } ?: output.length(),
                     0,
                     finished = true
                 )
@@ -142,7 +102,7 @@ class AppUpdateRepository(private val context: Context) {
     }
 
     private fun expectedSha256(url: String): String {
-        val connection = open(url)
+        val connection = HttpClient.open(url)
         return try {
             val text = connection.inputStream.bufferedReader().use { it.readText() }.trim()
             Regex("^[A-Fa-f0-9]{64}").find(text)?.value?.lowercase()
@@ -165,17 +125,4 @@ class AppUpdateRepository(private val context: Context) {
         val actual = digest.digest().joinToString("") { "%02x".format(it) }
         require(actual == expected) { "更新檔 SHA-256 驗證失敗" }
     }
-
-    private fun open(value: String, rangeStart: Long? = null): HttpURLConnection =
-        (URL(value).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 20_000
-            readTimeout = 60_000
-            useCaches = false
-            instanceFollowRedirects = true
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "LCPatch/" + BuildConfig.VERSION_NAME)
-            if (rangeStart != null) setRequestProperty("Range", "bytes=$rangeStart-")
-            val code = responseCode
-            require(code in 200..299) { "GitHub 回應 $code" }
-        }
 }
