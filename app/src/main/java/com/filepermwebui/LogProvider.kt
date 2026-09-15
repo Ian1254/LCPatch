@@ -16,10 +16,13 @@ class LogProvider : ContentProvider() {
         const val AUTHORITY = "com.lcpatch.logs"
         const val GAME = "com.ProjectMoon.LimbusCompany"
         private const val MAX_ENTRIES = 500
+        private const val TRIM_EVERY_APPENDS = 32
+        private const val TRIM_SIZE_BYTES = 512 * 1024L
     }
 
     private val lock = Any()
     private val store: File get() = File(requireNotNull(context).filesDir, "events.jsonl")
+    private var appendsSinceTrim = 0
 
     override fun onCreate() = true
 
@@ -28,6 +31,14 @@ class LogProvider : ContentProvider() {
         val uid = Binder.getCallingUid()
         if (uid == context.applicationInfo.uid) return true
         return context.packageManager.getPackagesForUid(uid)?.contains(GAME) == true
+    }
+
+    private fun trimIfNeeded(force: Boolean = false) {
+        if (!store.isFile) return
+        if (!force && appendsSinceTrim < TRIM_EVERY_APPENDS && store.length() < TRIM_SIZE_BYTES) return
+        val lines = store.readLines().takeLast(MAX_ENTRIES)
+        store.writeText(lines.joinToString("\n", postfix = if (lines.isEmpty()) "" else "\n"))
+        appendsSinceTrim = 0
     }
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
@@ -41,17 +52,20 @@ class LogProvider : ContentProvider() {
                         .put("code", extras?.getString("code") ?: "event")
                         .put("message", extras?.getString("message") ?: "")
                         .put("process", extras?.getString("process") ?: "")
-                    val lines = if (store.isFile) store.readLines().takeLast(MAX_ENTRIES - 1) else emptyList()
                     store.parentFile?.mkdirs()
-                    store.writeText((lines + event.toString()).joinToString("\n", postfix = "\n"))
+                    store.appendText(event.toString() + "\n")
+                    appendsSinceTrim++
+                    trimIfNeeded()
                     context?.contentResolver?.notifyChange(Uri.parse("content://$AUTHORITY"), null)
                     Bundle().apply { putBoolean("ok", true) }
                 }
                 "read" -> Bundle().apply {
+                    trimIfNeeded(force = true)
                     putString("events", JSONArray(if (store.isFile) store.readLines().takeLast(MAX_ENTRIES).map(::JSONObject) else emptyList<JSONObject>()).toString())
                 }
                 "clear" -> Bundle().apply {
                     if (store.exists()) store.writeText("")
+                    appendsSinceTrim = 0
                     context?.contentResolver?.notifyChange(Uri.parse("content://$AUTHORITY"), null)
                     putBoolean("ok", true)
                 }
