@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val versionProperties = Properties().apply {
+    rootProject.file("version.properties").inputStream().use(::load)
+}
+val appVersionCode = versionProperties.getProperty("VERSION_CODE")?.toIntOrNull()
+    ?: error("VERSION_CODE is missing or invalid in version.properties")
+val appVersionName = versionProperties.getProperty("VERSION_NAME")?.takeIf { it.isNotBlank() }
+    ?: error("VERSION_NAME is missing in version.properties")
 
 android {
     namespace = "com.lcpatch"
@@ -12,8 +22,8 @@ android {
         applicationId = "com.lcpatch"
         minSdk = 28
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.2.0-beta.8"
+        versionCode = appVersionCode
+        versionName = appVersionName
         ndk { abiFilters += "arm64-v8a" }
     }
 
