@@ -238,7 +238,7 @@ class MainActivity : ComponentActivity() {
             else -> conversionScrollBehavior
         }
         val barBackdrop = rememberBarBackdrop()
-        val activeBarBackdrop = if (blurEnabled && !pagerState.isScrollInProgress) barBackdrop else null
+        val activeBarBackdrop = if (blurEnabled) barBackdrop else null
         val scope = rememberCoroutineScope()
         LaunchedEffect(page) {
             val target = topPages.indexOf(page)
@@ -959,13 +959,13 @@ class MainActivity : ComponentActivity() {
                 SwitchPreference(
                     modifier = PreferenceItemModifier,
                     title = "背景模糊",
-                    summary = if (blurEnabled) "已啟用；滑動頁面時會暫停以避免閃爍" else "已停用；使用穩定的半透明背景",
+                    summary = if (blurEnabled) "已啟用；頂欄與底欄保持即時模糊" else "已停用；使用穩定的半透明背景",
                     checked = blurEnabled,
                     onCheckedChange = onBlurEnabled
                 )
             }
         }
-        item { InfoCard("顯示效果", "可選擇使用背景模糊；為避免部分裝置閃爍，頁面滑動期間會暫時使用半透明背景。") }
+        item { InfoCard("顯示效果", "可選擇使用背景模糊；關閉後頂欄與底欄會改用穩定的半透明背景。") }
     }
 
     private fun LazyListScope.logPage(events: List<LogEvent>, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
