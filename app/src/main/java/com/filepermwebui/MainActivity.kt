@@ -124,6 +124,7 @@ private const val DOWNLOADED = 6
 private const val DISPLAY = 7
 private const val CONVERSION = 8
 private const val UPDATE = 9
+private const val TOP_LEVEL_CONTAINER = -1
 private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
@@ -156,6 +157,8 @@ class MainActivity : ComponentActivity() {
     private fun App(themeMode: String, onThemeMode: (String) -> Unit) {
         val taskState: MainTaskViewModel = viewModel()
         var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
+        var navigationStack by rememberSaveable { mutableStateOf(intArrayOf()) }
+        var navigationDirection by rememberSaveable { mutableIntStateOf(1) }
         val topPages = remember { listOf(OVERVIEW, LOGS, SETTINGS) }
         val pagerState = rememberPagerState(initialPage = topPages.indexOf(page).coerceAtLeast(0), pageCount = { topPages.size })
         var revision by remember { mutableIntStateOf(0) }
@@ -324,8 +327,25 @@ class MainActivity : ComponentActivity() {
         }
         val title = when (page) { OVERVIEW -> "LCPatch"; SETTINGS -> "設定"; LOGS -> "日誌"; ABOUT -> "關於"; UPDATE -> "應用程式更新"; DOWNLOAD -> "下載漢化"; DOWNLOADED -> "選擇套用"; DISPLAY -> "介面與顯示"; CONVERSION -> "繁簡轉換"; ONBOARDING -> "環境與權限"; else -> "LCPatch" }
         val onboardingDone = appPrefs.getBoolean("onboarding_done", false)
+        fun navigateTo(target: Int) {
+            if (target == page) return
+            if (target in topPages) {
+                navigationStack = intArrayOf()
+                navigationDirection = -1
+            } else {
+                navigationStack = navigationStack + page
+                navigationDirection = 1
+            }
+            page = target
+        }
         fun navigateBack() {
-            page = parentPage(page)
+            navigationDirection = -1
+            if (navigationStack.isNotEmpty()) {
+                page = navigationStack.last()
+                navigationStack = navigationStack.copyOf(navigationStack.size - 1)
+            } else {
+                page = parentPage(page)
+            }
         }
         LaunchedEffect(page, activeName, applying, targetLanguage.id) {
             if (page == OVERVIEW && !applying) {
@@ -465,7 +485,7 @@ class MainActivity : ComponentActivity() {
         }
 
         BackHandler(enabled = page != OVERVIEW && (page != ONBOARDING || onboardingDone)) {
-            page = if (page == SETTINGS || page == LOGS) OVERVIEW else parentPage(page)
+            navigateBack()
         }
 
         Scaffold(
@@ -490,6 +510,8 @@ class MainActivity : ComponentActivity() {
                     if (navigationStyle == "floating") {
                         SukiFloatingBottomBar(
                             selectedIndex = pagerState.settledPage,
+                            navigationPosition = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                                .coerceIn(0f, topPages.lastIndex.toFloat()),
                             onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                             onDragProgress = { position ->
                                 val nearestPage = position.roundToInt().coerceIn(0, topPages.lastIndex)
@@ -535,7 +557,8 @@ class MainActivity : ComponentActivity() {
                 contentPadding = PaddingValues(
                     start = 12.dp, end = 12.dp,
                     top = padding.calculateTopPadding() + 12.dp,
-                    bottom = padding.calculateBottomPadding() + 16.dp
+                    bottom = padding.calculateBottomPadding() +
+                        if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -551,18 +574,18 @@ class MainActivity : ComponentActivity() {
                         },
                         targetLanguage = targetLanguage,
                         runtimeInspection = runtimeInspection,
-                        onDownload = { page = DOWNLOAD },
-                        onDownloaded = { page = DOWNLOADED }
+                        onDownload = { navigateTo(DOWNLOAD) },
+                        onDownloaded = { navigateTo(DOWNLOADED) }
                     )
                     SETTINGS -> settings(
                         applyProgress = applyProgress,
                         applying = applying,
                         onFolder = { folderPicker.launch(logs.selectedFolder()) },
-                        onAbout = { page = ABOUT },
-                        onUpdate = { page = UPDATE },
-                        onDisplay = { page = DISPLAY },
-                        onConversion = { page = CONVERSION },
-                        onPermissions = { page = ONBOARDING },
+                        onAbout = { navigateTo(ABOUT) },
+                        onUpdate = { navigateTo(UPDATE) },
+                        onDisplay = { navigateTo(DISPLAY) },
+                        onConversion = { navigateTo(CONVERSION) },
+                        onPermissions = { navigateTo(ONBOARDING) },
                         targetLanguage = targetLanguage,
                         fontName = fontName,
                         onLanguage = ::changeTargetLanguage,
@@ -641,7 +664,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onDone = {
                             appPrefs.edit().putBoolean("onboarding_done", true).apply()
-                            page = OVERVIEW
+                            navigateTo(OVERVIEW)
                         }
                     )
                     DOWNLOAD -> downloadPage(
@@ -730,33 +753,28 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                                 }
-                if (page in topPages) {
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        beyondViewportPageCount = 1,
-                        key = { topPages[it] }
-                    ) { index ->
-                        renderPage(topPages[index])
-                    }
-                } else {
                 AnimatedContent(
-                    targetState = page,
+                    targetState = if (page in topPages) TOP_LEVEL_CONTAINER else page,
                     transitionSpec = {
-                        fun navigationOrder(value: Int) = when (value) {
-                            OVERVIEW -> 0
-                            LOGS -> 1
-                            SETTINGS -> 2
-                            else -> value + 3
-                        }
-                        val direction = if (navigationOrder(targetState) > navigationOrder(initialState)) 1 else -1
+                        val direction = navigationDirection
                         (slideInHorizontally(tween(360, easing = PageTransitionEasing)) { direction * it / 10 } +
                             fadeIn(tween(300, easing = PageTransitionEasing))) togetherWith
                             (slideOutHorizontally(tween(300, easing = PageTransitionEasing)) { -direction * it / 12 } +
                                 fadeOut(tween(220, easing = PageTransitionEasing)))
                     },
                     label = "page-transition"
-                ){ animatedPage ->
+                ) { animatedPage ->
+                    if (animatedPage == TOP_LEVEL_CONTAINER) {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            beyondViewportPageCount = 1,
+                            userScrollEnabled = navigationStyle != "floating",
+                            key = { topPages[it] }
+                        ) { index ->
+                            renderPage(topPages[index])
+                        }
+                    } else {
                         renderPage(animatedPage)
                     }
                 }
@@ -788,7 +806,7 @@ class MainActivity : ComponentActivity() {
                                 TextButton(
                                     modifier = Modifier.weight(1f),
                                     text = "查看日誌",
-                                    onClick = { page = LOGS; taskState.dismissNotice() }
+                                    onClick = { navigateTo(LOGS); taskState.dismissNotice() }
                                 )
                                 TextButton(
                                     modifier = Modifier.weight(1f),
