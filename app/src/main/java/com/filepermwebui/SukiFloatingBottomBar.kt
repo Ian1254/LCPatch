@@ -3,6 +3,8 @@ package com.lcpatch
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.List
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -49,13 +51,13 @@ internal fun SukiFloatingBottomBar(
     backdrop: LayerBackdrop?
 ) {
     val selectedOffset by animateDpAsState(
-        targetValue = if (selectedIndex == 0) 4.dp else 84.dp,
+        targetValue = (4 + selectedIndex * 80).dp,
         animationSpec = spring(dampingRatio = 0.88f, stiffness = 250f),
         label = "floating-navigation-indicator"
     )
     val containerColor = MiuixTheme.colorScheme.surfaceContainer
     val barModifier = Modifier
-        .width(168.dp)
+        .width(248.dp)
         .height(64.dp)
         .then(
             if (backdrop != null) {
@@ -89,7 +91,8 @@ internal fun SukiFloatingBottomBar(
             )
             Row(modifier = Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = 4.dp)) {
                 SukiNavigationItem("概觀", MiuixIcons.Home, selectedIndex == 0) { onSelected(0) }
-                SukiNavigationItem("設定", MiuixIcons.Settings, selectedIndex == 1) { onSelected(1) }
+                SukiNavigationItem("日誌", Icons.Default.List, selectedIndex == 1) { onSelected(1) }
+                SukiNavigationItem("設定", MiuixIcons.Settings, selectedIndex == 2) { onSelected(2) }
             }
         }
     }
