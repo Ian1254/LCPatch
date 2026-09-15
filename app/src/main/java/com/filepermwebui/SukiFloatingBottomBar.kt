@@ -43,10 +43,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
@@ -60,7 +58,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 private const val NavigationItemCount = 3
 private const val NavigationItemWidthDp = 80f
 private const val NavigationHorizontalPaddingDp = 4f
-private const val NavigationStretchDp = 30f
 
 @Composable
 internal fun SukiFloatingBottomBar(
@@ -89,17 +86,11 @@ internal fun SukiFloatingBottomBar(
     }
     val visualPosition by animateFloatAsState(
         targetValue = visualTarget.coerceIn(0f, (NavigationItemCount - 1).toFloat()),
-        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.78f, stiffness = 420f),
+        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.82f, stiffness = 460f),
         label = "floating-navigation-position"
     )
 
-    val nearest = visualPosition.roundToInt().toFloat()
-    val distanceFromItem = abs(visualPosition - nearest).coerceIn(0f, 0.5f)
-    val stretchPhase = (distanceFromItem / 0.5f).coerceIn(0f, 1f)
-    val stretch = sin(stretchPhase * PI / 2.0).toFloat().coerceIn(0f, 1f)
-    val indicatorWidthDp = NavigationItemWidthDp + NavigationStretchDp * stretch
-    val indicatorTranslationDp = NavigationHorizontalPaddingDp +
-        visualPosition * NavigationItemWidthDp - (indicatorWidthDp - NavigationItemWidthDp) / 2f
+    val indicatorTranslationDp = NavigationHorizontalPaddingDp + visualPosition * NavigationItemWidthDp
     val containerColor = MiuixTheme.colorScheme.surfaceContainer
 
     val barModifier = Modifier
@@ -171,7 +162,7 @@ internal fun SukiFloatingBottomBar(
                     .graphicsLayer {
                         translationX = with(density) { indicatorTranslationDp.dp.toPx() }
                     }
-                    .width(indicatorWidthDp.dp)
+                    .width(NavigationItemWidthDp.dp)
                     .height(56.dp)
                     .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f), CircleShape)
             )
