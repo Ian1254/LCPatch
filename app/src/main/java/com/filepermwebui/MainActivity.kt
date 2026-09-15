@@ -493,9 +493,9 @@ class MainActivity : ComponentActivity() {
                             NavigationBar(
                             color = Color.Transparent
                         ) {
-                                NavigationBarItem(selected = page == OVERVIEW, onClick = { scope.launch { pagerState.animateScrollToPage(0) } }, icon = MiuixIcons.Home, label = "概觀")
-                                NavigationBarItem(selected = page == LOGS, onClick = { scope.launch { pagerState.animateScrollToPage(1) } }, icon = Icons.Default.List, label = "日誌")
-                                NavigationBarItem(selected = page == SETTINGS, onClick = { scope.launch { pagerState.animateScrollToPage(2) } }, icon = MiuixIcons.Settings, label = "設定")
+                                NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { scope.launch { pagerState.animateScrollToPage(0) } }, icon = MiuixIcons.Home, label = "概觀")
+                                NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { scope.launch { pagerState.animateScrollToPage(1) } }, icon = Icons.Default.List, label = "日誌")
+                                NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { scope.launch { pagerState.animateScrollToPage(2) } }, icon = MiuixIcons.Settings, label = "設定")
                             }
                         }
                     }
@@ -503,42 +503,12 @@ class MainActivity : ComponentActivity() {
             }
         ) { padding ->
             Box(modifier = Modifier.fillMaxSize().then(if (barBackdrop != null) Modifier.layerBackdrop(barBackdrop) else Modifier)) {
-                val renderPage: @Composable (Int) -> Unit = { visiblePage ->
+                val renderPage: @Composable (Int) -> Unit = { visiblePage -> visiblePage ->
                     val visibleListState = when (visiblePage) {
                         OVERVIEW -> overviewListState; SETTINGS -> settingsListState; LOGS -> logsListState
                         ABOUT -> aboutListState; DOWNLOAD -> downloadListState; ONBOARDING -> onboardingListState
                         DOWNLOADED -> downloadedListState; DISPLAY -> displayListState; else -> conversionListState
-                                    }
-                if (page in topPages) {
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        beyondViewportPageCount = 1,
-                        key = { topPages[it] }
-                    ) { index ->
-                        renderPage(topPages[index])
                     }
-                } else {
-                AnimatedContent(
-                    targetState = page,
-                    transitionSpec = {
-                        fun navigationOrder(value: Int) = when (value) {
-                            OVERVIEW -> 0
-                            LOGS -> 1
-                            SETTINGS -> 2
-                            else -> value + 3
-                        }
-                        val direction = if (navigationOrder(targetState) > navigationOrder(initialState)) 1 else -1
-                        (slideInHorizontally(tween(360, easing = PageTransitionEasing)) { direction * it / 10 } +
-                            fadeIn(tween(300, easing = PageTransitionEasing))) togetherWith
-                            (slideOutHorizontally(tween(300, easing = PageTransitionEasing)) { -direction * it / 12 } +
-                                fadeOut(tween(220, easing = PageTransitionEasing)))
-                    },
-                    label = "page-transition"
-                ){ animatedPage ->
-                        renderPage(animatedPage)
-                    }
-                }
                     val visibleScrollBehavior = when (visiblePage) {
                         OVERVIEW -> overviewScrollBehavior; SETTINGS -> settingsScrollBehavior; LOGS -> logsScrollBehavior
                         ABOUT -> aboutScrollBehavior; DOWNLOAD -> downloadScrollBehavior; ONBOARDING -> onboardingScrollBehavior
@@ -727,6 +697,36 @@ class MainActivity : ComponentActivity() {
                 }
                             }
                         }
+                    }
+                                }
+                if (page in topPages) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        beyondViewportPageCount = 1,
+                        key = { topPages[it] }
+                    ) { index ->
+                        renderPage(topPages[index])
+                    }
+                } else {
+                AnimatedContent(
+                    targetState = page,
+                    transitionSpec = {
+                        fun navigationOrder(value: Int) = when (value) {
+                            OVERVIEW -> 0
+                            LOGS -> 1
+                            SETTINGS -> 2
+                            else -> value + 3
+                        }
+                        val direction = if (navigationOrder(targetState) > navigationOrder(initialState)) 1 else -1
+                        (slideInHorizontally(tween(360, easing = PageTransitionEasing)) { direction * it / 10 } +
+                            fadeIn(tween(300, easing = PageTransitionEasing))) togetherWith
+                            (slideOutHorizontally(tween(300, easing = PageTransitionEasing)) { -direction * it / 12 } +
+                                fadeOut(tween(220, easing = PageTransitionEasing)))
+                    },
+                    label = "page-transition"
+                ){ animatedPage ->
+                        renderPage(animatedPage)
                     }
                 }
                 message?.let { notice ->
