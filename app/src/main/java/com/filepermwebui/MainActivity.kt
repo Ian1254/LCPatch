@@ -691,41 +691,43 @@ class MainActivity : ComponentActivity() {
         }
 
         val renderNotice: @Composable (PaddingValues) -> Unit = { padding ->
-            message?.let { notice ->
-                Card(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(start = 18.dp, end = 18.dp, bottom = padding.calculateBottomPadding() + 14.dp),
-                    insideMargin = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-                    colors = CardDefaults.defaultColors(
-                        color = if (messageIsError) MiuixTheme.colorScheme.error.copy(alpha = 0.14f)
-                        else MiuixTheme.colorScheme.surfaceContainer
-                    )
-                ) {
-                    Text(notice, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    if (messageIsError) {
-                        Spacer(Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (taskState.retryAction != null) {
+            Box(Modifier.fillMaxSize()) {
+                message?.let { notice ->
+                    Card(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(start = 18.dp, end = 18.dp, bottom = padding.calculateBottomPadding() + 14.dp),
+                        insideMargin = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+                        colors = CardDefaults.defaultColors(
+                            color = if (messageIsError) MiuixTheme.colorScheme.error.copy(alpha = 0.14f)
+                            else MiuixTheme.colorScheme.surfaceContainer
+                        )
+                    ) {
+                        Text(notice, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        if (messageIsError) {
+                            Spacer(Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (taskState.retryAction != null) {
+                                    TextButton(
+                                        modifier = Modifier.weight(1f),
+                                        text = "重試",
+                                        onClick = taskState::retry
+                                    )
+                                }
                                 TextButton(
                                     modifier = Modifier.weight(1f),
-                                    text = "重試",
-                                    onClick = taskState::retry
+                                    text = "查看日誌",
+                                    onClick = { navigateTo(LOGS); taskState.dismissNotice() }
+                                )
+                                TextButton(
+                                    modifier = Modifier.weight(1f),
+                                    text = "關閉",
+                                    onClick = taskState::dismissNotice
                                 )
                             }
-                            TextButton(
-                                modifier = Modifier.weight(1f),
-                                text = "查看日誌",
-                                onClick = { navigateTo(LOGS); taskState.dismissNotice() }
-                            )
-                            TextButton(
-                                modifier = Modifier.weight(1f),
-                                text = "關閉",
-                                onClick = taskState::dismissNotice
-                            )
                         }
                     }
                 }
@@ -989,7 +991,7 @@ class MainActivity : ComponentActivity() {
                     title = "深淺模式",
                     items = listOf("跟隨系統", "淺色", "深色"),
                     selectedIndex = when (themeMode) { "light" -> 1; "dark" -> 2; else -> 0 },
-                    onSelectedIndexChange = { onThemeMode(when (it) { 1 -> "light"; 2 -> "dark"; else -> "system" }) }
+                    onSelectedIndexChange = { onThemeMode(when (it) { 1 -> "light"; 2 -> "dark"; else -> "system") }
                 )
                 OverlayDropdownPreference(
                     modifier = PreferenceItemModifier,
