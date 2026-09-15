@@ -12,8 +12,8 @@ android {
         applicationId = "com.lcpatch"
         minSdk = 28
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.2.0-beta.4"
+        versionCode = 8
+        versionName = "1.2.0-beta.5"
         ndk { abiFilters += "arm64-v8a" }
     }
 
