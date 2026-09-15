@@ -344,7 +344,7 @@ class MainActivity : ComponentActivity() {
                 page = navigationStack.last()
                 navigationStack = navigationStack.copyOf(navigationStack.size - 1)
             } else {
-                page = parentPage(page)
+                page = if (page == SETTINGS || page == LOGS) OVERVIEW else parentPage(page)
             }
         }
         LaunchedEffect(page, activeName, applying, targetLanguage.id) {
