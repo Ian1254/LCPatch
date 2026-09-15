@@ -96,7 +96,7 @@ class AppUpdateRepository(private val context: Context) {
             try {
                 connection.inputStream.use { input ->
                     FileOutputStream(part, resumed).buffered().use { target ->
-                        val buffer = ByteArray(64 * 1024)
+                        val buffer = ByteArray(256 * 1024)
                         while (true) {
                             coroutineContext.ensureActive()
                             val count = input.read(buffer)
@@ -104,7 +104,7 @@ class AppUpdateRepository(private val context: Context) {
                             target.write(buffer, 0, count)
                             bytes += count
                             val now = System.nanoTime()
-                            if (now - lastTime >= 150_000_000L) {
+                            if (now - lastTime >= 500_000_000L) {
                                 val speed = ((bytes - lastBytes) * 1_000_000_000L /
                                     (now - lastTime)).coerceAtLeast(0)
                                 progress(TransferProgress(release.apkName, bytes, total, speed))
@@ -135,8 +135,9 @@ class AppUpdateRepository(private val context: Context) {
                 )
             )
             output
-        } finally {
-            if (!completed) part.delete()
+        } catch (error: Throwable) {
+            if (part.length() <= 4L) part.delete()
+            throw error
         }
     }
 
@@ -154,7 +155,7 @@ class AppUpdateRepository(private val context: Context) {
     private fun verifySha256(file: File, expected: String) {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().buffered().use { input ->
-            val buffer = ByteArray(64 * 1024)
+            val buffer = ByteArray(256 * 1024)
             while (true) {
                 val count = input.read(buffer)
                 if (count < 0) break
@@ -169,6 +170,7 @@ class AppUpdateRepository(private val context: Context) {
         (URL(value).openConnection() as HttpURLConnection).apply {
             connectTimeout = 20_000
             readTimeout = 60_000
+            useCaches = false
             instanceFollowRedirects = true
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("User-Agent", "LCPatch/" + BuildConfig.VERSION_NAME)
