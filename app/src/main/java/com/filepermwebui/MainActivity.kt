@@ -64,8 +64,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -328,7 +326,6 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(page) {
             if (page == OVERVIEW || page == ONBOARDING) refreshScopeStatus()
         }
-        val title = when (page) { OVERVIEW -> "LCPatch"; SETTINGS -> "設定"; LOGS -> "日誌"; ABOUT -> "關於"; UPDATE -> "應用程式更新"; DOWNLOAD -> "下載漢化"; DOWNLOADED -> "選擇套用"; DISPLAY -> "介面與顯示"; CONVERSION -> "繁簡轉換"; ONBOARDING -> "環境與權限"; else -> "LCPatch" }
         val onboardingDone = appPrefs.getBoolean("onboarding_done", false)
         fun navigateTo(target: Int) {
             if (target == page) return
@@ -491,39 +488,86 @@ class MainActivity : ComponentActivity() {
             navigateBack()
         }
 
+        val shellTarget = if (page in topPages) TOP_LEVEL_CONTAINER else page
         Scaffold(
             contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
             topBar = {
-                TintedBar(activeBarBackdrop) {
-                    val navigationIcon: @Composable () -> Unit = {
-                        if (page == ABOUT || page == UPDATE || page == DOWNLOAD || page == DOWNLOADED || page == DISPLAY || page == CONVERSION || (page == ONBOARDING && onboardingDone)) IconButton(onClick = ::navigateBack) {
-                            Icon(MiuixIcons.Back, contentDescription = "返回")
-                        }
+                AnimatedContent(
+                    targetState = shellTarget,
+                    transitionSpec = {
+                        val direction = navigationDirection
+                        slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
+                            slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
+                    },
+                    label = "top-bar-transition"
+                ) { animatedShell ->
+                    val visiblePage = if (animatedShell == TOP_LEVEL_CONTAINER) topPages[pagerState.settledPage] else animatedShell
+                    val visibleTitle = when (visiblePage) {
+                        OVERVIEW -> "LCPatch"
+                        SETTINGS -> "設定"
+                        LOGS -> "日誌"
+                        ABOUT -> "關於"
+                        UPDATE -> "應用程式更新"
+                        DOWNLOAD -> "下載漢化"
+                        DOWNLOADED -> "選擇套用"
+                        DISPLAY -> "介面與顯示"
+                        CONVERSION -> "繁簡轉換"
+                        ONBOARDING -> "環境與權限"
+                        else -> "LCPatch"
                     }
-                    SmallTopAppBar(
-                        title = title,
-                        color = Color.Transparent,
-                        scrollBehavior = scrollBehavior,
-                        navigationIcon = navigationIcon
-                    )
+                    val visibleScrollBehavior = when (visiblePage) {
+                        OVERVIEW -> overviewScrollBehavior
+                        SETTINGS -> settingsScrollBehavior
+                        LOGS -> logsScrollBehavior
+                        ABOUT -> aboutScrollBehavior
+                        UPDATE -> updateScrollBehavior
+                        DOWNLOAD -> downloadScrollBehavior
+                        ONBOARDING -> onboardingScrollBehavior
+                        DOWNLOADED -> downloadedScrollBehavior
+                        DISPLAY -> displayScrollBehavior
+                        else -> conversionScrollBehavior
+                    }
+                    TintedBar(activeBarBackdrop) {
+                        val navigationIcon: @Composable () -> Unit = {
+                            if (visiblePage !in topPages && (visiblePage != ONBOARDING || onboardingDone)) {
+                                IconButton(onClick = ::navigateBack) {
+                                    Icon(MiuixIcons.Back, contentDescription = "返回")
+                                }
+                            }
+                        }
+                        SmallTopAppBar(
+                            title = visibleTitle,
+                            color = Color.Transparent,
+                            scrollBehavior = visibleScrollBehavior,
+                            navigationIcon = navigationIcon
+                        )
+                    }
                 }
             },
             bottomBar = {
-                if (page == OVERVIEW || page == SETTINGS || page == LOGS) {
-                    if (navigationStyle == "floating") {
-                        SukiFloatingBottomBar(
-                            selectedIndex = pagerState.settledPage,
-                            onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
-                            backdrop = activeBarBackdrop
-                        )
-                    } else {
-                        TintedBar(activeBarBackdrop) {
-                            NavigationBar(
-                            color = Color.Transparent
-                        ) {
-                                NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { scope.launch { pagerState.animateScrollToPage(0) } }, icon = MiuixIcons.Home, label = "概觀")
-                                NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { scope.launch { pagerState.animateScrollToPage(1) } }, icon = Icons.Default.List, label = "日誌")
-                                NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { scope.launch { pagerState.animateScrollToPage(2) } }, icon = MiuixIcons.Settings, label = "設定")
+                AnimatedContent(
+                    targetState = shellTarget,
+                    transitionSpec = {
+                        val direction = navigationDirection
+                        slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
+                            slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
+                    },
+                    label = "bottom-bar-transition"
+                ) { animatedShell ->
+                    if (animatedShell == TOP_LEVEL_CONTAINER) {
+                        if (navigationStyle == "floating") {
+                            SukiFloatingBottomBar(
+                                selectedIndex = pagerState.settledPage,
+                                onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
+                                backdrop = activeBarBackdrop
+                            )
+                        } else {
+                            TintedBar(activeBarBackdrop) {
+                                NavigationBar(color = Color.Transparent) {
+                                    NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { scope.launch { pagerState.animateScrollToPage(0) } }, icon = MiuixIcons.Home, label = "概觀")
+                                    NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { scope.launch { pagerState.animateScrollToPage(1) } }, icon = Icons.Default.List, label = "日誌")
+                                    NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { scope.launch { pagerState.animateScrollToPage(2) } }, icon = MiuixIcons.Settings, label = "設定")
+                                }
                             }
                         }
                     }
@@ -543,7 +587,6 @@ class MainActivity : ComponentActivity() {
                         DOWNLOADED -> downloadedScrollBehavior; DISPLAY -> displayScrollBehavior; else -> conversionScrollBehavior
                     }
                     Box(Modifier.fillMaxSize()) {
-                        // 關於頁不再疊加動畫遮罩，避免內容被異常著色
                         key(visiblePage) {
                             LazyColumn(
                 state = visibleListState,
@@ -735,13 +778,11 @@ class MainActivity : ComponentActivity() {
                     }
                                 }
                 AnimatedContent(
-                    targetState = if (page in topPages) TOP_LEVEL_CONTAINER else page,
+                    targetState = shellTarget,
                     transitionSpec = {
                         val direction = navigationDirection
-                        (slideInHorizontally(tween(380, easing = PageTransitionEasing)) { direction * it } +
-                            fadeIn(tween(140, easing = PageTransitionEasing))) togetherWith
-                            (slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it / 4 } +
-                                fadeOut(tween(180, easing = PageTransitionEasing)))
+                        slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
+                            slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
                     },
                     label = "page-transition"
                 ) { animatedPage ->
