@@ -82,8 +82,6 @@ internal fun SukiFloatingBottomBar(
         if (!dragging && pendingTarget == selectedIndex) pendingTarget = null
     }
 
-    // Dragging only previews the bottom-bar selection. The pager is intentionally not
-    // driven here; once the gesture settles, MainActivity receives one final target.
     val visualTarget = if (dragging) {
         dragPosition
     } else {
@@ -95,13 +93,10 @@ internal fun SukiFloatingBottomBar(
         label = "floating-navigation-position"
     )
 
-    // Stretch most strongly half-way between two destinations and shrink back when the
-    // indicator reaches an item. This produces the liquid/elastic bridge visible in the
-    // reference navigation bar without changing the existing visual language.
     val nearest = visualPosition.roundToInt().toFloat()
     val distanceFromItem = abs(visualPosition - nearest).coerceIn(0f, 0.5f)
     val stretchPhase = (distanceFromItem / 0.5f).coerceIn(0f, 1f)
-    val stretch = sin(stretchPhase * PI).toFloat().coerceIn(0f, 1f)
+    val stretch = sin(stretchPhase * PI / 2.0).toFloat().coerceIn(0f, 1f)
     val indicatorWidthDp = NavigationItemWidthDp + NavigationStretchDp * stretch
     val indicatorTranslationDp = NavigationHorizontalPaddingDp +
         visualPosition * NavigationItemWidthDp - (indicatorWidthDp - NavigationItemWidthDp) / 2f
