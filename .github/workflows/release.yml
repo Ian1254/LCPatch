@@ -34,6 +34,10 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
           fi
           test -n "$VERSION" || { echo 'Release version is empty'; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || {
+            echo "Invalid release version: $VERSION"
+            exit 1
+          }
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=v$VERSION" >> "$GITHUB_ENV"
 
@@ -129,3 +133,18 @@ jobs:
             --notes-file RELEASE_NOTES.md \
             "${TARGET_ARGS[@]}" \
             "${PRERELEASE_ARGS[@]}"
+
+
+      - name: Keep only latest prerelease
+        if: contains(env.VERSION, '-')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 100 --json tagName,isPrerelease \
+            --jq ".[] | select(.isPrerelease == true and .tagName != \"$RELEASE_TAG\") | .tagName" |
+          while IFS= read -r OLD_TAG; do
+            test -n "$OLD_TAG" || continue
+            echo "Removing old prerelease $OLD_TAG"
+            gh release delete "$OLD_TAG" --cleanup-tag --yes
+          done
