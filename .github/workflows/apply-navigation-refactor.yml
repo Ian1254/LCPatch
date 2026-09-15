@@ -12,164 +12,21 @@ permissions:
 
 jobs:
   apply:
-    if: ${{ !contains(github.event.head_commit.message, '[navigation-refactor-applied]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: navigation/continuous-bottom-bar
           fetch-depth: 0
-
       - name: Rewrite navigation host
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('app/src/main/java/com/filepermwebui/MainActivity.kt')
-          text = path.read_text()
-
-          def replace_once(old: str, new: str, label: str) -> None:
-              global text
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
-              text = text.replace(old, new, 1)
-
-          replace_once(
-              'private const val UPDATE = 9\n',
-              'private const val UPDATE = 9\nprivate const val TOP_LEVEL_CONTAINER = -1\n',
-              'top-level container constant'
-          )
-
-          page_decl = '        var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }\n'
-          replace_once(
-              page_decl,
-              page_decl +
-              '        var navigationStack by rememberSaveable { mutableStateOf(intArrayOf()) }\n' +
-              '        var navigationDirection by rememberSaveable { mutableIntStateOf(1) }\n',
-              'navigation state'
-          )
-
-          replace_once(
-              '''        fun navigateBack() {
-              page = parentPage(page)
-          }''',
-              '''        fun navigateTo(target: Int) {
-              if (target == page) return
-              if (target in topPages) {
-                  navigationStack = intArrayOf()
-                  navigationDirection = -1
-              } else {
-                  navigationStack = navigationStack + page
-                  navigationDirection = 1
-              }
-              page = target
-          }
-          fun navigateBack() {
-              navigationDirection = -1
-              if (navigationStack.isNotEmpty()) {
-                  page = navigationStack.last()
-                  navigationStack = navigationStack.copyOf(navigationStack.size - 1)
-              } else {
-                  page = parentPage(page)
-              }
-          }''',
-              'navigation helpers'
-          )
-
-          replace_once(
-              '''        BackHandler(enabled = page != OVERVIEW && (page != ONBOARDING || onboardingDone)) {
-              page = if (page == SETTINGS || page == LOGS) OVERVIEW else parentPage(page)
-          }''',
-              '''        BackHandler(enabled = page != OVERVIEW && (page != ONBOARDING || onboardingDone)) {
-              navigateBack()
-          }''',
-              'back handler'
-          )
-
-          replace_once(
-              '                            selectedIndex = pagerState.settledPage,\n',
-              '                            selectedIndex = pagerState.settledPage,\n'
-              '                            navigationPosition = (pagerState.currentPage + pagerState.currentPageOffsetFraction)\n'
-              '                                .coerceIn(0f, topPages.lastIndex.toFloat()),\n',
-              'shared navigation position'
-          )
-
-          replace_once(
-              '                    bottom = padding.calculateBottomPadding() + 16.dp\n',
-              '                    bottom = padding.calculateBottomPadding() +\n'
-              '                        if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp\n',
-              'floating bottom inset'
-          )
-
-          replacements = {
-              'onDownload = { page = DOWNLOAD }': 'onDownload = { navigateTo(DOWNLOAD) }',
-              'onDownloaded = { page = DOWNLOADED }': 'onDownloaded = { navigateTo(DOWNLOADED) }',
-              'onAbout = { page = ABOUT }': 'onAbout = { navigateTo(ABOUT) }',
-              'onUpdate = { page = UPDATE }': 'onUpdate = { navigateTo(UPDATE) }',
-              'onDisplay = { page = DISPLAY }': 'onDisplay = { navigateTo(DISPLAY) }',
-              'onConversion = { page = CONVERSION }': 'onConversion = { navigateTo(CONVERSION) }',
-              'onPermissions = { page = ONBOARDING }': 'onPermissions = { navigateTo(ONBOARDING) }',
-              'page = OVERVIEW\n                        }': 'navigateTo(OVERVIEW)\n                        }',
-              'onClick = { page = LOGS; taskState.dismissNotice() }': 'onClick = { navigateTo(LOGS); taskState.dismissNotice() }',
-          }
-          for old, new in replacements.items():
-              replace_once(old, new, old)
-
-          start_marker = '''                if (page in topPages) {
-              HorizontalPager('''
-          end_marker = '''                message?.let { notice ->'''
-          start = text.find(start_marker)
-          if start < 0:
-              raise SystemExit('top-level pager block: start marker not found')
-          end = text.find(end_marker, start)
-          if end < 0:
-              raise SystemExit('top-level pager block: end marker not found')
-
-          new_host = '''                AnimatedContent(
-              targetState = if (page in topPages) TOP_LEVEL_CONTAINER else page,
-              transitionSpec = {
-                  val direction = navigationDirection
-                  (slideInHorizontally(tween(360, easing = PageTransitionEasing)) { direction * it / 10 } +
-                      fadeIn(tween(300, easing = PageTransitionEasing))) togetherWith
-                      (slideOutHorizontally(tween(300, easing = PageTransitionEasing)) { -direction * it / 12 } +
-                          fadeOut(tween(220, easing = PageTransitionEasing)))
-              },
-              label = "page-transition"
-          ) { animatedPage ->
-              if (animatedPage == TOP_LEVEL_CONTAINER) {
-                  HorizontalPager(
-                      state = pagerState,
-                      modifier = Modifier.fillMaxSize(),
-                      beyondViewportPageCount = 1,
-                      userScrollEnabled = navigationStyle != "floating",
-                      key = { topPages[it] }
-                  ) { index ->
-                      renderPage(topPages[index])
-                  }
-              } else {
-                  renderPage(animatedPage)
-              }
-          }
-'''
-          text = text[:start] + new_host + text[end:]
-
-          path.write_text(text)
-          PY
-
-      - name: Sanity check rewritten source
-        run: |
-          grep -q 'userScrollEnabled = navigationStyle != "floating"' app/src/main/java/com/filepermwebui/MainActivity.kt
-          grep -q 'navigationPosition = (pagerState.currentPage + pagerState.currentPageOffsetFraction)' app/src/main/java/com/filepermwebui/MainActivity.kt
-          grep -q 'targetState = if (page in topPages) TOP_LEVEL_CONTAINER else page' app/src/main/java/com/filepermwebui/MainActivity.kt
-          ! grep -q 'fun navigationOrder' app/src/main/java/com/filepermwebui/MainActivity.kt
-
+        run: python3 .github/scripts/apply_navigation_refactor.py
       - name: Commit refactor
         run: |
           rm -f .github/navigation-refactor.patch
-          rm .github/workflows/apply-navigation-refactor.yml
+          rm -f .github/scripts/apply_navigation_refactor.py
+          rm -f .github/workflows/apply-navigation-refactor.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "refactor: unify bottom navigation and page transitions [navigation-refactor-applied]"
+          git commit -m "refactor: unify bottom navigation and page transitions"
           git push origin HEAD:navigation/continuous-bottom-bar
