@@ -5,7 +5,6 @@ on:
     branches:
       - navigation/continuous-bottom-bar
     paths:
-      - .github/navigation-refactor.patch
       - .github/workflows/apply-navigation-refactor.yml
 
 permissions:
@@ -20,13 +19,176 @@ jobs:
         with:
           ref: navigation/continuous-bottom-bar
           fetch-depth: 0
-      - name: Apply patch
+      - name: Rewrite navigation host
         run: |
-          git apply --check .github/navigation-refactor.patch
-          git apply .github/navigation-refactor.patch
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/com/filepermwebui/MainActivity.kt')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one match, found {count}: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+          '''private const val UPDATE = 9
+          private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))''',
+          '''private const val UPDATE = 9
+          private const val TOP_LEVEL_CONTAINER = -1
+          private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))''')
+
+          replace_once(
+          '''        var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
+                  val topPages = remember { listOf(OVERVIEW, LOGS, SETTINGS) }''',
+          '''        var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
+                  var navigationStack by rememberSaveable { mutableStateOf(intArrayOf()) }
+                  var navigationDirection by rememberSaveable { mutableIntStateOf(1) }
+                  val topPages = remember { listOf(OVERVIEW, LOGS, SETTINGS) }''')
+
+          replace_once(
+          '''        val onboardingDone = appPrefs.getBoolean("onboarding_done", false)
+                  fun navigateBack() {
+                      page = parentPage(page)
+                  }''',
+          '''        val onboardingDone = appPrefs.getBoolean("onboarding_done", false)
+                  fun navigateTo(target: Int) {
+                      if (target == page) return
+                      if (target in topPages) {
+                          navigationStack = intArrayOf()
+                          navigationDirection = -1
+                      } else {
+                          navigationStack = navigationStack + page
+                          navigationDirection = 1
+                      }
+                      page = target
+                  }
+                  fun navigateBack() {
+                      navigationDirection = -1
+                      if (navigationStack.isNotEmpty()) {
+                          page = navigationStack.last()
+                          navigationStack = navigationStack.copyOf(navigationStack.size - 1)
+                      } else {
+                          page = parentPage(page)
+                      }
+                  }''')
+
+          replace_once(
+          '''        BackHandler(enabled = page != OVERVIEW && (page != ONBOARDING || onboardingDone)) {
+                      page = if (page == SETTINGS || page == LOGS) OVERVIEW else parentPage(page)
+                  }''',
+          '''        BackHandler(enabled = page != OVERVIEW && (page != ONBOARDING || onboardingDone)) {
+                      navigateBack()
+                  }''')
+
+          replace_once(
+          '''                        SukiFloatingBottomBar(
+                                      selectedIndex = pagerState.settledPage,
+                                      onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },''',
+          '''                        SukiFloatingBottomBar(
+                                      selectedIndex = pagerState.settledPage,
+                                      navigationPosition = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                                          .coerceIn(0f, topPages.lastIndex.toFloat()),
+                                      onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },''')
+
+          replace_once(
+          '''                    bottom = padding.calculateBottomPadding() + 16.dp''',
+          '''                    bottom = padding.calculateBottomPadding() +
+                                  if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp''')
+
+          replace_once(
+          '''                        onDownload = { page = DOWNLOAD },
+                                      onDownloaded = { page = DOWNLOADED }''',
+          '''                        onDownload = { navigateTo(DOWNLOAD) },
+                                      onDownloaded = { navigateTo(DOWNLOADED) }''')
+
+          replace_once(
+          '''                        onAbout = { page = ABOUT },
+                                      onUpdate = { page = UPDATE },
+                                      onDisplay = { page = DISPLAY },
+                                      onConversion = { page = CONVERSION },
+                                      onPermissions = { page = ONBOARDING },''',
+          '''                        onAbout = { navigateTo(ABOUT) },
+                                      onUpdate = { navigateTo(UPDATE) },
+                                      onDisplay = { navigateTo(DISPLAY) },
+                                      onConversion = { navigateTo(CONVERSION) },
+                                      onPermissions = { navigateTo(ONBOARDING) },''')
+
+          replace_once(
+          '''                            appPrefs.edit().putBoolean("onboarding_done", true).apply()
+                                      page = OVERVIEW''',
+          '''                            appPrefs.edit().putBoolean("onboarding_done", true).apply()
+                                      navigateTo(OVERVIEW)''')
+
+          replace_once(
+          '''                if (page in topPages) {
+                              HorizontalPager(
+                                  state = pagerState,
+                                  modifier = Modifier.fillMaxSize(),
+                                  beyondViewportPageCount = 1,
+                                  key = { topPages[it] }
+                              ) { index ->
+                                  renderPage(topPages[index])
+                              }
+                          } else {
+                          AnimatedContent(
+                              targetState = page,
+                              transitionSpec = {
+                                  fun navigationOrder(value: Int) = when (value) {
+                                      OVERVIEW -> 0
+                                      LOGS -> 1
+                                      SETTINGS -> 2
+                                      else -> value + 3
+                                  }
+                                  val direction = if (navigationOrder(targetState) > navigationOrder(initialState)) 1 else -1
+                                  (slideInHorizontally(tween(360, easing = PageTransitionEasing)) { direction * it / 10 } +
+                                      fadeIn(tween(300, easing = PageTransitionEasing))) togetherWith
+                                      (slideOutHorizontally(tween(300, easing = PageTransitionEasing)) { -direction * it / 12 } +
+                                          fadeOut(tween(220, easing = PageTransitionEasing)))
+                              },
+                              label = "page-transition"
+                          ){ animatedPage ->
+                                  renderPage(animatedPage)
+                              }
+                          }''',
+          '''                AnimatedContent(
+                              targetState = if (page in topPages) TOP_LEVEL_CONTAINER else page,
+                              transitionSpec = {
+                                  val direction = navigationDirection
+                                  (slideInHorizontally(tween(360, easing = PageTransitionEasing)) { direction * it / 10 } +
+                                      fadeIn(tween(300, easing = PageTransitionEasing))) togetherWith
+                                      (slideOutHorizontally(tween(300, easing = PageTransitionEasing)) { -direction * it / 12 } +
+                                          fadeOut(tween(220, easing = PageTransitionEasing)))
+                              },
+                              label = "page-transition"
+                          ) { animatedPage ->
+                              if (animatedPage == TOP_LEVEL_CONTAINER) {
+                                  HorizontalPager(
+                                      state = pagerState,
+                                      modifier = Modifier.fillMaxSize(),
+                                      beyondViewportPageCount = 1,
+                                      userScrollEnabled = navigationStyle != "floating",
+                                      key = { topPages[it] }
+                                  ) { index ->
+                                      renderPage(topPages[index])
+                                  }
+                              } else {
+                                  renderPage(animatedPage)
+                              }
+                          }''')
+
+          replace_once(
+          '''                                    onClick = { page = LOGS; taskState.dismissNotice() }''',
+          '''                                    onClick = { navigateTo(LOGS); taskState.dismissNotice() }''')
+
+          path.write_text(text)
+          PY
       - name: Commit refactor
         run: |
-          rm .github/navigation-refactor.patch
+          rm -f .github/navigation-refactor.patch
           rm .github/workflows/apply-navigation-refactor.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
