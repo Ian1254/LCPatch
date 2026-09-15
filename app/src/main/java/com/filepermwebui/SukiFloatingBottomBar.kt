@@ -52,6 +52,10 @@ import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+private const val NavigationItemCount = 3
+private const val NavigationItemWidthDp = 80f
+private const val NavigationHorizontalPaddingDp = 4f
+
 @Composable
 internal fun SukiFloatingBottomBar(
     selectedIndex: Int,
@@ -61,14 +65,21 @@ internal fun SukiFloatingBottomBar(
 ) {
     val density = LocalDensity.current
     var dragging by remember { mutableStateOf(false) }
+    var dragAccepted by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
     val animatedOffset by animateDpAsState(
-        targetValue = (4 + selectedIndex * 80).dp,
+        targetValue = (NavigationHorizontalPaddingDp + selectedIndex * NavigationItemWidthDp).dp,
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 300f),
         label = "floating-navigation-indicator"
     )
-    val indicatorOffset = if (dragging) (4 + dragPosition * 80).dp else animatedOffset
-    val visualPosition = if (dragging) dragPosition else (animatedOffset.value - 4f) / 80f
+    val indicatorOffset = if (dragging) {
+        (NavigationHorizontalPaddingDp + dragPosition * NavigationItemWidthDp).dp
+    } else animatedOffset
+    val visualPosition = if (dragging) {
+        dragPosition
+    } else {
+        (animatedOffset.value - NavigationHorizontalPaddingDp) / NavigationItemWidthDp
+    }
     val containerColor = MiuixTheme.colorScheme.surfaceContainer
     val barModifier = Modifier
         .width(248.dp)
@@ -86,6 +97,49 @@ internal fun SukiFloatingBottomBar(
             }
         )
         .clip(CircleShape)
+        // Listen on the bar container rather than the indicator itself. The navigation
+        // items are drawn above the indicator, so putting pointerInput on the indicator
+        // made their clickable modifiers win hit testing and prevented the drag from
+        // starting. We still accept a drag only when it began inside the selected capsule.
+        .pointerInput(selectedIndex, density) {
+            val itemWidthPx = NavigationItemWidthDp * density.density
+            val horizontalPaddingPx = NavigationHorizontalPaddingDp * density.density
+            detectHorizontalDragGestures(
+                onDragStart = { start ->
+                    val selectedStart = horizontalPaddingPx + selectedIndex * itemWidthPx
+                    val selectedEnd = selectedStart + itemWidthPx
+                    dragAccepted = start.x in selectedStart..selectedEnd
+                    if (dragAccepted) {
+                        dragging = true
+                        dragPosition = selectedIndex.toFloat()
+                        onDragProgress(dragPosition)
+                    }
+                },
+                onHorizontalDrag = { change, amount ->
+                    if (dragAccepted) {
+                        change.consume()
+                        dragPosition = (dragPosition + amount / itemWidthPx)
+                            .coerceIn(0f, (NavigationItemCount - 1).toFloat())
+                        onDragProgress(dragPosition)
+                    }
+                },
+                onDragEnd = {
+                    if (dragAccepted) {
+                        val target = dragPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
+                        dragging = false
+                        dragAccepted = false
+                        onSelected(target)
+                    }
+                },
+                onDragCancel = {
+                    if (dragAccepted) {
+                        dragging = false
+                        dragAccepted = false
+                        onSelected(selectedIndex)
+                    }
+                }
+            )
+        }
 
     Box(
         modifier = Modifier
@@ -101,30 +155,6 @@ internal fun SukiFloatingBottomBar(
                     .width(80.dp)
                     .height(56.dp)
                     .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f), CircleShape)
-                    .pointerInput(selectedIndex, density) {
-                        detectHorizontalDragGestures(
-                            onDragStart = {
-                                dragging = true
-                                dragPosition = selectedIndex.toFloat()
-                                onDragProgress(dragPosition)
-                            },
-                            onHorizontalDrag = { change, amount ->
-                                change.consume()
-                                dragPosition = (dragPosition + amount / density.density / 80f)
-                                    .coerceIn(0f, 2f)
-                                onDragProgress(dragPosition)
-                            },
-                            onDragEnd = {
-                                val target = dragPosition.roundToInt().coerceIn(0, 2)
-                                dragging = false
-                                onSelected(target)
-                            },
-                            onDragCancel = {
-                                dragging = false
-                                onSelected(selectedIndex)
-                            }
-                        )
-                    }
             )
             Row(modifier = Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = 4.dp)) {
                 SukiNavigationItem("概觀", MiuixIcons.Home, visualPosition, 0) { onSelected(0) }
