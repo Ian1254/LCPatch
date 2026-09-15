@@ -5,11 +5,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurColors
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
+import top.yukonga.miuix.kmp.blur.blur
+import top.yukonga.miuix.kmp.blur.drawBackdrop
 import top.yukonga.miuix.kmp.shader.isRenderEffectSupported
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -28,13 +27,11 @@ internal fun TintedBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit
     val surface = MiuixTheme.colorScheme.surface
     Box(
         modifier = if (backdrop != null) {
-            Modifier.textureBlur(
+            Modifier.drawBackdrop(
                 backdrop = backdrop,
-                shape = RectangleShape,
-                blurRadius = 36f,
-                colors = BlurColors(
-                    blendColors = listOf(BlendColorEntry(surface.copy(alpha = 0.72f)))
-                )
+                shape = { RectangleShape },
+                effects = { blur(36f, 36f) },
+                onDrawSurface = { drawRect(surface.copy(alpha = 0.72f)) }
             )
         } else {
             Modifier.background(surface.copy(alpha = 0.88f))
