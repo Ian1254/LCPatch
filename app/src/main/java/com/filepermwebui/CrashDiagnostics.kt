@@ -1,6 +1,7 @@
 package com.lcpatch
 
 import android.content.Context
+import android.os.SystemClock
 import java.security.MessageDigest
 import java.util.ArrayDeque
 import java.util.concurrent.TimeUnit
@@ -9,8 +10,18 @@ object CrashDiagnostics {
     private const val GAME = "com.ProjectMoon.LimbusCompany"
     private const val NATIVE_LOG = "/storage/emulated/0/Android/data/com.ProjectMoon.LimbusCompany/cache/lcpatch-native.log"
     private const val MAX_CHARS = 48 * 1024
+    private const val MIN_CAPTURE_INTERVAL_MS = 2 * 60 * 1000L
+
+    @Volatile
+    private var lastCaptureElapsedRealtime = 0L
 
     fun capture(context: Context) {
+        val now = SystemClock.elapsedRealtime()
+        synchronized(this) {
+            if (now - lastCaptureElapsedRealtime < MIN_CAPTURE_INTERVAL_MS) return
+            lastCaptureElapsedRealtime = now
+        }
+
         captureNativeBreadcrumbs(context)
         val crashBuffer = runRootCapture("logcat -b crash -d -v threadtime -t 1200")
         val report = extractLatestGameCrash(crashBuffer).ifBlank {
