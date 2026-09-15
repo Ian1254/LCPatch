@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -42,10 +43,9 @@ import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurColors
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
+import top.yukonga.miuix.kmp.blur.blur
+import top.yukonga.miuix.kmp.blur.drawBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Settings
@@ -72,13 +72,11 @@ internal fun SukiFloatingBottomBar(
         .height(64.dp)
         .then(
             if (backdrop != null) {
-                Modifier.textureBlur(
+                Modifier.drawBackdrop(
                     backdrop = backdrop,
-                    shape = CircleShape,
-                    blurRadius = 36f,
-                    colors = BlurColors(
-                        blendColors = listOf(BlendColorEntry(containerColor.copy(alpha = 0.76f)))
-                    )
+                    shape = { CircleShape },
+                    effects = { blur(36f, 36f) },
+                    onDrawSurface = { drawRect(containerColor.copy(alpha = 0.76f)) }
                 )
             } else {
                 Modifier.background(containerColor.copy(alpha = 0.88f), CircleShape)
@@ -113,7 +111,8 @@ internal fun SukiFloatingBottomBar(
         Box(modifier = barModifier) {
             Box(
                 modifier = Modifier
-                    .offset(x = selectedOffset, y = 4.dp)
+                    .offset(y = 4.dp)
+                    .graphicsLayer { translationX = with(density) { selectedOffset.toPx() } }
                     .width(80.dp)
                     .height(56.dp)
                     .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.08f), CircleShape)

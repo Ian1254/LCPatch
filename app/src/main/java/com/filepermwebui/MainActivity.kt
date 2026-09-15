@@ -181,6 +181,7 @@ class MainActivity : ComponentActivity() {
         var scopeStatus by rememberSaveable { mutableStateOf("正在連接") }
         var rootStatus by rememberSaveable { mutableStateOf("尚未授權") }
         var navigationStyle by remember { mutableStateOf(appPrefs.getString("navigation_style", "floating") ?: "floating") }
+        var blurEnabled by remember { mutableStateOf(appPrefs.getBoolean("blur_enabled", true)) }
         var updateChannel by remember { mutableStateOf(appPrefs.getString("update_channel", "stable") ?: "stable") }
         val overviewListState = rememberLazyListState()
         val settingsListState = rememberLazyListState()
@@ -237,6 +238,7 @@ class MainActivity : ComponentActivity() {
             else -> conversionScrollBehavior
         }
         val barBackdrop = rememberBarBackdrop()
+        val activeBarBackdrop = if (blurEnabled) barBackdrop else null
         val scope = rememberCoroutineScope()
         LaunchedEffect(page) {
             val target = topPages.indexOf(page)
@@ -463,7 +465,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
             topBar = {
-                TintedBar(barBackdrop) {
+                TintedBar(activeBarBackdrop) {
                     val navigationIcon: @Composable () -> Unit = {
                         if (page == ABOUT || page == DOWNLOAD || page == DOWNLOADED || page == DISPLAY || page == CONVERSION || (page == ONBOARDING && onboardingDone)) IconButton(onClick = ::navigateBack) {
                             Icon(MiuixIcons.Back, contentDescription = "返回")
@@ -483,10 +485,10 @@ class MainActivity : ComponentActivity() {
                         SukiFloatingBottomBar(
                             selectedIndex = pagerState.currentPage,
                             onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
-                            backdrop = barBackdrop
+                            backdrop = activeBarBackdrop
                         )
                     } else {
-                        TintedBar(barBackdrop) {
+                        TintedBar(activeBarBackdrop) {
                             NavigationBar(
                             color = Color.Transparent
                         ) {
@@ -499,7 +501,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().then(if (barBackdrop != null) Modifier.layerBackdrop(barBackdrop) else Modifier)) {
+            Box(modifier = Modifier.fillMaxSize().then(if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier)) {
                 val renderPage: @Composable (Int) -> Unit = { visiblePage ->
                     val visibleListState = when (visiblePage) {
                         OVERVIEW -> overviewListState; SETTINGS -> settingsListState; LOGS -> logsListState
@@ -589,6 +591,8 @@ class MainActivity : ComponentActivity() {
                         themeMode = themeMode,
                         navigationStyle = navigationStyle,
                         onNavigationStyle = { navigationStyle = it; appPrefs.edit().putString("navigation_style", it).apply() },
+                        blurEnabled = blurEnabled,
+                        onBlurEnabled = { enabled -> blurEnabled = enabled; appPrefs.edit().putBoolean("blur_enabled", enabled).apply() },
                         onThemeMode = onThemeMode
                     )
                     ONBOARDING -> onboardingPage(
@@ -932,6 +936,8 @@ class MainActivity : ComponentActivity() {
         themeMode: String,
         navigationStyle: String,
         onNavigationStyle: (String) -> Unit,
+        blurEnabled: Boolean,
+        onBlurEnabled: (Boolean) -> Unit,
         onThemeMode: (String) -> Unit
     ) {
         item {
@@ -950,9 +956,16 @@ class MainActivity : ComponentActivity() {
                     selectedIndex = if (navigationStyle == "floating") 1 else 0,
                     onSelectedIndexChange = { onNavigationStyle(if (it == 1) "floating" else "standard") }
                 )
+                SwitchPreference(
+                    modifier = PreferenceItemModifier,
+                    title = "背景模糊",
+                    summary = if (blurEnabled) "已啟用；頂欄與底欄保持即時模糊" else "已停用；使用穩定的半透明背景",
+                    checked = blurEnabled,
+                    onCheckedChange = onBlurEnabled
+                )
             }
         }
-        item { InfoCard("顯示效果", "頂欄與底欄使用較強的背景模糊與較高不透明度，保留少量內容色彩。") }
+        item { InfoCard("顯示效果", "可選擇使用背景模糊；關閉後頂欄與底欄會改用穩定的半透明背景。") }
     }
 
     private fun LazyListScope.logPage(events: List<LogEvent>, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
