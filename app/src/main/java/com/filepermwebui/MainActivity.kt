@@ -454,7 +454,7 @@ class MainActivity : ComponentActivity() {
             topBar = {
                 TintedBar(barBackdrop) {
                     val navigationIcon: @Composable () -> Unit = {
-                        if (page == LOGS || page == ABOUT || page == DOWNLOAD || page == DOWNLOADED || page == DISPLAY || page == CONVERSION || (page == ONBOARDING && onboardingDone)) IconButton(onClick = ::navigateBack) {
+                        if (page == ABOUT || page == DOWNLOAD || page == DOWNLOADED || page == DISPLAY || page == CONVERSION || (page == ONBOARDING && onboardingDone)) IconButton(onClick = ::navigateBack) {
                             Icon(MiuixIcons.Back, contentDescription = "返回")
                         }
                     }
@@ -513,7 +513,13 @@ class MainActivity : ComponentActivity() {
                 AnimatedContent(
                     targetState = page,
                     transitionSpec = {
-                        val direction = if (targetState > initialState) 1 else -1
+                        fun navigationOrder(value: Int) = when (value) {
+                            OVERVIEW -> 0
+                            LOGS -> 1
+                            SETTINGS -> 2
+                            else -> value + 3
+                        }
+                        val direction = if (navigationOrder(targetState) > navigationOrder(initialState)) 1 else -1
                         (slideInHorizontally(tween(360, easing = PageTransitionEasing)) { direction * it / 10 } +
                             fadeIn(tween(300, easing = PageTransitionEasing))) togetherWith
                             (slideOutHorizontally(tween(300, easing = PageTransitionEasing)) { -direction * it / 12 } +
