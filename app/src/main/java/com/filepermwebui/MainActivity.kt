@@ -122,6 +122,7 @@ private const val ONBOARDING = 5
 private const val DOWNLOADED = 6
 private const val DISPLAY = 7
 private const val CONVERSION = 8
+private const val UPDATE = 9
 private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
@@ -187,6 +188,7 @@ class MainActivity : ComponentActivity() {
         val settingsListState = rememberLazyListState()
         val logsListState = rememberLazyListState()
         val aboutListState = rememberLazyListState()
+        val updateListState = rememberLazyListState()
         val downloadListState = rememberLazyListState()
         val onboardingListState = rememberLazyListState()
         val downloadedListState = rememberLazyListState()
@@ -197,6 +199,7 @@ class MainActivity : ComponentActivity() {
             SETTINGS -> settingsListState
             LOGS -> logsListState
             ABOUT -> aboutListState
+            UPDATE -> updateListState
             DOWNLOAD -> downloadListState
             ONBOARDING -> onboardingListState
             DOWNLOADED -> downloadedListState
@@ -221,6 +224,7 @@ class MainActivity : ComponentActivity() {
         val settingsScrollBehavior = MiuixScrollBehavior()
         val logsScrollBehavior = MiuixScrollBehavior()
         val aboutScrollBehavior = MiuixScrollBehavior()
+        val updateScrollBehavior = MiuixScrollBehavior()
         val downloadScrollBehavior = MiuixScrollBehavior()
         val onboardingScrollBehavior = MiuixScrollBehavior()
         val downloadedScrollBehavior = MiuixScrollBehavior()
@@ -231,6 +235,7 @@ class MainActivity : ComponentActivity() {
             SETTINGS -> settingsScrollBehavior
             LOGS -> logsScrollBehavior
             ABOUT -> aboutScrollBehavior
+            UPDATE -> updateScrollBehavior
             DOWNLOAD -> downloadScrollBehavior
             ONBOARDING -> onboardingScrollBehavior
             DOWNLOADED -> downloadedScrollBehavior
@@ -316,7 +321,7 @@ class MainActivity : ComponentActivity() {
                 delay(1700)
             }
         }
-        val title = when (page) { OVERVIEW -> "LCPatch"; SETTINGS -> "設定"; LOGS -> "日誌"; ABOUT -> "關於"; DOWNLOAD -> "下載漢化"; DOWNLOADED -> "選擇套用"; DISPLAY -> "介面與顯示"; CONVERSION -> "繁簡轉換"; else -> "開始使用" }
+        val title = when (page) { OVERVIEW -> "LCPatch"; SETTINGS -> "設定"; LOGS -> "日誌"; ABOUT -> "關於"; UPDATE -> "應用程式更新"; DOWNLOAD -> "下載漢化"; DOWNLOADED -> "選擇套用"; DISPLAY -> "介面與顯示"; CONVERSION -> "繁簡轉換"; else -> "開始使用" }
         val onboardingDone = appPrefs.getBoolean("onboarding_done", false)
         fun navigateBack() {
             page = parentPage(page)
@@ -467,7 +472,7 @@ class MainActivity : ComponentActivity() {
             topBar = {
                 TintedBar(activeBarBackdrop) {
                     val navigationIcon: @Composable () -> Unit = {
-                        if (page == ABOUT || page == DOWNLOAD || page == DOWNLOADED || page == DISPLAY || page == CONVERSION || (page == ONBOARDING && onboardingDone)) IconButton(onClick = ::navigateBack) {
+                        if (page == ABOUT || page == UPDATE || page == DOWNLOAD || page == DOWNLOADED || page == DISPLAY || page == CONVERSION || (page == ONBOARDING && onboardingDone)) IconButton(onClick = ::navigateBack) {
                             Icon(MiuixIcons.Back, contentDescription = "返回")
                         }
                     }
@@ -505,12 +510,12 @@ class MainActivity : ComponentActivity() {
                 val renderPage: @Composable (Int) -> Unit = { visiblePage ->
                     val visibleListState = when (visiblePage) {
                         OVERVIEW -> overviewListState; SETTINGS -> settingsListState; LOGS -> logsListState
-                        ABOUT -> aboutListState; DOWNLOAD -> downloadListState; ONBOARDING -> onboardingListState
+                        ABOUT -> aboutListState; UPDATE -> updateListState; DOWNLOAD -> downloadListState; ONBOARDING -> onboardingListState
                         DOWNLOADED -> downloadedListState; DISPLAY -> displayListState; else -> conversionListState
                     }
                     val visibleScrollBehavior = when (visiblePage) {
                         OVERVIEW -> overviewScrollBehavior; SETTINGS -> settingsScrollBehavior; LOGS -> logsScrollBehavior
-                        ABOUT -> aboutScrollBehavior; DOWNLOAD -> downloadScrollBehavior; ONBOARDING -> onboardingScrollBehavior
+                        ABOUT -> aboutScrollBehavior; UPDATE -> updateScrollBehavior; DOWNLOAD -> downloadScrollBehavior; ONBOARDING -> onboardingScrollBehavior
                         DOWNLOADED -> downloadedScrollBehavior; DISPLAY -> displayScrollBehavior; else -> conversionScrollBehavior
                     }
                     Box(Modifier.fillMaxSize()) {
@@ -547,7 +552,7 @@ class MainActivity : ComponentActivity() {
                         applying = applying,
                         onFolder = { folderPicker.launch(logs.selectedFolder()) },
                         onAbout = { page = ABOUT },
-                        onUpdate = { page = ABOUT },
+                        onUpdate = { page = UPDATE },
                         onDisplay = { page = DISPLAY },
                         onConversion = { page = CONVERSION },
                         onPermissions = { page = ONBOARDING },
@@ -572,6 +577,24 @@ class MainActivity : ComponentActivity() {
                         clear = { logs.clear(); revision++; message = "日誌已清除" }
                     )
                     ABOUT -> about(
+                        updateOnly = false,
+                        game = game,
+                        updateChannel = updateChannel,
+                        onUpdateChannel = { value ->
+                            updateChannel = value
+                            appPrefs.edit().putString("update_channel", value).apply()
+                            latestRelease = null
+                        },
+                        release = latestRelease,
+                        checkingUpdate = checkingUpdate,
+                        updateProgress = updateProgress,
+                        updateReady = downloadedUpdate != null,
+                        checkUpdate = ::checkAppUpdate,
+                        downloadUpdate = { latestRelease?.let(downloadAppUpdate) },
+                        installUpdate = ::installDownloadedUpdate
+                    )
+                    UPDATE -> about(
+                        updateOnly = true,
                         game = game,
                         updateChannel = updateChannel,
                         onUpdateChannel = { value ->
@@ -984,6 +1007,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun LazyListScope.about(
+        updateOnly: Boolean,
         game: GameInfo,
         updateChannel: String,
         onUpdateChannel: (String) -> Unit,
@@ -995,6 +1019,7 @@ class MainActivity : ComponentActivity() {
         downloadUpdate: () -> Unit,
         installUpdate: () -> Unit
     ) {
+        if (!updateOnly) {
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painter = painterResource(R.drawable.ic_launcher), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(96.dp).clip(CircleShape))
@@ -1027,7 +1052,8 @@ class MainActivity : ComponentActivity() {
                 Detail("儲存目錄", "/sdcard/LCPatch")
             }
         }
-        item {
+        }
+        if (updateOnly)         item {
             val newer = release?.let {
                 updates.isNewer(it.version, BuildConfig.VERSION_NAME)
             } == true
@@ -1096,8 +1122,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        if (!updateOnly) {
         item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字體以及語言覆蓋設定。遊戲更新後會先驗證目標結構，配置不相符時停止載入，以降低閃退風險。", translucent = true) }
         item { InfoCard("開放原始碼與致謝", "介面採用 compose-miuix-ui，LSPosed 整合採用 libxposed API 102，繁簡轉換採用 opencc4j。漢化內容與授權條款歸各翻譯組及原作者所有。", translucent = true) }
+        }
     }
 
     private fun LazyListScope.onboardingPage(
@@ -1465,7 +1493,7 @@ class MainActivity : ComponentActivity() {
 
 private data class GameInfo(val installed: Boolean, val version: String, val versionCode: Long)
 internal fun parentPage(page: Int): Int = when (page) {
-    LOGS, ABOUT, DISPLAY, ONBOARDING, CONVERSION -> SETTINGS
+    LOGS, ABOUT, UPDATE, DISPLAY, ONBOARDING, CONVERSION -> SETTINGS
     DOWNLOAD, DOWNLOADED, SETTINGS -> OVERVIEW
     else -> OVERVIEW
 }
