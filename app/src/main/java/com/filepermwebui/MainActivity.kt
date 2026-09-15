@@ -111,17 +111,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 
-private const val OVERVIEW = 0
-private const val SETTINGS = 1
-private const val LOGS = 2
-private const val ABOUT = 3
-private const val DOWNLOAD = 4
-private const val ONBOARDING = 5
-private const val DOWNLOADED = 6
-private const val DISPLAY = 7
-private const val CONVERSION = 8
-private const val UPDATE = 9
-private const val TOP_LEVEL_CONTAINER = -1
 private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
@@ -156,7 +145,7 @@ class MainActivity : ComponentActivity() {
         var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
         var navigationStack by rememberSaveable { mutableStateOf(intArrayOf()) }
         var navigationDirection by rememberSaveable { mutableIntStateOf(1) }
-        val topPages = remember { listOf(OVERVIEW, LOGS, SETTINGS) }
+        val topPages = TOP_LEVEL_PAGES
         val pagerState = rememberPagerState(initialPage = topPages.indexOf(page).coerceAtLeast(0), pageCount = { topPages.size })
         var revision by remember { mutableIntStateOf(0) }
         var message by taskState.message
@@ -315,25 +304,16 @@ class MainActivity : ComponentActivity() {
             if (page == OVERVIEW || page == ONBOARDING) refreshScopeStatus()
         }
         val onboardingDone = appPrefs.getBoolean("onboarding_done", false)
+        fun applyNavigation(next: NavigationState) {
+            page = next.page
+            navigationStack = next.stack
+            navigationDirection = next.direction
+        }
         fun navigateTo(target: Int) {
-            if (target == page) return
-            if (target in topPages) {
-                navigationStack = intArrayOf()
-                navigationDirection = -1
-            } else {
-                navigationStack = navigationStack + page
-                navigationDirection = 1
-            }
-            page = target
+            applyNavigation(NavigationState(page, navigationStack, navigationDirection).navigateTo(target))
         }
         fun navigateBack() {
-            navigationDirection = -1
-            if (navigationStack.isNotEmpty()) {
-                page = navigationStack.last()
-                navigationStack = navigationStack.copyOf(navigationStack.size - 1)
-            } else {
-                page = if (page == SETTINGS || page == LOGS) OVERVIEW else parentPage(page)
-            }
+            applyNavigation(NavigationState(page, navigationStack, navigationDirection).navigateBack())
         }
         LaunchedEffect(page, activeName, applying, targetLanguage.id) {
             if (page == OVERVIEW && !applying) {
@@ -746,19 +726,7 @@ class MainActivity : ComponentActivity() {
         ) { animatedShell ->
             val topLevelScreen = animatedShell == TOP_LEVEL_CONTAINER
             val visiblePage = if (topLevelScreen) topPages[pagerState.settledPage] else animatedShell
-            val visibleTitle = when (visiblePage) {
-                OVERVIEW -> "LCPatch"
-                SETTINGS -> "設定"
-                LOGS -> "日誌"
-                ABOUT -> "關於"
-                UPDATE -> "應用程式更新"
-                DOWNLOAD -> "下載漢化"
-                DOWNLOADED -> "選擇套用"
-                DISPLAY -> "介面與顯示"
-                CONVERSION -> "繁簡轉換"
-                ONBOARDING -> "環境與權限"
-                else -> "LCPatch"
-            }
+            val visibleTitle = pageTitle(visiblePage)
             val visibleScrollBehavior = when (visiblePage) {
                 OVERVIEW -> overviewScrollBehavior
                 SETTINGS -> settingsScrollBehavior
@@ -1483,11 +1451,6 @@ class MainActivity : ComponentActivity() {
 }
 
 private data class GameInfo(val installed: Boolean, val version: String, val versionCode: Long)
-internal fun parentPage(page: Int): Int = when (page) {
-    LOGS, ABOUT, UPDATE, DISPLAY, ONBOARDING, CONVERSION -> SETTINGS
-    DOWNLOAD, DOWNLOADED, SETTINGS -> OVERVIEW
-    else -> OVERVIEW
-}
 private fun formatBytes(value: Long): String = when {
     value < 1024 -> "$value B"
     value < 1024 * 1024 -> "%.1f KB".format(value / 1024.0)
