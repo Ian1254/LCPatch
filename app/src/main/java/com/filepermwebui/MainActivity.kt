@@ -42,7 +42,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,7 +70,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
@@ -488,28 +486,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         ) { padding ->
-            var horizontalDrag by remember { mutableStateOf(0f) }
-            val swipeModifier = if (page == OVERVIEW || page == LOGS || page == SETTINGS) {
-                Modifier.pointerInput(page) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { horizontalDrag = 0f },
-                        onHorizontalDrag = { _, amount -> horizontalDrag += amount },
-                        onDragEnd = {
-                            val topPages = listOf(OVERVIEW, LOGS, SETTINGS)
-                            val current = topPages.indexOf(page)
-                            val target = when {
-                                horizontalDrag < -96f -> (current + 1).coerceAtMost(topPages.lastIndex)
-                                horizontalDrag > 96f -> (current - 1).coerceAtLeast(0)
-                                else -> current
-                            }
-                            page = topPages[target]
-                            horizontalDrag = 0f
-                        },
-                        onDragCancel = { horizontalDrag = 0f }
-                    )
-                }
-            } else Modifier
-            Box(modifier = Modifier.fillMaxSize().then(swipeModifier).then(if (barBackdrop != null) Modifier.layerBackdrop(barBackdrop) else Modifier)) {
+            Box(modifier = Modifier.fillMaxSize().then(if (barBackdrop != null) Modifier.layerBackdrop(barBackdrop) else Modifier)) {
                 AnimatedContent(
                     targetState = page,
                     transitionSpec = {
