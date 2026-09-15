@@ -31,8 +31,7 @@ class LogRepository(private val context: Context) {
 
     fun clear() {
         context.contentResolver.call(uri, "clear", null, null)
-        Thread({ runCatching { ProcessBuilder("su", "-c", "truncate -s 0 '$NATIVE_LOG'").start().waitFor() } },
-            "LCPatch-clear-native-log").start()
+        Thread({ RootShell.run("truncate -s 0 '$NATIVE_LOG'") }, "LCPatch-clear-native-log").start()
     }
 
     fun observe(onChange: () -> Unit): ContentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
