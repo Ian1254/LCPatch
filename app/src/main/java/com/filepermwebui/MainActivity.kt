@@ -155,10 +155,7 @@ class MainActivity : ComponentActivity() {
         val taskState: MainTaskViewModel = viewModel()
         var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
         val topPages = remember { listOf(OVERVIEW, LOGS, SETTINGS) }
-        val pagerState = rememberPagerState(
-            initialPage = topPages.indexOf(page).coerceAtLeast(0),
-            pageCount = { topPages.size }
-        )
+        val pagerState = rememberPagerState(initialPage = topPages.indexOf(page).coerceAtLeast(0), pageCount = { topPages.size })
         var revision by remember { mutableIntStateOf(0) }
         var message by taskState.message
         var messageIsError by taskState.messageIsError
@@ -503,7 +500,7 @@ class MainActivity : ComponentActivity() {
             }
         ) { padding ->
             Box(modifier = Modifier.fillMaxSize().then(if (barBackdrop != null) Modifier.layerBackdrop(barBackdrop) else Modifier)) {
-                val renderPage: @Composable (Int) -> Unit = { visiblePage -> visiblePage ->
+                val renderPage: @Composable (Int) -> Unit = { visiblePage ->
                     val visibleListState = when (visiblePage) {
                         OVERVIEW -> overviewListState; SETTINGS -> settingsListState; LOGS -> logsListState
                         ABOUT -> aboutListState; DOWNLOAD -> downloadListState; ONBOARDING -> onboardingListState
