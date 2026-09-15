@@ -991,7 +991,7 @@ class MainActivity : ComponentActivity() {
                     title = "深淺模式",
                     items = listOf("跟隨系統", "淺色", "深色"),
                     selectedIndex = when (themeMode) { "light" -> 1; "dark" -> 2; else -> 0 },
-                    onSelectedIndexChange = { onThemeMode(when (it) { 1 -> "light"; 2 -> "dark"; else -> "system") }
+                    onSelectedIndexChange = { onThemeMode(when (it) { 1 -> "light"; 2 -> "dark"; else -> "system" }) }
                 )
                 OverlayDropdownPreference(
                     modifier = PreferenceItemModifier,
