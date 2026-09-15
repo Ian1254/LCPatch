@@ -1,21 +1,22 @@
-# LCPatch 1.2.0
+# LCPatch 1.2.1-beta.1
 
-LCPatch 1.2.0 為目前 1.2 系列的正式版本。本版集中完成導航轉場與介面穩定性調整，並保留既有漢化下載、套用、字型、語言覆蓋、更新與診斷功能。
+LCPatch 1.2.1-beta.1 為 1.2.1 開發週期的首個預發布版本。本版聚焦於導航結構重構與可測試性改善，維持 1.2.0 的既有介面、完整畫面水平轉場、主頁 Pager 與浮動底欄互動行為。
 
-## 主要變更
+## 架構調整
 
-- 導航轉場改為固定尺寸的完整畫面容器，避免頁面切換期間因 `Scaffold` 頂欄或底欄尺寸變化重新計算內容位置。
-- 子頁進場與返回維持一致的完整寬度水平轉場；進入下一層時由右側進場，返回時採完全相反方向退出。
-- 頂欄、頁面內容與底欄不再以彼此獨立的轉場容器控制，降低轉場期間出現不同步或版面位移的情況。
-- 主頁仍由 Pager 管理，浮動底欄維持固定寬度選中膠囊；拖曳底欄時僅預覽選取位置，放手後才執行頁面切換。
-- 保留浮動底欄僅能由目前選中項目起始拖曳的操作限制，避免頁面內容區誤觸主導航。
+- 新增獨立的 `AppNavigation.kt`，集中管理頁面識別、Top-level 頁面集合、父子頁層級與頁面標題。
+- 將 detail page 的 push/pop、導航歷史與轉場方向決策集中至純 Kotlin `NavigationState`。
+- `MainActivity` 改為套用 `NavigationState` 的結果，不再自行維護重複的導航分支與父頁規則。
+- 頁面標題統一由導航模型提供，降低 UI 層與路由定義分散造成的不一致風險。
+- 不變更 1.2.0 已建立的固定尺寸 Screen/Scaffold 轉場架構與動畫參數。
 
-## 穩定性與架構
+## 測試
 
-- 版本資訊統一由 `version.properties` 管理，將版本發布與一般 Gradle 設定變更分離。
-- Android CI 與正式 Release 共用相同的 Android 驗證流程，包括測試、Lint、原生元件建置與 Release APK 組裝。
-- 發布流程固定為單一 release branch、單一 Pull Request、PR CI 驗證、squash merge，以及由版本檔變更觸發正式 Release。
+- 新增 detail page 進入與返回的 history push/pop 測試。
+- 新增切換至 Top-level 頁面時清除 detail history 的測試。
+- 新增無 history 時的父頁返回規則測試。
+- 新增 Top-level 頁面集合與頁面標題映射測試。
 
 ## 驗證範圍
 
-本版發布流程包含單元測試、Lint、原生元件建置、Release APK 組裝、APK 簽章及簽章驗證。
+預發布流程包含單元測試、Lint、原生元件建置、Release APK 組裝、APK 簽章及簽章驗證。
