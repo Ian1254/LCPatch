@@ -231,18 +231,6 @@ class MainActivity : ComponentActivity() {
         val downloadedScrollBehavior = MiuixScrollBehavior()
         val displayScrollBehavior = MiuixScrollBehavior()
         val conversionScrollBehavior = MiuixScrollBehavior()
-        val scrollBehavior = when (page) {
-            OVERVIEW -> overviewScrollBehavior
-            SETTINGS -> settingsScrollBehavior
-            LOGS -> logsScrollBehavior
-            ABOUT -> aboutScrollBehavior
-            UPDATE -> updateScrollBehavior
-            DOWNLOAD -> downloadScrollBehavior
-            ONBOARDING -> onboardingScrollBehavior
-            DOWNLOADED -> downloadedScrollBehavior
-            DISPLAY -> displayScrollBehavior
-            else -> conversionScrollBehavior
-        }
         val barBackdrop = rememberBarBackdrop()
         val activeBarBackdrop = if (blurEnabled) barBackdrop else null
         val scope = rememberCoroutineScope()
@@ -489,354 +477,358 @@ class MainActivity : ComponentActivity() {
         }
 
         val shellTarget = if (page in topPages) TOP_LEVEL_CONTAINER else page
-        Scaffold(
-            contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
-            topBar = {
-                AnimatedContent(
-                    targetState = shellTarget,
-                    transitionSpec = {
-                        val direction = navigationDirection
-                        slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
-                            slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
-                    },
-                    label = "top-bar-transition"
-                ) { animatedShell ->
-                    val visiblePage = if (animatedShell == TOP_LEVEL_CONTAINER) topPages[pagerState.settledPage] else animatedShell
-                    val visibleTitle = when (visiblePage) {
-                        OVERVIEW -> "LCPatch"
-                        SETTINGS -> "設定"
-                        LOGS -> "日誌"
-                        ABOUT -> "關於"
-                        UPDATE -> "應用程式更新"
-                        DOWNLOAD -> "下載漢化"
-                        DOWNLOADED -> "選擇套用"
-                        DISPLAY -> "介面與顯示"
-                        CONVERSION -> "繁簡轉換"
-                        ONBOARDING -> "環境與權限"
-                        else -> "LCPatch"
-                    }
-                    val visibleScrollBehavior = when (visiblePage) {
-                        OVERVIEW -> overviewScrollBehavior
-                        SETTINGS -> settingsScrollBehavior
-                        LOGS -> logsScrollBehavior
-                        ABOUT -> aboutScrollBehavior
-                        UPDATE -> updateScrollBehavior
-                        DOWNLOAD -> downloadScrollBehavior
-                        ONBOARDING -> onboardingScrollBehavior
-                        DOWNLOADED -> downloadedScrollBehavior
-                        DISPLAY -> displayScrollBehavior
-                        else -> conversionScrollBehavior
-                    }
-                    TintedBar(activeBarBackdrop) {
-                        val navigationIcon: @Composable () -> Unit = {
-                            if (visiblePage !in topPages && (visiblePage != ONBOARDING || onboardingDone)) {
-                                IconButton(onClick = ::navigateBack) {
-                                    Icon(MiuixIcons.Back, contentDescription = "返回")
+
+        val renderPage: @Composable (Int, PaddingValues) -> Unit = { visiblePage, padding ->
+            val visibleListState = when (visiblePage) {
+                OVERVIEW -> overviewListState; SETTINGS -> settingsListState; LOGS -> logsListState
+                ABOUT -> aboutListState; UPDATE -> updateListState; DOWNLOAD -> downloadListState; ONBOARDING -> onboardingListState
+                DOWNLOADED -> downloadedListState; DISPLAY -> displayListState; else -> conversionListState
+            }
+            val visibleScrollBehavior = when (visiblePage) {
+                OVERVIEW -> overviewScrollBehavior; SETTINGS -> settingsScrollBehavior; LOGS -> logsScrollBehavior
+                ABOUT -> aboutScrollBehavior; UPDATE -> updateScrollBehavior; DOWNLOAD -> downloadScrollBehavior; ONBOARDING -> onboardingScrollBehavior
+                DOWNLOADED -> downloadedScrollBehavior; DISPLAY -> displayScrollBehavior; else -> conversionScrollBehavior
+            }
+            Box(Modifier.fillMaxSize()) {
+                key(visiblePage) {
+                    LazyColumn(
+                        state = visibleListState,
+                        modifier = Modifier.fillMaxSize().nestedScroll(visibleScrollBehavior.nestedScrollConnection),
+                        contentPadding = PaddingValues(
+                            start = 12.dp,
+                            end = 12.dp,
+                            top = padding.calculateTopPadding() + 12.dp,
+                            bottom = padding.calculateBottomPadding() +
+                                if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        when (visiblePage) {
+                            OVERVIEW -> overview(
+                                game, events, activeName, activeScript, scopeStatus, translationEnabled,
+                                onTranslationEnabled = { enabled ->
+                                    scope.launch {
+                                        runCatching { translations.setTranslationEnabled(enabled) }
+                                            .onSuccess { translationEnabled = enabled; message = "漢化已${if (enabled) "啟用" else "停用"}，請重新啟動遊戲" }
+                                            .onFailure { message = "切換失敗：${it.message}" }
+                                    }
+                                },
+                                targetLanguage = targetLanguage,
+                                runtimeInspection = runtimeInspection,
+                                onDownload = { navigateTo(DOWNLOAD) },
+                                onDownloaded = { navigateTo(DOWNLOADED) }
+                            )
+                            SETTINGS -> settings(
+                                applyProgress = applyProgress,
+                                applying = applying,
+                                onFolder = { folderPicker.launch(logs.selectedFolder()) },
+                                onAbout = { navigateTo(ABOUT) },
+                                onUpdate = { navigateTo(UPDATE) },
+                                onDisplay = { navigateTo(DISPLAY) },
+                                onConversion = { navigateTo(CONVERSION) },
+                                onPermissions = { navigateTo(ONBOARDING) },
+                                targetLanguage = targetLanguage,
+                                fontName = fontName,
+                                onLanguage = ::changeTargetLanguage,
+                                onFont = { fontPicker.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream")) },
+                                onClearFont = { translations.clearCustomFont(); fontName = translations.fontName(); message = "已改回漢化包內字體" },
+                                onImport = { customPackPicker.launch(arrayOf("application/zip", "application/octet-stream")) },
+                                onReset = { logs.resetSelectedFolder(); revision++; message = "已改回預設暫存位置" }
+                            )
+                            LOGS -> logPage(
+                                events,
+                                save = {
+                                    try { message = "診斷文件已儲存：${logs.saveDiagnostic(events).lastPathSegment}" }
+                                    catch (error: Throwable) { message = "儲存失敗：${error.message}" }
+                                },
+                                share = {
+                                    try { startActivity(logs.shareIntent(events)) }
+                                    catch (error: Throwable) { message = "分享失敗：${error.message}" }
+                                },
+                                clear = { logs.clear(); revision++; message = "日誌已清除" }
+                            )
+                            ABOUT -> aboutPage(game)
+                            UPDATE -> updatePage(
+                                updateChannel = updateChannel,
+                                onUpdateChannel = { value ->
+                                    updateChannel = value
+                                    appPrefs.edit().putString("update_channel", value).apply()
+                                    latestRelease = null
+                                },
+                                release = latestRelease,
+                                checkingUpdate = checkingUpdate,
+                                updateProgress = updateProgress,
+                                updateReady = downloadedUpdate != null,
+                                checkUpdate = ::checkAppUpdate,
+                                downloadUpdate = { latestRelease?.let(downloadAppUpdate) },
+                                installUpdate = ::installDownloadedUpdate
+                            )
+                            DISPLAY -> displaySettings(
+                                themeMode = themeMode,
+                                navigationStyle = navigationStyle,
+                                onNavigationStyle = { navigationStyle = it; appPrefs.edit().putString("navigation_style", it).apply() },
+                                blurEnabled = blurEnabled,
+                                onBlurEnabled = { enabled -> blurEnabled = enabled; appPrefs.edit().putBoolean("blur_enabled", enabled).apply() },
+                                onThemeMode = onThemeMode
+                            )
+                            ONBOARDING -> onboardingPage(
+                                scopeStatus = scopeStatus,
+                                rootStatus = rootStatus,
+                                onCheckScope = {
+                                    scope.launch {
+                                        refreshScopeStatus()
+                                        message = "模組狀態已更新"
+                                    }
+                                },
+                                onRequestRoot = {
+                                    if (rootStatus != "正在請求") {
+                                        rootStatus = "正在請求"
+                                        scope.launch {
+                                            val granted = withContext(Dispatchers.IO) { requestRoot() }
+                                            rootStatus = if (granted) "已授權" else "未取得授權"
+                                            message = if (granted) "Root 權限已授予" else "未取得 Root 權限，套用漢化時將無法寫入遊戲資料"
+                                        }
+                                    }
+                                },
+                                onDone = {
+                                    appPrefs.edit().putBoolean("onboarding_done", true).apply()
+                                    navigateTo(OVERVIEW)
+                                }
+                            )
+                            DOWNLOAD -> downloadPage(
+                                catalog,
+                                catalogLoading,
+                                catalogError,
+                                transfer,
+                                applyProgress,
+                                applying,
+                                refresh = ::refreshCatalog,
+                                install = installTranslation
+                            )
+                            DOWNLOADED -> downloadedPage(
+                                downloadedPacks,
+                                activeName,
+                                applyProgress,
+                                applying,
+                                processingPackPath,
+                                applyingPackPath,
+                                convert = { pack, conversion ->
+                                    if (!applying) {
+                                        applying = true
+                                        processingPackPath = pack.path
+                                        taskState.launchTask {
+                                            runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
+                                                .onSuccess { result ->
+                                                    val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
+                                                    downloadedPacks = translations.downloaded().map {
+                                                        if (it.path == pack.path) it.copy(script = newScript) else it
+                                                    }
+                                                    if (pack.name == activeName) {
+                                                        translations.apply(pack.copy(script = newScript)) { value ->
+                                                            withContext(Dispatchers.Main.immediate) { applyProgress = value }
+                                                        }
+                                                        activeScript = translations.activeScript()
+                                                    }
+                                                    message = "${pack.name} ${conversion.label}完成：已掃描 ${result.scannedFiles} 個，內容有變更 ${result.changedFiles} 個${if (pack.name == activeName) "，已重新套用；請重新啟動遊戲" else ""}"
+                                                }
+                                                .onFailure {
+                                                    android.util.Log.e("LCPatch", "Text conversion failed", it)
+                                                    message = "轉換失敗：${it.message}"
+                                                }
+                                            applying = false
+                                            applyProgress = null
+                                            processingPackPath = null
+                                        }
+                                    } else message = "請等待目前的漢化處理完成"
+                                }
+                            ) { pack ->
+                                if (!applying) {
+                                    applying = true
+                                    applyingPackPath = pack.path
+                                    taskState.launchTask {
+                                        runCatching { translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
+                                            .onSuccess { activeName = it; activeScript = translations.activeScript(); message = "已套用 $it，請重新啟動遊戲" }
+                                            .onFailure { message = "套用失敗：${it.message}" }
+                                        applying = false
+                                        applyingPackPath = null
+                                        applyProgress = null
+                                    }
                                 }
                             }
-                        }
-                        SmallTopAppBar(
-                            title = visibleTitle,
-                            color = Color.Transparent,
-                            scrollBehavior = visibleScrollBehavior,
-                            navigationIcon = navigationIcon
-                        )
-                    }
-                }
-            },
-            bottomBar = {
-                AnimatedContent(
-                    targetState = shellTarget,
-                    transitionSpec = {
-                        val direction = navigationDirection
-                        slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
-                            slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
-                    },
-                    label = "bottom-bar-transition"
-                ) { animatedShell ->
-                    if (animatedShell == TOP_LEVEL_CONTAINER) {
-                        if (navigationStyle == "floating") {
-                            SukiFloatingBottomBar(
-                                selectedIndex = pagerState.settledPage,
-                                onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
-                                backdrop = activeBarBackdrop
-                            )
-                        } else {
-                            TintedBar(activeBarBackdrop) {
-                                NavigationBar(color = Color.Transparent) {
-                                    NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { scope.launch { pagerState.animateScrollToPage(0) } }, icon = MiuixIcons.Home, label = "概觀")
-                                    NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { scope.launch { pagerState.animateScrollToPage(1) } }, icon = Icons.Default.List, label = "日誌")
-                                    NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { scope.launch { pagerState.animateScrollToPage(2) } }, icon = MiuixIcons.Settings, label = "設定")
-                                }
+                            CONVERSION -> conversionPage(downloadedPacks, applyProgress, processingPackPath) { pack, conversion ->
+                                if (!applying) {
+                                    applying = true
+                                    processingPackPath = pack.path
+                                    taskState.launchTask {
+                                        runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
+                                            .onSuccess { result ->
+                                                val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
+                                                downloadedPacks = translations.downloaded().map {
+                                                    if (it.path == pack.path) it.copy(script = newScript) else it
+                                                }
+                                                if (pack.name == activeName) {
+                                                    translations.apply(pack.copy(script = newScript)) { value ->
+                                                        withContext(Dispatchers.Main.immediate) { applyProgress = value }
+                                                    }
+                                                    activeScript = translations.activeScript()
+                                                }
+                                                message = "${pack.name} ${conversion.label}完成：已掃描 ${result.scannedFiles} 個，內容有變更 ${result.changedFiles} 個${if (pack.name == activeName) "，已重新套用；請重新啟動遊戲" else ""}"
+                                            }
+                                            .onFailure {
+                                                android.util.Log.e("LCPatch", "Text conversion failed", it)
+                                                message = "轉換失敗：${it.message}"
+                                            }
+                                        applying = false
+                                        applyProgress = null
+                                        processingPackPath = null
+                                    }
+                                } else message = "請等待目前的漢化處理完成"
                             }
                         }
                     }
                 }
             }
-        ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().then(if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier)) {
-                val renderPage: @Composable (Int) -> Unit = { visiblePage ->
-                    val visibleListState = when (visiblePage) {
-                        OVERVIEW -> overviewListState; SETTINGS -> settingsListState; LOGS -> logsListState
-                        ABOUT -> aboutListState; UPDATE -> updateListState; DOWNLOAD -> downloadListState; ONBOARDING -> onboardingListState
-                        DOWNLOADED -> downloadedListState; DISPLAY -> displayListState; else -> conversionListState
-                    }
-                    val visibleScrollBehavior = when (visiblePage) {
-                        OVERVIEW -> overviewScrollBehavior; SETTINGS -> settingsScrollBehavior; LOGS -> logsScrollBehavior
-                        ABOUT -> aboutScrollBehavior; UPDATE -> updateScrollBehavior; DOWNLOAD -> downloadScrollBehavior; ONBOARDING -> onboardingScrollBehavior
-                        DOWNLOADED -> downloadedScrollBehavior; DISPLAY -> displayScrollBehavior; else -> conversionScrollBehavior
-                    }
-                    Box(Modifier.fillMaxSize()) {
-                        key(visiblePage) {
-                            LazyColumn(
-                state = visibleListState,
-                modifier = Modifier.fillMaxSize().nestedScroll(visibleScrollBehavior.nestedScrollConnection),
-                contentPadding = PaddingValues(
-                    start = 12.dp, end = 12.dp,
-                    top = padding.calculateTopPadding() + 12.dp,
-                    bottom = padding.calculateBottomPadding() +
-                        if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                when (visiblePage) {
-                    OVERVIEW -> overview(
-                        game, events, activeName, activeScript, scopeStatus, translationEnabled,
-                        onTranslationEnabled = { enabled ->
-                            scope.launch {
-                                runCatching { translations.setTranslationEnabled(enabled) }
-                                    .onSuccess { translationEnabled = enabled; message = "漢化已${if (enabled) "啟用" else "停用"}，請重新啟動遊戲" }
-                                    .onFailure { message = "切換失敗：${it.message}" }
+        }
+
+        val renderNotice: @Composable (PaddingValues) -> Unit = { padding ->
+            message?.let { notice ->
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 18.dp, end = 18.dp, bottom = padding.calculateBottomPadding() + 14.dp),
+                    insideMargin = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+                    colors = CardDefaults.defaultColors(
+                        color = if (messageIsError) MiuixTheme.colorScheme.error.copy(alpha = 0.14f)
+                        else MiuixTheme.colorScheme.surfaceContainer
+                    )
+                ) {
+                    Text(notice, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    if (messageIsError) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (taskState.retryAction != null) {
+                                TextButton(
+                                    modifier = Modifier.weight(1f),
+                                    text = "重試",
+                                    onClick = taskState::retry
+                                )
                             }
-                        },
-                        targetLanguage = targetLanguage,
-                        runtimeInspection = runtimeInspection,
-                        onDownload = { navigateTo(DOWNLOAD) },
-                        onDownloaded = { navigateTo(DOWNLOADED) }
-                    )
-                    SETTINGS -> settings(
-                        applyProgress = applyProgress,
-                        applying = applying,
-                        onFolder = { folderPicker.launch(logs.selectedFolder()) },
-                        onAbout = { navigateTo(ABOUT) },
-                        onUpdate = { navigateTo(UPDATE) },
-                        onDisplay = { navigateTo(DISPLAY) },
-                        onConversion = { navigateTo(CONVERSION) },
-                        onPermissions = { navigateTo(ONBOARDING) },
-                        targetLanguage = targetLanguage,
-                        fontName = fontName,
-                        onLanguage = ::changeTargetLanguage,
-                        onFont = { fontPicker.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream")) },
-                        onClearFont = { translations.clearCustomFont(); fontName = translations.fontName(); message = "已改回漢化包內字體" },
-                        onImport = { customPackPicker.launch(arrayOf("application/zip", "application/octet-stream")) },
-                        onReset = { logs.resetSelectedFolder(); revision++; message = "已改回預設暫存位置" }
-                    )
-                    LOGS -> logPage(
-                        events,
-                        save = {
-                            try { message = "診斷文件已儲存：${logs.saveDiagnostic(events).lastPathSegment}" }
-                            catch (error: Throwable) { message = "儲存失敗：${error.message}" }
-                        },
-                        share = {
-                            try { startActivity(logs.shareIntent(events)) }
-                            catch (error: Throwable) { message = "分享失敗：${error.message}" }
-                        },
-                        clear = { logs.clear(); revision++; message = "日誌已清除" }
-                    )
-                    ABOUT -> aboutPage(game)
-                    UPDATE -> updatePage(
-                        updateChannel = updateChannel,
-                        onUpdateChannel = { value ->
-                            updateChannel = value
-                            appPrefs.edit().putString("update_channel", value).apply()
-                            latestRelease = null
-                        },
-                        release = latestRelease,
-                        checkingUpdate = checkingUpdate,
-                        updateProgress = updateProgress,
-                        updateReady = downloadedUpdate != null,
-                        checkUpdate = ::checkAppUpdate,
-                        downloadUpdate = { latestRelease?.let(downloadAppUpdate) },
-                        installUpdate = ::installDownloadedUpdate
-                    )
-                    DISPLAY -> displaySettings(
-                        themeMode = themeMode,
-                        navigationStyle = navigationStyle,
-                        onNavigationStyle = { navigationStyle = it; appPrefs.edit().putString("navigation_style", it).apply() },
-                        blurEnabled = blurEnabled,
-                        onBlurEnabled = { enabled -> blurEnabled = enabled; appPrefs.edit().putBoolean("blur_enabled", enabled).apply() },
-                        onThemeMode = onThemeMode
-                    )
-                    ONBOARDING -> onboardingPage(
-                        scopeStatus = scopeStatus,
-                        rootStatus = rootStatus,
-                        onCheckScope = {
-                            scope.launch {
-                                refreshScopeStatus()
-                                message = "模組狀態已更新"
-                            }
-                        },
-                        onRequestRoot = {
-                            if (rootStatus != "正在請求") {
-                                rootStatus = "正在請求"
-                                scope.launch {
-                                    val granted = withContext(Dispatchers.IO) { requestRoot() }
-                                    rootStatus = if (granted) "已授權" else "未取得授權"
-                                    message = if (granted) "Root 權限已授予" else "未取得 Root 權限，套用漢化時將無法寫入遊戲資料"
-                                }
-                            }
-                        },
-                        onDone = {
-                            appPrefs.edit().putBoolean("onboarding_done", true).apply()
-                            navigateTo(OVERVIEW)
+                            TextButton(
+                                modifier = Modifier.weight(1f),
+                                text = "查看日誌",
+                                onClick = { navigateTo(LOGS); taskState.dismissNotice() }
+                            )
+                            TextButton(
+                                modifier = Modifier.weight(1f),
+                                text = "關閉",
+                                onClick = taskState::dismissNotice
+                            )
                         }
-                    )
-                    DOWNLOAD -> downloadPage(
-                        catalog,
-                        catalogLoading,
-                        catalogError,
-                        transfer,
-                        applyProgress,
-                        applying,
-                        refresh = ::refreshCatalog,
-                        install = installTranslation
-                    )
-                    DOWNLOADED -> downloadedPage(downloadedPacks, activeName, applyProgress, applying, processingPackPath, applyingPackPath,
-                        convert = { pack, conversion ->
-                            if (!applying) {
-                                applying = true
-                                processingPackPath = pack.path
-                                taskState.launchTask {
-                                    runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
-                                        .onSuccess { result ->
-                                            val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
-                                            downloadedPacks = translations.downloaded().map {
-                                                if (it.path == pack.path) it.copy(script = newScript) else it
-                                            }
-                                            if (pack.name == activeName) {
-                                                translations.apply(pack.copy(script = newScript)) { value ->
-                                                    withContext(Dispatchers.Main.immediate) { applyProgress = value }
-                                                }
-                                                activeScript = translations.activeScript()
-                                            }
-                                            message = "${pack.name} ${conversion.label}完成：已掃描 ${result.scannedFiles} 個，內容有變更 ${result.changedFiles} 個${if (pack.name == activeName) "，已重新套用；請重新啟動遊戲" else ""}"
-                                        }
-                                        .onFailure {
-                                            android.util.Log.e("LCPatch", "Text conversion failed", it)
-                                            message = "轉換失敗：${it.message}"
-                                        }
-                                    applying = false; applyProgress = null; processingPackPath = null
-                                }
-                            } else message = "請等待目前的漢化處理完成"
-                        }
-                    ) { pack ->
-                        if (!applying) {
-                            applying = true
-                            applyingPackPath = pack.path
-                            taskState.launchTask {
-                                runCatching { translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
-                                    .onSuccess { activeName = it; activeScript = translations.activeScript(); message = "已套用 $it，請重新啟動遊戲" }
-                                    .onFailure { message = "套用失敗：${it.message}" }
-                                applying = false
-                                applyingPackPath = null
-                                applyProgress = null
-                            }
-                        }
-                    }
-                    CONVERSION -> conversionPage(downloadedPacks, applyProgress, processingPackPath) { pack, conversion ->
-                        if (!applying) {
-                            applying = true
-                            processingPackPath = pack.path
-                            taskState.launchTask {
-                                runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
-                                    .onSuccess { result ->
-                                        val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
-                                        downloadedPacks = translations.downloaded().map {
-                                            if (it.path == pack.path) it.copy(script = newScript) else it
-                                        }
-                                        if (pack.name == activeName) {
-                                            translations.apply(pack.copy(script = newScript)) { value ->
-                                                withContext(Dispatchers.Main.immediate) { applyProgress = value }
-                                            }
-                                            activeScript = translations.activeScript()
-                                        }
-                                        message = "${pack.name} ${conversion.label}完成：已掃描 ${result.scannedFiles} 個，內容有變更 ${result.changedFiles} 個${if (pack.name == activeName) "，已重新套用；請重新啟動遊戲" else ""}"
-                                    }
-                                    .onFailure {
-                                        android.util.Log.e("LCPatch", "Text conversion failed", it)
-                                        message = "轉換失敗：${it.message}"
-                                    }
-                                applying = false
-                                applyProgress = null
-                                processingPackPath = null
-                            }
-                        } else message = "請等待目前的漢化處理完成"
                     }
                 }
-                            }
-                        }
-                    }
+            }
+        }
+
+        AnimatedContent(
+            targetState = shellTarget,
+            modifier = Modifier.fillMaxSize(),
+            transitionSpec = {
+                val direction = navigationDirection
+                slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
+                    slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
+            },
+            label = "screen-transition"
+        ) { animatedShell ->
+            val topLevelScreen = animatedShell == TOP_LEVEL_CONTAINER
+            val visiblePage = if (topLevelScreen) topPages[pagerState.settledPage] else animatedShell
+            val visibleTitle = when (visiblePage) {
+                OVERVIEW -> "LCPatch"
+                SETTINGS -> "設定"
+                LOGS -> "日誌"
+                ABOUT -> "關於"
+                UPDATE -> "應用程式更新"
+                DOWNLOAD -> "下載漢化"
+                DOWNLOADED -> "選擇套用"
+                DISPLAY -> "介面與顯示"
+                CONVERSION -> "繁簡轉換"
+                ONBOARDING -> "環境與權限"
+                else -> "LCPatch"
+            }
+            val visibleScrollBehavior = when (visiblePage) {
+                OVERVIEW -> overviewScrollBehavior
+                SETTINGS -> settingsScrollBehavior
+                LOGS -> logsScrollBehavior
+                ABOUT -> aboutScrollBehavior
+                UPDATE -> updateScrollBehavior
+                DOWNLOAD -> downloadScrollBehavior
+                ONBOARDING -> onboardingScrollBehavior
+                DOWNLOADED -> downloadedScrollBehavior
+                DISPLAY -> displayScrollBehavior
+                else -> conversionScrollBehavior
+            }
+
+            Box(Modifier.fillMaxSize()) {
+                Scaffold(
+                    contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
+                    topBar = {
+                        TintedBar(activeBarBackdrop) {
+                            val navigationIcon: @Composable () -> Unit = {
+                                if (!topLevelScreen && (visiblePage != ONBOARDING || onboardingDone)) {
+                                    IconButton(onClick = ::navigateBack) {
+                                        Icon(MiuixIcons.Back, contentDescription = "返回")
+                                    }
                                 }
-                AnimatedContent(
-                    targetState = shellTarget,
-                    transitionSpec = {
-                        val direction = navigationDirection
-                        slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
-                            slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
+                            }
+                            SmallTopAppBar(
+                                title = visibleTitle,
+                                color = Color.Transparent,
+                                scrollBehavior = visibleScrollBehavior,
+                                navigationIcon = navigationIcon
+                            )
+                        }
                     },
-                    label = "page-transition"
-                ) { animatedPage ->
-                    if (animatedPage == TOP_LEVEL_CONTAINER) {
-                        HorizontalPager(
-                            state = pagerState,
-                            modifier = Modifier.fillMaxSize(),
-                            beyondViewportPageCount = 1,
-                            userScrollEnabled = navigationStyle != "floating",
-                            key = { topPages[it] }
-                        ) { index ->
-                            renderPage(topPages[index])
+                    bottomBar = {
+                        if (topLevelScreen) {
+                            if (navigationStyle == "floating") {
+                                SukiFloatingBottomBar(
+                                    selectedIndex = pagerState.settledPage,
+                                    onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
+                                    backdrop = activeBarBackdrop
+                                )
+                            } else {
+                                TintedBar(activeBarBackdrop) {
+                                    NavigationBar(color = Color.Transparent) {
+                                        NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { scope.launch { pagerState.animateScrollToPage(0) } }, icon = MiuixIcons.Home, label = "概觀")
+                                        NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { scope.launch { pagerState.animateScrollToPage(1) } }, icon = Icons.Default.List, label = "日誌")
+                                        NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { scope.launch { pagerState.animateScrollToPage(2) } }, icon = MiuixIcons.Settings, label = "設定")
+                                    }
+                                }
+                            }
                         }
-                    } else {
-                        renderPage(animatedPage)
                     }
-                }
-                message?.let { notice ->
-                    Card(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(start = 18.dp, end = 18.dp, bottom = padding.calculateBottomPadding() + 14.dp),
-                        insideMargin = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-                        colors = CardDefaults.defaultColors(
-                            color = if (messageIsError) MiuixTheme.colorScheme.error.copy(alpha = 0.14f)
-                            else MiuixTheme.colorScheme.surfaceContainer
+                ) { padding ->
+                    Box(
+                        modifier = Modifier.fillMaxSize().then(
+                            if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier
                         )
                     ) {
-                        Text(notice, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        if (messageIsError) {
-                            Spacer(Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (taskState.retryAction != null) {
-                                    TextButton(
-                                        modifier = Modifier.weight(1f),
-                                        text = "重試",
-                                        onClick = taskState::retry
-                                    )
-                                }
-                                TextButton(
-                                    modifier = Modifier.weight(1f),
-                                    text = "查看日誌",
-                                    onClick = { navigateTo(LOGS); taskState.dismissNotice() }
-                                )
-                                TextButton(
-                                    modifier = Modifier.weight(1f),
-                                    text = "關閉",
-                                    onClick = taskState::dismissNotice
-                                )
+                        if (topLevelScreen) {
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxSize(),
+                                beyondViewportPageCount = 1,
+                                userScrollEnabled = navigationStyle != "floating",
+                                key = { topPages[it] }
+                            ) { index ->
+                                renderPage(topPages[index], padding)
                             }
+                        } else {
+                            renderPage(animatedShell, padding)
                         }
+                        if (animatedShell == shellTarget) renderNotice(padding)
                     }
                 }
             }
