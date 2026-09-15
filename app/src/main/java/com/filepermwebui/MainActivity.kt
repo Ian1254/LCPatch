@@ -41,6 +41,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -152,6 +154,11 @@ class MainActivity : ComponentActivity() {
     private fun App(themeMode: String, onThemeMode: (String) -> Unit) {
         val taskState: MainTaskViewModel = viewModel()
         var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
+        val topPages = remember { listOf(OVERVIEW, LOGS, SETTINGS) }
+        val pagerState = rememberPagerState(
+            initialPage = topPages.indexOf(page).coerceAtLeast(0),
+            pageCount = { topPages.size }
+        )
         var revision by remember { mutableIntStateOf(0) }
         var message by taskState.message
         var messageIsError by taskState.messageIsError
@@ -234,6 +241,15 @@ class MainActivity : ComponentActivity() {
         }
         val barBackdrop = rememberBarBackdrop()
         val scope = rememberCoroutineScope()
+        LaunchedEffect(page) {
+            val target = topPages.indexOf(page)
+            if (target >= 0 && pagerState.currentPage != target) pagerState.animateScrollToPage(target)
+        }
+        LaunchedEffect(pagerState) {
+            snapshotFlow { pagerState.settledPage }.collect { settled ->
+                if (page in topPages) page = topPages[settled]
+            }
+        }
         val events = remember(revision) { logs.read() }
         val game = remember { gameInfo() }
         val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -468,8 +484,8 @@ class MainActivity : ComponentActivity() {
                 if (page == OVERVIEW || page == SETTINGS || page == LOGS) {
                     if (navigationStyle == "floating") {
                         SukiFloatingBottomBar(
-                            selectedIndex = when (page) { OVERVIEW -> 0; LOGS -> 1; else -> 2 },
-                            onSelected = { page = listOf(OVERVIEW, LOGS, SETTINGS)[it] },
+                            selectedIndex = pagerState.currentPage,
+                            onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                             backdrop = barBackdrop
                         )
                     } else {
@@ -477,9 +493,9 @@ class MainActivity : ComponentActivity() {
                             NavigationBar(
                             color = Color.Transparent
                         ) {
-                                NavigationBarItem(selected = page == OVERVIEW, onClick = { page = OVERVIEW }, icon = MiuixIcons.Home, label = "概觀")
-                                NavigationBarItem(selected = page == LOGS, onClick = { page = LOGS }, icon = Icons.Default.List, label = "日誌")
-                                NavigationBarItem(selected = page == SETTINGS, onClick = { page = SETTINGS }, icon = MiuixIcons.Settings, label = "設定")
+                                NavigationBarItem(selected = page == OVERVIEW, onClick = { scope.launch { pagerState.animateScrollToPage(0) } }, icon = MiuixIcons.Home, label = "概觀")
+                                NavigationBarItem(selected = page == LOGS, onClick = { scope.launch { pagerState.animateScrollToPage(1) } }, icon = Icons.Default.List, label = "日誌")
+                                NavigationBarItem(selected = page == SETTINGS, onClick = { scope.launch { pagerState.animateScrollToPage(2) } }, icon = MiuixIcons.Settings, label = "設定")
                             }
                         }
                     }
@@ -487,6 +503,22 @@ class MainActivity : ComponentActivity() {
             }
         ) { padding ->
             Box(modifier = Modifier.fillMaxSize().then(if (barBackdrop != null) Modifier.layerBackdrop(barBackdrop) else Modifier)) {
+                val renderPage: @Composable (Int) -> Unit = { visiblePage ->
+                    val visibleListState = when (visiblePage) {
+                        OVERVIEW -> overviewListState; SETTINGS -> settingsListState; LOGS -> logsListState
+                        ABOUT -> aboutListState; DOWNLOAD -> downloadListState; ONBOARDING -> onboardingListState
+                        DOWNLOADED -> downloadedListState; DISPLAY -> displayListState; else -> conversionListState
+                                    }
+                if (page in topPages) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        beyondViewportPageCount = 1,
+                        key = { topPages[it] }
+                    ) { index ->
+                        renderPage(topPages[index])
+                    }
+                } else {
                 AnimatedContent(
                     targetState = page,
                     transitionSpec = {
@@ -503,12 +535,10 @@ class MainActivity : ComponentActivity() {
                                 fadeOut(tween(220, easing = PageTransitionEasing)))
                     },
                     label = "page-transition"
-                ) { visiblePage ->
-                    val visibleListState = when (visiblePage) {
-                        OVERVIEW -> overviewListState; SETTINGS -> settingsListState; LOGS -> logsListState
-                        ABOUT -> aboutListState; DOWNLOAD -> downloadListState; ONBOARDING -> onboardingListState
-                        DOWNLOADED -> downloadedListState; DISPLAY -> displayListState; else -> conversionListState
+                ){ animatedPage ->
+                        renderPage(animatedPage)
                     }
+                }
                     val visibleScrollBehavior = when (visiblePage) {
                         OVERVIEW -> overviewScrollBehavior; SETTINGS -> settingsScrollBehavior; LOGS -> logsScrollBehavior
                         ABOUT -> aboutScrollBehavior; DOWNLOAD -> downloadScrollBehavior; ONBOARDING -> onboardingScrollBehavior
