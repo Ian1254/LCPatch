@@ -31,7 +31,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,9 +46,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
-import kotlinx.coroutines.launch
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -103,8 +101,8 @@ internal fun EnvironmentStatusOverviewCard(
     val cardInteraction = remember { MutableInteractionSource() }
     val cardPressed by cardInteraction.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
-        targetValue = if (cardPressed && !overlayMounted) 0.985f else 1f,
-        animationSpec = spring(dampingRatio = 0.82f, stiffness = 760f),
+        targetValue = if (cardPressed && !overlayMounted) 0.982f else 1f,
+        animationSpec = spring(dampingRatio = 0.80f, stiffness = 760f),
         label = "environment-card-press"
     )
 
@@ -127,6 +125,7 @@ internal fun EnvironmentStatusOverviewCard(
             .graphicsLayer {
                 scaleX = cardScale
                 scaleY = cardScale
+                alpha = if (overlayMounted) 0f else 1f
             }
             .onGloballyPositioned { sourceBounds = it.boundsInWindow() }
             .clip(RoundedCornerShape(26.dp))
@@ -138,26 +137,30 @@ internal fun EnvironmentStatusOverviewCard(
         colors = CardDefaults.defaultColors(color = cardColor)
     ) {
         Box(modifier = Modifier.fillMaxWidth().height(142.dp)) {
-            Icon(
-                painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
-                contentDescription = null,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(18.dp, 18.dp)
-                    .size(112.dp),
-                tint = accent
-            )
-            Column(modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
+            Column(modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 16.dp)) {
                 Text(statusTitle, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(3.dp))
                 Text(statusSubtitle, fontSize = 15.sp)
             }
+
+            Icon(
+                painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
+                contentDescription = null,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(68.dp),
+                tint = accent
+            )
+
             Row(
                 modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(statusSummary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    statusSummary,
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
                 Text(
                     "詳情 ›",
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -223,21 +226,25 @@ private fun EnvironmentStatusOverlay(
         if (visible) {
             progress.animateTo(
                 targetValue = 1f,
-                animationSpec = spring(dampingRatio = 0.90f, stiffness = 360f)
+                animationSpec = spring(dampingRatio = 0.88f, stiffness = 360f)
             )
         } else {
             progress.animateTo(
                 targetValue = 0f,
-                animationSpec = spring(dampingRatio = 0.92f, stiffness = 430f)
+                animationSpec = spring(dampingRatio = 0.91f, stiffness = 430f)
             )
             latestExitFinished()
         }
     }
 
-    Popup(
-        alignment = Alignment.TopStart,
+    Dialog(
         onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true, dismissOnBackPress = true)
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
         BoxWithConstraints(
             modifier = Modifier
@@ -249,18 +256,10 @@ private fun EnvironmentStatusOverlay(
                 )
         ) {
             val hasMeasuredSource = sourceBounds.width > 0f && sourceBounds.height > 0f
-            val sourceLeft = if (hasMeasuredSource) {
-                with(density) { sourceBounds.left.toDp() }
-            } else 12.dp
-            val sourceTop = if (hasMeasuredSource) {
-                with(density) { sourceBounds.top.toDp() }
-            } else 76.dp
-            val sourceWidth = if (hasMeasuredSource) {
-                with(density) { sourceBounds.width.toDp() }
-            } else maxWidth - 24.dp
-            val sourceHeight = if (hasMeasuredSource) {
-                with(density) { sourceBounds.height.toDp() }
-            } else 142.dp
+            val sourceLeft = if (hasMeasuredSource) with(density) { sourceBounds.left.toDp() } else 12.dp
+            val sourceTop = if (hasMeasuredSource) with(density) { sourceBounds.top.toDp() } else 76.dp
+            val sourceWidth = if (hasMeasuredSource) with(density) { sourceBounds.width.toDp() } else maxWidth - 24.dp
+            val sourceHeight = if (hasMeasuredSource) with(density) { sourceBounds.height.toDp() } else 142.dp
 
             val fraction = progress.value.coerceIn(0f, 1f)
             val panelLeft = lerpDp(sourceLeft, 0.dp, fraction)
@@ -285,28 +284,23 @@ private fun EnvironmentStatusOverlay(
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                     val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                    val expandedTitleTop = statusInset + 24.dp
+                    val expandedTitleTop = statusInset + 22.dp
                     val titleStart = lerpDp(16.dp, 24.dp, fraction)
                     val titleTop = lerpDp(16.dp, expandedTitleTop, fraction)
-                    val iconSize = lerpDp(112.dp, 46.dp, fraction)
-                    val collapsedIconX = sourceWidth - 112.dp + 18.dp
-                    val collapsedIconY = sourceHeight - 112.dp + 18.dp
+                    val iconSize = lerpDp(68.dp, 46.dp, fraction)
+                    val collapsedIconX = sourceWidth - 68.dp - 14.dp
+                    val collapsedIconY = 14.dp
                     val expandedIconX = maxWidth - 24.dp - 46.dp
                     val expandedIconY = expandedTitleTop
                     val iconX = lerpDp(collapsedIconX, expandedIconX, fraction)
                     val iconY = lerpDp(collapsedIconY, expandedIconY, fraction)
-                    val summaryAlpha = (1f - fraction / 0.26f).coerceIn(0f, 1f)
-                    val detailsAlpha = ((fraction - 0.28f) / 0.48f).coerceIn(0f, 1f)
-                    val actionsAlpha = ((fraction - 0.52f) / 0.34f).coerceIn(0f, 1f)
-                    val detailSurface = if (dark) {
-                        Color.White.copy(alpha = 0.085f)
-                    } else {
-                        Color.Black.copy(alpha = 0.055f)
-                    }
+                    val summaryAlpha = (1f - fraction / 0.30f).coerceIn(0f, 1f)
+                    val detailsAlpha = ((fraction - 0.25f) / 0.46f).coerceIn(0f, 1f)
+                    val actionsAlpha = ((fraction - 0.45f) / 0.36f).coerceIn(0f, 1f)
+                    val detailSurface = if (dark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.055f)
+                    val actionSurface = if (dark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.065f)
 
-                    Column(
-                        modifier = Modifier.offset(x = titleStart, y = titleTop)
-                    ) {
+                    Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
                         Text(
                             statusTitle,
                             fontSize = (22f + 7f * fraction).sp,
@@ -321,10 +315,7 @@ private fun EnvironmentStatusOverlay(
                     }
 
                     Icon(
-                        painter = painterResource(
-                            if (healthy) R.drawable.ic_check_circle_outline
-                            else R.drawable.ic_error_outline
-                        ),
+                        painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
                         contentDescription = null,
                         modifier = Modifier.offset(x = iconX, y = iconY).size(iconSize),
                         tint = accent
@@ -332,13 +323,18 @@ private fun EnvironmentStatusOverlay(
 
                     Row(
                         modifier = Modifier
-                            .offset(x = 16.dp, y = sourceHeight - 38.dp)
+                            .offset(x = 16.dp, y = sourceHeight - 39.dp)
                             .width((sourceWidth - 32.dp).coerceAtLeast(0.dp))
                             .graphicsLayer { alpha = summaryAlpha },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(statusSummary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            statusSummary,
+                            modifier = Modifier.weight(1f).padding(end = 12.dp),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                         Text(
                             "詳情 ›",
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -353,8 +349,8 @@ private fun EnvironmentStatusOverlay(
                             .padding(
                                 start = 24.dp,
                                 end = 24.dp,
-                                top = expandedTitleTop + 108.dp,
-                                bottom = navigationInset + 22.dp
+                                top = expandedTitleTop + 112.dp,
+                                bottom = navigationInset + 18.dp
                             )
                             .graphicsLayer {
                                 alpha = detailsAlpha
@@ -363,16 +359,16 @@ private fun EnvironmentStatusOverlay(
                     ) {
                         Text(
                             "環境與權限",
-                            fontSize = 15.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            color = if (dark) Color.White.copy(alpha = 0.86f) else Color.Black.copy(alpha = 0.74f)
                         )
                         Spacer(Modifier.height(10.dp))
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(detailSurface, RoundedCornerShape(22.dp))
-                                .padding(horizontal = 18.dp, vertical = 13.dp)
+                                .padding(horizontal = 18.dp, vertical = 10.dp)
                         ) {
                             EnvironmentDetail("模組作用域", scopeStatus)
                             EnvironmentDetail("Root 權限", rootStatus)
@@ -382,7 +378,7 @@ private fun EnvironmentStatusOverlay(
                             )
                         }
 
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.height(24.dp))
 
                         Column(
                             modifier = Modifier
@@ -392,18 +388,30 @@ private fun EnvironmentStatusOverlay(
                                     translationY = with(density) { ((1f - actionsAlpha) * 14f).dp.toPx() }
                                 }
                         ) {
-                            Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) {
+                            Button(
+                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                onClick = onCheckScope
+                            ) {
                                 Text("重新檢查模組作用域")
                             }
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(10.dp))
                             TextButton(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(54.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(actionSurface),
                                 text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
                                 enabled = rootStatus != "正在請求",
                                 onClick = onRequestRoot
                             )
+                            Spacer(Modifier.height(10.dp))
                             TextButton(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(54.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(actionSurface),
                                 text = "完成",
                                 onClick = onDismiss
                             )
@@ -417,13 +425,18 @@ private fun EnvironmentStatusOverlay(
 
 @Composable
 private fun EnvironmentDetail(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        Text(value, fontWeight = FontWeight.Medium)
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(
+            label,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            fontSize = 13.sp
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            value,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
