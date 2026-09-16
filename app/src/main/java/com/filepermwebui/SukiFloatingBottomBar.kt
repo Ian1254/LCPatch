@@ -322,7 +322,6 @@ internal fun SukiFloatingBottomBar(
                             transitionDirection = 0f
                             motionVelocity = 0f
                             gestureVelocity = 0f
-                            visualPosition.stop()
 
                             val downVisualPosition = visualPosition.value
                                 .coerceIn(0f, (NavigationItemCount - 1).toFloat())
