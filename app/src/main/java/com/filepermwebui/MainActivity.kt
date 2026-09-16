@@ -824,73 +824,14 @@ class MainActivity : ComponentActivity() {
         onDownload: () -> Unit, onDownloaded: () -> Unit
     ) {
         item {
-            var environmentExpanded by rememberSaveable { mutableStateOf(false) }
-            val healthy = scopeStatus == "已啟用"
-            val hasError = scopeStatus == "尚未授權遊戲"
-            val dark = isSystemInDarkTheme()
-            val color = when {
-                healthy -> if (dark) Color(0xFF173D27) else Color(0xFFDFFAE4)
-                hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
-                else -> MiuixTheme.colorScheme.secondaryContainer
-            }
-            val cardModifier = Modifier
-                .fillMaxWidth()
-                .animateContentSize()
-                .then(if (!environmentExpanded) Modifier.clickable { environmentExpanded = true } else Modifier)
-            Card(modifier = cardModifier, colors = CardDefaults.defaultColors(color = color)) {
-                if (!environmentExpanded) {
-                    Box(modifier = Modifier.fillMaxWidth().height(142.dp)) {
-                        Icon(
-                            painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
-                            contentDescription = null,
-                            modifier = Modifier.align(Alignment.BottomEnd).offset(18.dp, 18.dp).size(112.dp),
-                            tint = if (healthy) Color(0xFF43D477) else if (hasError) Color(0xFFFF6B70) else MiuixTheme.colorScheme.primary.copy(alpha = 0.55f)
-                        )
-                        Column(modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
-                            Text(if (healthy) "已啟用" else if (hasError) "尚未設定作用域" else "尚未連接", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(3.dp))
-                            Text(if (healthy) "LCPatch ${BuildConfig.VERSION_NAME}" else if (hasError) "請授予 Limbus Company 作用域" else "請確認模組與作用域狀態", fontSize = 15.sp)
-                        }
-                        Text(
-                            if (healthy) "Limbus Company · ${game.version}" else "模組狀態 · $scopeStatus",
-                            modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                } else {
-                    Column(modifier = Modifier.fillMaxWidth().padding(18.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Column {
-                                Text(if (healthy) "已啟用" else "環境需要處理", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                                Spacer(Modifier.height(2.dp))
-                                Text("環境與權限", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 14.sp)
-                            }
-                            Icon(
-                                painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
-                                contentDescription = null,
-                                modifier = Modifier.size(38.dp),
-                                tint = if (healthy) Color(0xFF43D477) else Color(0xFFFF6B70)
-                            )
-                        }
-                        Spacer(Modifier.height(18.dp))
-                        Detail("模組作用域", scopeStatus)
-                        Detail("Root 權限", rootStatus)
-                        Detail("Limbus Company", if (game.installed) "已安裝" else "未安裝")
-                        Spacer(Modifier.height(8.dp))
-                        Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) { Text("重新檢查模組作用域") }
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
-                            enabled = rootStatus != "正在請求",
-                            onClick = onRequestRoot
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        TextButton(modifier = Modifier.fillMaxWidth(), text = "收起", onClick = { environmentExpanded = false })
-                    }
-                }
-            }
+            EnvironmentStatusOverviewCard(
+                scopeStatus = scopeStatus,
+                rootStatus = rootStatus,
+                gameInstalled = game.installed,
+                gameVersion = game.version,
+                onCheckScope = onCheckScope,
+                onRequestRoot = onRequestRoot
+            )
         }
         item {
             Card(insideMargin = PaddingValues(18.dp)) {
