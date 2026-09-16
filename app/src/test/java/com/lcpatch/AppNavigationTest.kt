@@ -33,6 +33,17 @@ class AppNavigationTest {
     }
 
     @Test
+    fun topLevelSelectionCommitsBeforeDetailNavigation() {
+        val settings = NavigationState(page = OVERVIEW).navigateTo(SETTINGS)
+        val display = settings.navigateTo(DISPLAY)
+
+        assertEquals(SETTINGS, settings.page)
+        assertArrayEquals(intArrayOf(), settings.stack)
+        assertEquals(DISPLAY, display.page)
+        assertArrayEquals(intArrayOf(SETTINGS), display.stack)
+    }
+
+    @Test
     fun fallbackBackNavigationUsesMenuHierarchy() {
         assertEquals(SETTINGS, NavigationState(ABOUT).navigateBack().page)
         assertEquals(SETTINGS, NavigationState(DISPLAY).navigateBack().page)
@@ -40,6 +51,14 @@ class AppNavigationTest {
         assertEquals(OVERVIEW, NavigationState(DOWNLOADED).navigateBack().page)
         assertEquals(OVERVIEW, NavigationState(SETTINGS).navigateBack().page)
         assertEquals(OVERVIEW, NavigationState(LOGS).navigateBack().page)
+    }
+
+    @Test
+    fun parentMetadataMatchesBackFallbacks() {
+        assertEquals(OVERVIEW, parentPage(LOGS))
+        assertEquals(OVERVIEW, parentPage(SETTINGS))
+        assertEquals(SETTINGS, parentPage(ABOUT))
+        assertEquals(SETTINGS, parentPage(DISPLAY))
     }
 
     @Test

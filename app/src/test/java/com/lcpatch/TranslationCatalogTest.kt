@@ -39,7 +39,7 @@ class TranslationCatalogTest {
     }
 
     @Test fun systemBackFollowsMenuHierarchy() {
-        assertEquals(1, parentPage(2)) // logs -> settings
+        assertEquals(0, parentPage(2)) // logs -> overview
         assertEquals(1, parentPage(3)) // about -> settings
         assertEquals(0, parentPage(4)) // download -> overview
         assertEquals(1, parentPage(5)) // onboarding -> settings

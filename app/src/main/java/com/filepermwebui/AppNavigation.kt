@@ -37,16 +37,16 @@ internal data class NavigationState(
             )
         }
         return NavigationState(
-            page = if (page == SETTINGS || page == LOGS) OVERVIEW else parentPage(page),
-            stack = stack,
+            page = parentPage(page),
+            stack = intArrayOf(),
             direction = -1
         )
     }
 }
 
 internal fun parentPage(page: Int): Int = when (page) {
-    LOGS, ABOUT, UPDATE, DISPLAY, ONBOARDING, CONVERSION -> SETTINGS
-    DOWNLOAD, DOWNLOADED, SETTINGS -> OVERVIEW
+    ABOUT, UPDATE, DISPLAY, ONBOARDING, CONVERSION -> SETTINGS
+    DOWNLOAD, DOWNLOADED, SETTINGS, LOGS -> OVERVIEW
     else -> OVERVIEW
 }
 

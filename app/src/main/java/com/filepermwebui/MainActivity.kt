@@ -13,8 +13,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.animation.animateContentSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -299,6 +301,21 @@ class MainActivity : ComponentActivity() {
                 else -> "尚未連接"
             }
         }
+        fun checkScopeStatus() {
+            scope.launch {
+                refreshScopeStatus()
+                message = "模組狀態已更新"
+            }
+        }
+        fun checkRootStatus() {
+            if (rootStatus == "正在請求") return
+            rootStatus = "正在請求"
+            scope.launch {
+                val granted = withContext(Dispatchers.IO) { requestRoot() }
+                rootStatus = if (granted) "已授權" else "未取得授權"
+                message = if (granted) "Root 權限已授予" else "未取得 Root 權限，套用漢化時將無法寫入遊戲資料"
+            }
+        }
         LaunchedEffect(Unit) { refreshCatalog() }
         LaunchedEffect(page) {
             if (page == OVERVIEW || page == ONBOARDING) refreshScopeStatus()
@@ -485,7 +502,15 @@ class MainActivity : ComponentActivity() {
                     ) {
                         when (visiblePage) {
                             OVERVIEW -> overview(
-                                game, events, activeName, activeScript, scopeStatus, translationEnabled,
+                                game = game,
+                                events = events,
+                                activeName = activeName,
+                                activeScript = activeScript,
+                                scopeStatus = scopeStatus,
+                                rootStatus = rootStatus,
+                                onCheckScope = ::checkScopeStatus,
+                                onRequestRoot = ::checkRootStatus,
+                                translationEnabled = translationEnabled,
                                 onTranslationEnabled = { enabled ->
                                     scope.launch {
                                         runCatching { translations.setTranslationEnabled(enabled) }
@@ -506,7 +531,6 @@ class MainActivity : ComponentActivity() {
                                 onUpdate = { navigateTo(UPDATE) },
                                 onDisplay = { navigateTo(DISPLAY) },
                                 onConversion = { navigateTo(CONVERSION) },
-                                onPermissions = { navigateTo(ONBOARDING) },
                                 targetLanguage = targetLanguage,
                                 fontName = fontName,
                                 onLanguage = ::changeTargetLanguage,
@@ -554,22 +578,8 @@ class MainActivity : ComponentActivity() {
                             ONBOARDING -> onboardingPage(
                                 scopeStatus = scopeStatus,
                                 rootStatus = rootStatus,
-                                onCheckScope = {
-                                    scope.launch {
-                                        refreshScopeStatus()
-                                        message = "模組狀態已更新"
-                                    }
-                                },
-                                onRequestRoot = {
-                                    if (rootStatus != "正在請求") {
-                                        rootStatus = "正在請求"
-                                        scope.launch {
-                                            val granted = withContext(Dispatchers.IO) { requestRoot() }
-                                            rootStatus = if (granted) "已授權" else "未取得授權"
-                                            message = if (granted) "Root 權限已授予" else "未取得 Root 權限，套用漢化時將無法寫入遊戲資料"
-                                        }
-                                    }
-                                },
+                                onCheckScope = ::checkScopeStatus,
+                                onRequestRoot = ::checkRootStatus,
                                 onDone = {
                                     appPrefs.edit().putBoolean("onboarding_done", true).apply()
                                     navigateTo(OVERVIEW)
@@ -765,15 +775,15 @@ class MainActivity : ComponentActivity() {
                             if (navigationStyle == "floating") {
                                 SukiFloatingBottomBar(
                                     selectedIndex = pagerState.settledPage,
-                                    onSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
+                                    onSelected = { index -> topPages.getOrNull(index)?.let(::navigateTo) },
                                     backdrop = activeBarBackdrop
                                 )
                             } else {
                                 TintedBar(activeBarBackdrop) {
                                     NavigationBar(color = Color.Transparent) {
-                                        NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { scope.launch { pagerState.animateScrollToPage(0) } }, icon = MiuixIcons.Home, label = "概觀")
-                                        NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { scope.launch { pagerState.animateScrollToPage(1) } }, icon = Icons.Default.List, label = "日誌")
-                                        NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { scope.launch { pagerState.animateScrollToPage(2) } }, icon = MiuixIcons.Settings, label = "設定")
+                                        NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { navigateTo(OVERVIEW) }, icon = MiuixIcons.Home, label = "概觀")
+                                        NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { navigateTo(LOGS) }, icon = Icons.Default.List, label = "日誌")
+                                        NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { navigateTo(SETTINGS) }, icon = MiuixIcons.Settings, label = "設定")
                                     }
                                 }
                             }
@@ -807,12 +817,14 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.overview(
         game: GameInfo, events: List<LogEvent>, activeName: String, activeScript: String,
-        scopeStatus: String,
+        scopeStatus: String, rootStatus: String,
+        onCheckScope: () -> Unit, onRequestRoot: () -> Unit,
         translationEnabled: Boolean, onTranslationEnabled: (Boolean) -> Unit,
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection,
         onDownload: () -> Unit, onDownloaded: () -> Unit
     ) {
         item {
+            var environmentExpanded by rememberSaveable { mutableStateOf(false) }
             val healthy = scopeStatus == "已啟用"
             val hasError = scopeStatus == "尚未授權遊戲"
             val dark = isSystemInDarkTheme()
@@ -821,20 +833,62 @@ class MainActivity : ComponentActivity() {
                 hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
                 else -> MiuixTheme.colorScheme.secondaryContainer
             }
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.defaultColors(color = color)) {
-                Box(modifier = Modifier.fillMaxWidth().height(142.dp)) {
-                    Icon(
-                        painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
-                        contentDescription = null,
-                        modifier = Modifier.align(Alignment.BottomEnd).offset(18.dp, 18.dp).size(112.dp),
-                        tint = if (healthy) Color(0xFF43D477) else if (hasError) Color(0xFFFF6B70) else MiuixTheme.colorScheme.primary.copy(alpha = 0.55f)
-                    )
-                    Column(modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
-                        Text(if (healthy) "已啟用" else if (hasError) "尚未設定作用域" else "尚未連接", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(3.dp))
-                        Text(if (healthy) "LCPatch ${BuildConfig.VERSION_NAME}" else if (hasError) "請授予 Limbus Company 作用域" else "請確認模組與作用域狀態", fontSize = 15.sp)
+            val cardModifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize()
+                .then(if (!environmentExpanded) Modifier.clickable { environmentExpanded = true } else Modifier)
+            Card(modifier = cardModifier, colors = CardDefaults.defaultColors(color = color)) {
+                if (!environmentExpanded) {
+                    Box(modifier = Modifier.fillMaxWidth().height(142.dp)) {
+                        Icon(
+                            painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
+                            contentDescription = null,
+                            modifier = Modifier.align(Alignment.BottomEnd).offset(18.dp, 18.dp).size(112.dp),
+                            tint = if (healthy) Color(0xFF43D477) else if (hasError) Color(0xFFFF6B70) else MiuixTheme.colorScheme.primary.copy(alpha = 0.55f)
+                        )
+                        Column(modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
+                            Text(if (healthy) "已啟用" else if (hasError) "尚未設定作用域" else "尚未連接", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(3.dp))
+                            Text(if (healthy) "LCPatch ${BuildConfig.VERSION_NAME}" else if (hasError) "請授予 Limbus Company 作用域" else "請確認模組與作用域狀態", fontSize = 15.sp)
+                        }
+                        Text(
+                            if (healthy) "Limbus Company · ${game.version}" else "模組狀態 · $scopeStatus",
+                            modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
-                    Text(if (healthy) "Limbus Company · ${game.version}" else "模組狀態 · $scopeStatus", modifier = Modifier.align(Alignment.BottomStart).padding(16.dp), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                } else {
+                    Column(modifier = Modifier.fillMaxWidth().padding(18.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Text(if (healthy) "已啟用" else "環境需要處理", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("環境與權限", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 14.sp)
+                            }
+                            Icon(
+                                painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
+                                contentDescription = null,
+                                modifier = Modifier.size(38.dp),
+                                tint = if (healthy) Color(0xFF43D477) else Color(0xFFFF6B70)
+                            )
+                        }
+                        Spacer(Modifier.height(18.dp))
+                        Detail("模組作用域", scopeStatus)
+                        Detail("Root 權限", rootStatus)
+                        Detail("Limbus Company", if (game.installed) "已安裝" else "未安裝")
+                        Spacer(Modifier.height(8.dp))
+                        Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) { Text("重新檢查模組作用域") }
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
+                            enabled = rootStatus != "正在請求",
+                            onClick = onRequestRoot
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        TextButton(modifier = Modifier.fillMaxWidth(), text = "收起", onClick = { environmentExpanded = false })
+                    }
                 }
             }
         }
@@ -895,7 +949,7 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.settings(
         onFolder: () -> Unit, onAbout: () -> Unit, onUpdate: () -> Unit,
-        onDisplay: () -> Unit, onConversion: () -> Unit, onPermissions: () -> Unit, targetLanguage: OverrideLanguage,
+        onDisplay: () -> Unit, onConversion: () -> Unit, targetLanguage: OverrideLanguage,
         applyProgress: ApplyProgress?, applying: Boolean,
         fontName: String, onLanguage: (OverrideLanguage) -> Unit,
         onFont: () -> Unit, onClearFont: () -> Unit, onImport: () -> Unit, onReset: () -> Unit
@@ -934,7 +988,6 @@ class MainActivity : ComponentActivity() {
         item { SectionLabel("應用程式") }
         item {
             Card {
-                ArrowPreference(modifier = PreferenceItemModifier, title = "權限與初始設定", summary = "模組作用域與 Root 權限", onClick = onPermissions)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "主題、模糊效果與底欄", onClick = onDisplay)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", summary = logs.selectedFolderLabel(), onClick = onFolder)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
