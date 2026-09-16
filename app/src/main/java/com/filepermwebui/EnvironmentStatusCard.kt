@@ -6,6 +6,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
@@ -40,9 +42,12 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -87,6 +92,7 @@ internal fun EnvironmentStatusOverviewCard(
     var overlayMounted by rememberSaveable { mutableStateOf(false) }
     var overlayVisible by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
+    var sourceBounds by remember { mutableStateOf(Rect.Zero) }
     val coroutineScope = rememberCoroutineScope()
     val cardInteraction = remember { MutableInteractionSource() }
     val cardPressed by cardInteraction.collectIsPressedAsState()
@@ -130,6 +136,7 @@ internal fun EnvironmentStatusOverviewCard(
                 scaleX = cardScale
                 scaleY = cardScale
             }
+            .onGloballyPositioned { sourceBounds = it.boundsInWindow() }
             .clip(RoundedCornerShape(26.dp))
             .clickable(
                 interactionSource = cardInteraction,
@@ -188,6 +195,7 @@ internal fun EnvironmentStatusOverviewCard(
             healthy = healthy,
             cardColor = cardColor,
             accent = accent,
+            sourceTopPx = sourceBounds.top,
             scopeStatus = scopeStatus,
             rootStatus = rootStatus,
             gameInstalled = gameInstalled,
@@ -205,6 +213,7 @@ private fun EnvironmentStatusOverlay(
     healthy: Boolean,
     cardColor: Color,
     accent: Color,
+    sourceTopPx: Float,
     scopeStatus: String,
     rootStatus: String,
     gameInstalled: Boolean,
@@ -220,6 +229,9 @@ private fun EnvironmentStatusOverlay(
         label = "environment-overlay-scrim"
     )
     val panelInteraction = remember { MutableInteractionSource() }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val targetTopPx = with(density) { 76.dp.toPx() }
+    val sourceOffsetPx = if (sourceTopPx > 0f) sourceTopPx - targetTopPx else 0f
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -245,18 +257,18 @@ private fun EnvironmentStatusOverlay(
                 modifier = Modifier.align(Alignment.TopCenter),
                 enter = fadeIn(tween(145)) +
                     scaleIn(
-                        initialScale = 0.88f,
-                        transformOrigin = TransformOrigin(0.5f, 0.04f),
+                        initialScale = 0.96f,
+                        transformOrigin = TransformOrigin(0.5f, 0f),
                         animationSpec = spring(dampingRatio = 0.84f, stiffness = 420f)
                     ) +
-                    slideInVertically(tween(245)) { -it / 7 },
+                    slideInVertically(tween(280)) { sourceOffsetPx.toInt() },
                 exit = fadeOut(tween(EnvironmentOverlayExitMs.toInt())) +
                     scaleOut(
-                        targetScale = 0.91f,
-                        transformOrigin = TransformOrigin(0.5f, 0.04f),
+                        targetScale = 0.96f,
+                        transformOrigin = TransformOrigin(0.5f, 0f),
                         animationSpec = tween(EnvironmentOverlayExitMs.toInt())
                     ) +
-                    slideOutVertically(tween(EnvironmentOverlayExitMs.toInt())) { -it / 9 }
+                    slideOutVertically(tween(EnvironmentOverlayExitMs.toInt())) { sourceOffsetPx.toInt() }
             ) {
                 Card(
                     modifier = Modifier
@@ -297,31 +309,39 @@ private fun EnvironmentStatusOverlay(
                         )
                     }
 
-                    Spacer(Modifier.height(22.dp))
-                    EnvironmentDetail("模組作用域", scopeStatus)
-                    EnvironmentDetail("Root 權限", rootStatus)
-                    EnvironmentDetail(
-                        "Limbus Company",
-                        if (gameInstalled) "已安裝 · $gameVersion" else "未安裝"
-                    )
+                    AnimatedVisibility(
+                        visible = visible,
+                        enter = expandVertically(tween(300)) + fadeIn(tween(220, delayMillis = 60)),
+                        exit = shrinkVertically(tween(180)) + fadeOut(tween(120))
+                    ) {
+                        Column {
+                            Spacer(Modifier.height(22.dp))
+                            EnvironmentDetail("模組作用域", scopeStatus)
+                            EnvironmentDetail("Root 權限", rootStatus)
+                            EnvironmentDetail(
+                                "Limbus Company",
+                                if (gameInstalled) "已安裝 · $gameVersion" else "未安裝"
+                            )
 
-                    Spacer(Modifier.height(14.dp))
-                    Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) {
-                        Text("重新檢查模組作用域")
+                            Spacer(Modifier.height(14.dp))
+                            Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) {
+                                Text("重新檢查模組作用域")
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(
+                                modifier = Modifier.fillMaxWidth(),
+                                text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
+                                enabled = rootStatus != "正在請求",
+                                onClick = onRequestRoot
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            TextButton(
+                                modifier = Modifier.fillMaxWidth(),
+                                text = "完成",
+                                onClick = onDismiss
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
-                        enabled = rootStatus != "正在請求",
-                        onClick = onRequestRoot
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    TextButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        text = "完成",
-                        onClick = onDismiss
-                    )
                 }
             }
         }

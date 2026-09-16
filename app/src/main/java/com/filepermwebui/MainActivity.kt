@@ -111,6 +111,8 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
+import top.yukonga.miuix.kmp.theme.darkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 
 private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
@@ -133,7 +135,45 @@ class MainActivity : ComponentActivity() {
         setContent {
             var themeMode by remember { mutableStateOf(appPrefs.getString("theme_mode", "system") ?: "system") }
             val controller = remember(themeMode) {
-                ThemeController(when (themeMode) { "light" -> ColorSchemeMode.Light; "dark" -> ColorSchemeMode.Dark; else -> ColorSchemeMode.System })
+                ThemeController(
+                    colorSchemeMode = when (themeMode) {
+                        "light" -> ColorSchemeMode.Light
+                        "dark" -> ColorSchemeMode.Dark
+                        else -> ColorSchemeMode.System
+                    },
+                    lightColors = lightColorScheme(
+                        primary = Color(0xFF202124),
+                        onPrimary = Color.White,
+                        primaryVariant = Color(0xFF3C4043),
+                        onPrimaryVariant = Color(0xFFE8EAED),
+                        disabledPrimary = Color(0xFFDADCE0),
+                        disabledOnPrimary = Color(0xFF9AA0A6),
+                        disabledPrimaryButton = Color(0xFFDADCE0),
+                        disabledOnPrimaryButton = Color(0xFF9AA0A6),
+                        disabledPrimarySlider = Color(0xFFBDC1C6),
+                        primaryContainer = Color(0xFF303134),
+                        onPrimaryContainer = Color.White,
+                        tertiaryContainer = Color(0xFFF1F3F4),
+                        onTertiaryContainer = Color(0xFF202124),
+                        sliderKeyPointForeground = Color(0xFF5F6368)
+                    ),
+                    darkColors = darkColorScheme(
+                        primary = Color(0xFFF1F3F4),
+                        onPrimary = Color(0xFF202124),
+                        primaryVariant = Color(0xFFBDC1C6),
+                        onPrimaryVariant = Color(0xFF303134),
+                        disabledPrimary = Color(0xFF3C4043),
+                        disabledOnPrimary = Color(0xFF80868B),
+                        disabledPrimaryButton = Color(0xFF3C4043),
+                        disabledOnPrimaryButton = Color(0xFF80868B),
+                        disabledPrimarySlider = Color(0xFF5F6368),
+                        primaryContainer = Color(0xFFE8EAED),
+                        onPrimaryContainer = Color(0xFF202124),
+                        tertiaryContainer = Color(0xFF303134),
+                        onTertiaryContainer = Color(0xFFF1F3F4),
+                        sliderKeyPointForeground = Color(0xFFBDC1C6)
+                    )
+                )
             }
             MiuixTheme(controller = controller) {
                 App(themeMode) { value -> themeMode = value; appPrefs.edit().putString("theme_mode", value).apply() }
@@ -774,8 +814,23 @@ class MainActivity : ComponentActivity() {
                         if (topLevelScreen) {
                             if (navigationStyle == "floating") {
                                 SukiFloatingBottomBar(
-                                    selectedIndex = pagerState.settledPage,
-                                    onSelected = { index -> topPages.getOrNull(index)?.let(::navigateTo) },
+                                    selectionPosition = (
+                                        pagerState.currentPage + pagerState.currentPageOffsetFraction
+                                    ).coerceIn(0f, (topPages.size - 1).toFloat()),
+                                    settledIndex = pagerState.settledPage,
+                                    pagerIsScrolling = pagerState.isScrollInProgress,
+                                    onSelected = { index ->
+                                        if (index in topPages.indices) {
+                                            scope.launch { pagerState.animateScrollToPage(index) }
+                                        }
+                                    },
+                                    onDragByPageFraction = { fraction ->
+                                        val pageSize = pagerState.layoutInfo.pageSize
+                                        if (pageSize > 0) pagerState.dispatchRawDelta(fraction * pageSize)
+                                    },
+                                    onDragFinished = { index ->
+                                        scope.launch { pagerState.animateScrollToPage(index) }
+                                    },
                                     backdrop = activeBarBackdrop
                                 )
                             } else {
@@ -800,7 +855,7 @@ class MainActivity : ComponentActivity() {
                                 state = pagerState,
                                 modifier = Modifier.fillMaxSize(),
                                 beyondViewportPageCount = 1,
-                                userScrollEnabled = navigationStyle != "floating",
+                                userScrollEnabled = true,
                                 key = { topPages[it] }
                             ) { index ->
                                 renderPage(topPages[index], padding)
