@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -68,6 +67,7 @@ private const val IndicatorRestingHeightDp = 50f
 private const val IndicatorMaxStretchDp = 28f
 private const val DragSelectionDelayMs = 72L
 private const val TapSelectionDelayMs = 42L
+private const val PendingSelectionTimeoutMs = 950L
 
 @Composable
 internal fun SukiFloatingBottomBar(
@@ -87,8 +87,17 @@ internal fun SukiFloatingBottomBar(
     val updatedOnSelected by rememberUpdatedState(onSelected)
     val updatedCanDrag by rememberUpdatedState(pendingTarget == null)
 
-    LaunchedEffect(selectedIndex, pendingTarget) {
-        if (!dragging && pendingTarget == selectedIndex) pendingTarget = null
+    LaunchedEffect(selectedIndex, pendingTarget, dragging) {
+        val pending = pendingTarget ?: return@LaunchedEffect
+        if (dragging) return@LaunchedEffect
+        if (pending == selectedIndex) {
+            pendingTarget = null
+            return@LaunchedEffect
+        }
+        delay(PendingSelectionTimeoutMs)
+        if (!dragging && pendingTarget == pending && updatedSelectedIndex != pending) {
+            pendingTarget = null
+        }
     }
 
     val selected = selectedIndex.coerceIn(0, NavigationItemCount - 1)
