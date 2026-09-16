@@ -1,0 +1,19 @@
+name: Clean temporary beta12 branch
+
+on:
+  push:
+    branches:
+      - fix/beta12-motion-handoff
+    paths:
+      - .github/workflows/delete-beta12-copy.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete temporary branch
+        run: git push origin --delete fix/beta12-motion-handoff-copy
