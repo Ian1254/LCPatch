@@ -25,7 +25,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -37,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -59,17 +62,16 @@ private const val NavigationItemWidthDp = 80f
 private const val NavigationHorizontalPaddingDp = 4f
 private const val IndicatorRestingWidthDp = 68f
 private const val IndicatorRestingHeightDp = 50f
-private const val IndicatorMaxStretchDp = 28f
+private const val IndicatorMaxStretchDp = 30f
 
-/** The pager is the only selection state. The bar only renders and manipulates its position. */
+/**
+ * HyperOS-style selector: dragging only previews the capsule. Page navigation is committed on
+ * release, never while the pointer is down.
+ */
 @Composable
 internal fun SukiFloatingBottomBar(
-    selectionPosition: Float,
-    settledIndex: Int,
-    pagerIsScrolling: Boolean,
+    selectedIndex: Int,
     onSelected: (Int) -> Unit,
-    onDragByPageFraction: (Float) -> Unit,
-    onDragFinished: (Int) -> Unit,
     backdrop: LayerBackdrop?
 ) {
     val density = LocalDensity.current
@@ -77,46 +79,88 @@ internal fun SukiFloatingBottomBar(
     var pressed by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var dragAccepted by remember { mutableStateOf(false) }
+    var dragPosition by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
+    var pendingTarget by remember { mutableStateOf<Int?>(null) }
 
-    val updatedPosition by rememberUpdatedState(selectionPosition)
+    val updatedSelectedIndex by rememberUpdatedState(selectedIndex)
     val updatedOnSelected by rememberUpdatedState(onSelected)
-    val updatedOnDragByPageFraction by rememberUpdatedState(onDragByPageFraction)
-    val updatedOnDragFinished by rememberUpdatedState(onDragFinished)
+    val interactionLocked = pendingTarget != null
 
-    val clampedPosition = selectionPosition.coerceIn(0f, (NavigationItemCount - 1).toFloat())
+    LaunchedEffect(selectedIndex, dragging) {
+        if (!dragging) {
+            dragPosition = selectedIndex.toFloat()
+            if (pendingTarget == selectedIndex) pendingTarget = null
+        }
+    }
+
+    val selected = selectedIndex.coerceIn(0, NavigationItemCount - 1)
+    val visualTarget = if (dragging) dragPosition else (pendingTarget ?: selected).toFloat()
     val visualPosition by animateFloatAsState(
-        targetValue = clampedPosition,
-        animationSpec = if (dragging || pagerIsScrolling) snap()
-        else spring(dampingRatio = 0.86f, stiffness = 600f),
-        label = "floating-navigation-position"
+        targetValue = visualTarget.coerceIn(0f, (NavigationItemCount - 1).toFloat()),
+        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.84f, stiffness = 520f),
+        label = "hyperos-navigation-position"
     )
-    val segmentFraction = (visualPosition - floor(visualPosition)).coerceIn(0f, 1f)
-    val segmentStretch = sin(Math.PI.toFloat() * segmentFraction).coerceIn(0f, 1f)
+
+    val lower = floor(visualPosition)
+    val segmentFraction = (visualPosition - lower).coerceIn(0f, 1f)
+    val segmentStretch = if (dragging) {
+        sin(Math.PI.toFloat() * segmentFraction).coerceIn(0f, 1f)
+    } else 0f
     val direction = when {
-        visualPosition > settledIndex -> 1f
-        visualPosition < settledIndex -> -1f
+        !dragging -> 0f
+        dragPosition > selected -> 1f
+        dragPosition < selected -> -1f
         else -> 0f
     }
-    val pressScaleTarget = when {
-        pressed && !dragging -> 0.95f
-        dragging -> 0.975f
-        else -> 1f
-    }
-    val pressedScale by animateFloatAsState(
-        targetValue = pressScaleTarget,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 760f),
-        label = "floating-navigation-press-scale"
-    )
-    val indicatorWidth = IndicatorRestingWidthDp * pressedScale + IndicatorMaxStretchDp * segmentStretch
-    val indicatorHeight = IndicatorRestingHeightDp * (pressedScale - if (dragging) 0.018f * segmentStretch else 0f)
-    val indicatorCenter = NavigationHorizontalPaddingDp +
-        visualPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f +
-        direction * segmentStretch * 3.5f
-    val indicatorTranslationDp = indicatorCenter - indicatorWidth / 2f
 
-    // Neutral UI colors; green and red stay reserved for semantic state.
+    val pressedScale by animateFloatAsState(
+        targetValue = when {
+            dragging -> 0.975f
+            pressed -> 0.955f
+            else -> 1f
+        },
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 760f),
+        label = "hyperos-navigation-press"
+    )
+    val indicatorWidthTarget = IndicatorRestingWidthDp * pressedScale +
+        if (dragging) IndicatorMaxStretchDp * segmentStretch else 0f
+    val indicatorHeightTarget = IndicatorRestingHeightDp *
+        (pressedScale - if (dragging) 0.018f * segmentStretch else 0f)
+    val baseCenter = NavigationHorizontalPaddingDp +
+        visualPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f
+    val indicatorCenterTarget = baseCenter + direction * segmentStretch * 3.5f
+
+    val indicatorCenter by animateFloatAsState(
+        targetValue = indicatorCenterTarget,
+        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.82f, stiffness = 560f),
+        label = "hyperos-navigation-center"
+    )
+    val indicatorWidth by animateFloatAsState(
+        targetValue = indicatorWidthTarget,
+        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.78f, stiffness = 620f),
+        label = "hyperos-navigation-width"
+    )
+    val indicatorHeight by animateFloatAsState(
+        targetValue = indicatorHeightTarget,
+        animationSpec = spring(dampingRatio = 0.80f, stiffness = 700f),
+        label = "hyperos-navigation-height"
+    )
+
     val containerColor = if (dark) Color(0xE61B1B1D) else Color(0xE6F4F4F5)
     val indicatorColor = if (dark) Color(0xFF3A3A3E) else Color(0xFFE0E0E3)
+    val indicatorTranslationDp = indicatorCenter - indicatorWidth / 2f
+
+    fun commitSelection(target: Int) {
+        val safeTarget = target.coerceIn(0, NavigationItemCount - 1)
+        if (safeTarget == updatedSelectedIndex) {
+            pendingTarget = null
+            dragPosition = updatedSelectedIndex.toFloat()
+            return
+        }
+        if (pendingTarget != null) return
+        pendingTarget = safeTarget
+        updatedOnSelected(safeTarget)
+    }
 
     val barModifier = Modifier
         .width(248.dp)
@@ -129,56 +173,74 @@ internal fun SukiFloatingBottomBar(
                     effects = { blur(36f, 36f) },
                     onDrawSurface = { drawRect(containerColor.copy(alpha = 0.78f)) }
                 )
-            } else {
-                Modifier.background(containerColor, CircleShape)
-            }
+            } else Modifier.background(containerColor, CircleShape)
         )
         .clip(CircleShape)
-        .pointerInput(density) {
+        .pointerInput(density, interactionLocked) {
+            val itemWidthPx = NavigationItemWidthDp * density.density
+            val paddingPx = NavigationHorizontalPaddingDp * density.density
+            val halfIndicatorPx = IndicatorRestingWidthDp * density.density / 2f
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    event.changes.forEach { change ->
+                        if (!change.previousPressed && change.pressed) {
+                            val current = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
+                            val center = paddingPx + current * itemWidthPx + itemWidthPx / 2f
+                            pressed = !interactionLocked &&
+                                change.position.x in (center - halfIndicatorPx)..(center + halfIndicatorPx)
+                        } else if (change.previousPressed && !change.pressed) pressed = false
+                    }
+                }
+            }
+        }
+        .pointerInput(density, interactionLocked) {
             val itemWidthPx = NavigationItemWidthDp * density.density
             val paddingPx = NavigationHorizontalPaddingDp * density.density
             val halfIndicatorPx = IndicatorRestingWidthDp * density.density / 2f
             detectHorizontalDragGestures(
                 onDragStart = { start ->
-                    val current = updatedPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
+                    val current = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
                     val center = paddingPx + current * itemWidthPx + itemWidthPx / 2f
-                    dragAccepted = start.x in (center - halfIndicatorPx)..(center + halfIndicatorPx)
+                    dragAccepted = !interactionLocked &&
+                        start.x in (center - halfIndicatorPx)..(center + halfIndicatorPx)
                     if (dragAccepted) {
                         pressed = true
                         dragging = true
+                        dragPosition = current.toFloat()
                     }
                 },
                 onHorizontalDrag = { change, amount ->
                     if (dragAccepted) {
                         change.consume()
-                        updatedOnDragByPageFraction(amount / itemWidthPx)
+                        dragPosition = (dragPosition + amount / itemWidthPx)
+                            .coerceIn(0f, (NavigationItemCount - 1).toFloat())
                     }
                 },
                 onDragEnd = {
                     if (dragAccepted) {
-                        val target = updatedPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
+                        val target = dragPosition.roundToInt()
                         dragAccepted = false
                         dragging = false
                         pressed = false
-                        updatedOnDragFinished(target)
+                        commitSelection(target)
                     }
                 },
                 onDragCancel = {
                     if (dragAccepted) {
-                        val target = updatedPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
                         dragAccepted = false
                         dragging = false
                         pressed = false
-                        updatedOnDragFinished(target)
+                        dragPosition = updatedSelectedIndex.toFloat()
                     }
                 }
             )
         }
 
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(
+            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
+        ),
         contentAlignment = Alignment.Center
     ) {
         Box(modifier = barModifier) {
@@ -192,10 +254,10 @@ internal fun SukiFloatingBottomBar(
                     .height(indicatorHeight.dp)
                     .background(indicatorColor, CircleShape)
             )
-            Row(modifier = Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = 4.dp)) {
-                SukiNavigationItem("概觀", MiuixIcons.Home, visualPosition, 0, dark) { updatedOnSelected(0) }
-                SukiNavigationItem("日誌", Icons.Default.List, visualPosition, 1, dark) { updatedOnSelected(1) }
-                SukiNavigationItem("設定", MiuixIcons.Settings, visualPosition, 2, dark) { updatedOnSelected(2) }
+            Row(Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = 4.dp)) {
+                SukiNavigationItem("概觀", MiuixIcons.Home, visualPosition, 0, dark) { commitSelection(0) }
+                SukiNavigationItem("日誌", Icons.Default.List, visualPosition, 1, dark) { commitSelection(1) }
+                SukiNavigationItem("設定", MiuixIcons.Settings, visualPosition, 2, dark) { commitSelection(2) }
             }
         }
     }
@@ -215,14 +277,11 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
     val unselectedColor = if (dark) Color(0xFF929298) else Color(0xFF707075)
     val color = lerp(unselectedColor, selectedColor, selectedAmount)
     Column(
-        modifier = Modifier
-            .weight(1f)
-            .fillMaxHeight()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
+        modifier = Modifier.weight(1f).fillMaxHeight().clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClick
+        ),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
     ) {
@@ -230,8 +289,8 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
             icon,
             contentDescription = label,
             modifier = Modifier.size(24.dp).graphicsLayer {
-                scaleX = 0.92f + 0.08f * selectedAmount
-                scaleY = 0.92f + 0.08f * selectedAmount
+                scaleX = 0.94f + selectedAmount * 0.06f
+                scaleY = 0.94f + selectedAmount * 0.06f
             },
             tint = color
         )

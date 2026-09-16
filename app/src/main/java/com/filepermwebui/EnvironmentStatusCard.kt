@@ -1,17 +1,10 @@
 package com.lcpatch
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -19,8 +12,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -52,8 +45,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
@@ -195,7 +188,7 @@ internal fun EnvironmentStatusOverviewCard(
             healthy = healthy,
             cardColor = cardColor,
             accent = accent,
-            sourceTopPx = sourceBounds.top,
+            sourceBounds = sourceBounds,
             scopeStatus = scopeStatus,
             rootStatus = rootStatus,
             gameInstalled = gameInstalled,
@@ -213,7 +206,7 @@ private fun EnvironmentStatusOverlay(
     healthy: Boolean,
     cardColor: Color,
     accent: Color,
-    sourceTopPx: Float,
+    sourceBounds: Rect,
     scopeStatus: String,
     rootStatus: String,
     gameInstalled: Boolean,
@@ -223,72 +216,117 @@ private fun EnvironmentStatusOverlay(
     onDismiss: () -> Unit
 ) {
     val dark = isSystemInDarkTheme()
-    val scrimProgress by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(if (visible) 170 else EnvironmentOverlayExitMs.toInt()),
-        label = "environment-overlay-scrim"
-    )
+    val progress = remember { Animatable(0f) }
     val panelInteraction = remember { MutableInteractionSource() }
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val targetTopPx = with(density) { 76.dp.toPx() }
-    val sourceOffsetPx = if (sourceTopPx > 0f) sourceTopPx - targetTopPx else 0f
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+    LaunchedEffect(visible) {
+        progress.animateTo(
+            targetValue = if (visible) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (visible) 360 else EnvironmentOverlayExitMs.toInt(),
+                easing = FastOutSlowInEasing
+            )
         )
+    }
+
+    Popup(
+        alignment = Alignment.TopStart,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true, dismissOnBackPress = true)
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = (if (dark) 0.46f else 0.30f) * scrimProgress))
+                .background(
+                    Color.Black.copy(
+                        alpha = (if (dark) 0.46f else 0.30f) * progress.value
+                    )
+                )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = onDismiss
                 )
         ) {
-            AnimatedVisibility(
-                visible = visible,
-                modifier = Modifier.align(Alignment.TopCenter),
-                enter = fadeIn(tween(145)) +
-                    scaleIn(
-                        initialScale = 0.96f,
-                        transformOrigin = TransformOrigin(0.5f, 0f),
-                        animationSpec = spring(dampingRatio = 0.84f, stiffness = 420f)
-                    ) +
-                    slideInVertically(tween(280)) { sourceOffsetPx.toInt() },
-                exit = fadeOut(tween(EnvironmentOverlayExitMs.toInt())) +
-                    scaleOut(
-                        targetScale = 0.96f,
-                        transformOrigin = TransformOrigin(0.5f, 0f),
-                        animationSpec = tween(EnvironmentOverlayExitMs.toInt())
-                    ) +
-                    slideOutVertically(tween(EnvironmentOverlayExitMs.toInt())) { sourceOffsetPx.toInt() }
+            val hasMeasuredSource = sourceBounds.width > 0f && sourceBounds.height > 0f
+            val sourceLeft = if (hasMeasuredSource) {
+                with(density) { sourceBounds.left.toDp() }
+            } else 12.dp
+            val sourceTop = if (hasMeasuredSource) {
+                with(density) { sourceBounds.top.toDp() }
+            } else 76.dp
+            val sourceWidth = if (hasMeasuredSource) {
+                with(density) { sourceBounds.width.toDp() }
+            } else maxWidth - 24.dp
+            val sourceHeight = if (hasMeasuredSource) {
+                with(density) { sourceBounds.height.toDp() }
+            } else 142.dp
+            val targetLeft = 12.dp
+            val targetTop = 76.dp
+            val targetWidth = maxWidth - 24.dp
+            val targetHeight = minOf(500.dp, maxHeight - 100.dp)
+            val fraction = progress.value
+            val panelLeft = sourceLeft + (targetLeft - sourceLeft) * fraction
+            val panelTop = sourceTop + (targetTop - sourceTop) * fraction
+            val panelWidth = sourceWidth + (targetWidth - sourceWidth) * fraction
+            val panelHeight = sourceHeight + (targetHeight - sourceHeight) * fraction
+            val corner = 26.dp + 4.dp * fraction
+
+            Box(
+                modifier = Modifier
+                    .offset(x = panelLeft, y = panelTop)
+                    .width(panelWidth)
+                    .height(panelHeight)
+                    .clip(RoundedCornerShape(corner))
+                    .background(cardColor)
+                    .clickable(
+                        interactionSource = panelInteraction,
+                        indication = null,
+                        onClick = { }
+                    )
             ) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp, top = 76.dp)
-                        .clip(RoundedCornerShape(30.dp))
-                        .clickable(
-                            interactionSource = panelInteraction,
-                            indication = null,
-                            onClick = { }
+                Box(
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        alpha = (1f - fraction * 2f).coerceIn(0f, 1f)
+                    }
+                ) {
+                    Icon(
+                        painter = painterResource(
+                            if (healthy) R.drawable.ic_check_circle_outline
+                            else R.drawable.ic_error_outline
                         ),
-                    insideMargin = PaddingValues(20.dp),
-                    colors = CardDefaults.defaultColors(color = cardColor)
+                        contentDescription = null,
+                        modifier = Modifier.align(Alignment.BottomEnd).offset(18.dp, 18.dp).size(112.dp),
+                        tint = accent
+                    )
+                    Column(Modifier.align(Alignment.TopStart).padding(16.dp)) {
+                        Text(
+                            if (healthy) "已啟用" else "環境需要處理",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text("LCPatch ${BuildConfig.VERSION_NAME}", fontSize = 15.sp)
+                    }
+                    Text(
+                        if (healthy) "Limbus Company · $gameVersion" else "模組狀態 · $scopeStatus",
+                        modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(20.dp).graphicsLayer {
+                        alpha = ((fraction - 0.28f) / 0.72f).coerceIn(0f, 1f)
+                    }
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f)) {
                             Text(
                                 if (healthy) "已啟用" else "環境需要處理",
                                 fontSize = 24.sp,
@@ -302,46 +340,38 @@ private fun EnvironmentStatusOverlay(
                             )
                         }
                         Icon(
-                            painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
+                            painter = painterResource(
+                                if (healthy) R.drawable.ic_check_circle_outline
+                                else R.drawable.ic_error_outline
+                            ),
                             contentDescription = null,
                             modifier = Modifier.size(44.dp),
                             tint = accent
                         )
                     }
-
-                    AnimatedVisibility(
-                        visible = visible,
-                        enter = expandVertically(tween(300)) + fadeIn(tween(220, delayMillis = 60)),
-                        exit = shrinkVertically(tween(180)) + fadeOut(tween(120))
-                    ) {
-                        Column {
-                            Spacer(Modifier.height(22.dp))
-                            EnvironmentDetail("模組作用域", scopeStatus)
-                            EnvironmentDetail("Root 權限", rootStatus)
-                            EnvironmentDetail(
-                                "Limbus Company",
-                                if (gameInstalled) "已安裝 · $gameVersion" else "未安裝"
-                            )
-
-                            Spacer(Modifier.height(14.dp))
-                            Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) {
-                                Text("重新檢查模組作用域")
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            TextButton(
-                                modifier = Modifier.fillMaxWidth(),
-                                text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
-                                enabled = rootStatus != "正在請求",
-                                onClick = onRequestRoot
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            TextButton(
-                                modifier = Modifier.fillMaxWidth(),
-                                text = "完成",
-                                onClick = onDismiss
-                            )
-                        }
+                    Spacer(Modifier.height(22.dp))
+                    EnvironmentDetail("模組作用域", scopeStatus)
+                    EnvironmentDetail("Root 權限", rootStatus)
+                    EnvironmentDetail(
+                        "Limbus Company",
+                        if (gameInstalled) "已安裝 · $gameVersion" else "未安裝"
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) {
+                        Text("重新檢查模組作用域")
                     }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
+                        enabled = rootStatus != "正在請求",
+                        onClick = onRequestRoot
+                    )
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = "完成",
+                        onClick = onDismiss
+                    )
                 }
             }
         }

@@ -267,7 +267,12 @@ class MainActivity : ComponentActivity() {
         val scope = rememberCoroutineScope()
         LaunchedEffect(page) {
             val target = topPages.indexOf(page)
-            if (target >= 0 && pagerState.currentPage != target) pagerState.animateScrollToPage(target)
+            if (target >= 0 && pagerState.currentPage != target) {
+                pagerState.animateScrollToPage(
+                    page = target,
+                    animationSpec = tween(360, easing = PageTransitionEasing)
+                )
+            }
         }
         LaunchedEffect(pagerState) {
             snapshotFlow { pagerState.settledPage }.collect { settled ->
@@ -775,7 +780,7 @@ class MainActivity : ComponentActivity() {
             label = "screen-transition"
         ) { animatedShell ->
             val topLevelScreen = animatedShell == TOP_LEVEL_CONTAINER
-            val visiblePage = if (topLevelScreen) topPages[pagerState.settledPage] else animatedShell
+            val visiblePage = if (topLevelScreen) page else animatedShell
             val visibleTitle = pageTitle(visiblePage)
             val visibleScrollBehavior = when (visiblePage) {
                 OVERVIEW -> overviewScrollBehavior
@@ -795,41 +800,53 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
                         TintedBar(activeBarBackdrop) {
-                            val navigationIcon: @Composable () -> Unit = {
-                                if (!topLevelScreen && (visiblePage != ONBOARDING || onboardingDone)) {
-                                    IconButton(onClick = ::navigateBack) {
-                                        Icon(MiuixIcons.Back, contentDescription = "返回")
+                            if (topLevelScreen) {
+                                AnimatedContent(
+                                    targetState = visiblePage,
+                                    transitionSpec = {
+                                        val direction = navigationDirection
+                                        slideInHorizontally(tween(360, easing = PageTransitionEasing)) {
+                                            direction * it
+                                        } togetherWith slideOutHorizontally(
+                                            tween(360, easing = PageTransitionEasing)
+                                        ) { -direction * it }
+                                    },
+                                    label = "top-level-title-transition"
+                                ) { titlePage ->
+                                    SmallTopAppBar(
+                                        title = pageTitle(titlePage),
+                                        color = Color.Transparent,
+                                        scrollBehavior = when (titlePage) {
+                                            OVERVIEW -> overviewScrollBehavior
+                                            LOGS -> logsScrollBehavior
+                                            else -> settingsScrollBehavior
+                                        }
+                                    )
+                                }
+                            } else {
+                                val navigationIcon: @Composable () -> Unit = {
+                                    if (visiblePage != ONBOARDING || onboardingDone) {
+                                        IconButton(onClick = ::navigateBack) {
+                                            Icon(MiuixIcons.Back, contentDescription = "返回")
+                                        }
                                     }
                                 }
+                                SmallTopAppBar(
+                                    title = visibleTitle,
+                                    color = Color.Transparent,
+                                    scrollBehavior = visibleScrollBehavior,
+                                    navigationIcon = navigationIcon
+                                )
                             }
-                            SmallTopAppBar(
-                                title = visibleTitle,
-                                color = Color.Transparent,
-                                scrollBehavior = visibleScrollBehavior,
-                                navigationIcon = navigationIcon
-                            )
                         }
                     },
                     bottomBar = {
                         if (topLevelScreen) {
                             if (navigationStyle == "floating") {
                                 SukiFloatingBottomBar(
-                                    selectionPosition = (
-                                        pagerState.currentPage + pagerState.currentPageOffsetFraction
-                                    ).coerceIn(0f, (topPages.size - 1).toFloat()),
-                                    settledIndex = pagerState.settledPage,
-                                    pagerIsScrolling = pagerState.isScrollInProgress,
+                                    selectedIndex = topPages.indexOf(page).coerceAtLeast(0),
                                     onSelected = { index ->
-                                        if (index in topPages.indices) {
-                                            scope.launch { pagerState.animateScrollToPage(index) }
-                                        }
-                                    },
-                                    onDragByPageFraction = { fraction ->
-                                        val pageSize = pagerState.layoutInfo.pageSize
-                                        if (pageSize > 0) pagerState.dispatchRawDelta(fraction * pageSize)
-                                    },
-                                    onDragFinished = { index ->
-                                        scope.launch { pagerState.animateScrollToPage(index) }
+                                        topPages.getOrNull(index)?.let(::navigateTo)
                                     },
                                     backdrop = activeBarBackdrop
                                 )
@@ -855,7 +872,7 @@ class MainActivity : ComponentActivity() {
                                 state = pagerState,
                                 modifier = Modifier.fillMaxSize(),
                                 beyondViewportPageCount = 1,
-                                userScrollEnabled = true,
+                                userScrollEnabled = false,
                                 key = { topPages[it] }
                             ) { index ->
                                 renderPage(topPages[index], padding)

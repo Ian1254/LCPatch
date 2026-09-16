@@ -22,7 +22,13 @@ internal data class NavigationState(
     fun navigateTo(target: Int): NavigationState {
         if (target == page) return this
         return if (target in TOP_LEVEL_PAGES) {
-            NavigationState(page = target, stack = intArrayOf(), direction = -1)
+            val currentIndex = TOP_LEVEL_PAGES.indexOf(page)
+            val targetIndex = TOP_LEVEL_PAGES.indexOf(target)
+            NavigationState(
+                page = target,
+                stack = intArrayOf(),
+                direction = if (currentIndex >= 0 && targetIndex > currentIndex) 1 else -1
+            )
         } else {
             NavigationState(page = target, stack = stack + page, direction = 1)
         }
