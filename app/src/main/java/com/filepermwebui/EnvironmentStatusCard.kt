@@ -1,0 +1,341 @@
+package com.lcpatch
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+private const val EnvironmentOverlayExitMs = 210L
+
+@Composable
+internal fun EnvironmentStatusOverviewCard(
+    scopeStatus: String,
+    rootStatus: String,
+    gameInstalled: Boolean,
+    gameVersion: String,
+    onCheckScope: () -> Unit,
+    onRequestRoot: () -> Unit
+) {
+    val healthy = scopeStatus == "已啟用"
+    val hasError = scopeStatus == "尚未授權遊戲"
+    val dark = isSystemInDarkTheme()
+    val cardColor = when {
+        healthy -> if (dark) Color(0xFF173D27) else Color(0xFFDFFAE4)
+        hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
+        else -> MiuixTheme.colorScheme.secondaryContainer
+    }
+    val accent = when {
+        healthy -> Color(0xFF43D477)
+        hasError -> Color(0xFFFF6B70)
+        else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
+    }
+
+    var overlayMounted by rememberSaveable { mutableStateOf(false) }
+    var overlayVisible by remember { mutableStateOf(false) }
+    var closing by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val cardInteraction = remember { MutableInteractionSource() }
+    val cardPressed by cardInteraction.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(
+        targetValue = if (cardPressed && !overlayMounted) 0.985f else 1f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 760f),
+        label = "environment-card-press"
+    )
+
+    fun openOverlay() {
+        if (!overlayMounted) {
+            closing = false
+            overlayMounted = true
+        }
+    }
+
+    fun closeOverlay() {
+        if (!overlayMounted || closing) return
+        closing = true
+        overlayVisible = false
+        coroutineScope.launch {
+            delay(EnvironmentOverlayExitMs)
+            overlayMounted = false
+            closing = false
+        }
+    }
+
+    LaunchedEffect(overlayMounted) {
+        if (overlayMounted) {
+            withFrameNanos { }
+            overlayVisible = true
+        } else {
+            overlayVisible = false
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = cardScale
+                scaleY = cardScale
+            }
+            .clip(RoundedCornerShape(26.dp))
+            .clickable(
+                interactionSource = cardInteraction,
+                indication = null,
+                onClick = ::openOverlay
+            ),
+        colors = CardDefaults.defaultColors(color = cardColor)
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().height(142.dp)) {
+            Icon(
+                painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
+                contentDescription = null,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(18.dp, 18.dp)
+                    .size(112.dp),
+                tint = accent
+            )
+            Column(modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
+                Text(
+                    if (healthy) "已啟用" else if (hasError) "尚未設定作用域" else "尚未連接",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    if (healthy) "LCPatch ${BuildConfig.VERSION_NAME}"
+                    else if (hasError) "請授予 Limbus Company 作用域"
+                    else "請確認模組與作用域狀態",
+                    fontSize = 15.sp
+                )
+            }
+            Row(
+                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (healthy) "Limbus Company · $gameVersion" else "模組狀態 · $scopeStatus",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    "詳情 ›",
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+
+    if (overlayMounted) {
+        EnvironmentStatusOverlay(
+            visible = overlayVisible,
+            healthy = healthy,
+            cardColor = cardColor,
+            accent = accent,
+            scopeStatus = scopeStatus,
+            rootStatus = rootStatus,
+            gameInstalled = gameInstalled,
+            gameVersion = gameVersion,
+            onCheckScope = onCheckScope,
+            onRequestRoot = onRequestRoot,
+            onDismiss = ::closeOverlay
+        )
+    }
+}
+
+@Composable
+private fun EnvironmentStatusOverlay(
+    visible: Boolean,
+    healthy: Boolean,
+    cardColor: Color,
+    accent: Color,
+    scopeStatus: String,
+    rootStatus: String,
+    gameInstalled: Boolean,
+    gameVersion: String,
+    onCheckScope: () -> Unit,
+    onRequestRoot: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val dark = isSystemInDarkTheme()
+    val scrimProgress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(if (visible) 170 else EnvironmentOverlayExitMs.toInt()),
+        label = "environment-overlay-scrim"
+    )
+    val panelInteraction = remember { MutableInteractionSource() }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = (if (dark) 0.46f else 0.30f) * scrimProgress))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                )
+        ) {
+            AnimatedVisibility(
+                visible = visible,
+                modifier = Modifier.align(Alignment.TopCenter),
+                enter = fadeIn(tween(145)) +
+                    scaleIn(
+                        initialScale = 0.88f,
+                        transformOrigin = TransformOrigin(0.5f, 0.04f),
+                        animationSpec = spring(dampingRatio = 0.84f, stiffness = 420f)
+                    ) +
+                    slideInVertically(tween(245)) { -it / 7 },
+                exit = fadeOut(tween(EnvironmentOverlayExitMs.toInt())) +
+                    scaleOut(
+                        targetScale = 0.91f,
+                        transformOrigin = TransformOrigin(0.5f, 0.04f),
+                        animationSpec = tween(EnvironmentOverlayExitMs.toInt())
+                    ) +
+                    slideOutVertically(tween(EnvironmentOverlayExitMs.toInt())) { -it / 9 }
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, top = 76.dp)
+                        .clip(RoundedCornerShape(30.dp))
+                        .clickable(
+                            interactionSource = panelInteraction,
+                            indication = null,
+                            onClick = { }
+                        ),
+                    insideMargin = PaddingValues(20.dp),
+                    colors = CardDefaults.defaultColors(color = cardColor)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                if (healthy) "已啟用" else "環境需要處理",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                "環境與權限",
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                fontSize = 14.sp
+                            )
+                        }
+                        Icon(
+                            painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
+                            contentDescription = null,
+                            modifier = Modifier.size(44.dp),
+                            tint = accent
+                        )
+                    }
+
+                    Spacer(Modifier.height(22.dp))
+                    EnvironmentDetail("模組作用域", scopeStatus)
+                    EnvironmentDetail("Root 權限", rootStatus)
+                    EnvironmentDetail(
+                        "Limbus Company",
+                        if (gameInstalled) "已安裝 · $gameVersion" else "未安裝"
+                    )
+
+                    Spacer(Modifier.height(14.dp))
+                    Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) {
+                        Text("重新檢查模組作用域")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
+                        enabled = rootStatus != "正在請求",
+                        onClick = onRequestRoot
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = "完成",
+                        onClick = onDismiss
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EnvironmentDetail(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(value, fontWeight = FontWeight.Medium)
+    }
+}
