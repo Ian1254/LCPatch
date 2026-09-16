@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,9 +45,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.roundToInt
+import kotlin.math.floor
+import kotlin.math.sin
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
@@ -62,6 +65,9 @@ private const val NavigationItemWidthDp = 80f
 private const val NavigationHorizontalPaddingDp = 4f
 private const val IndicatorRestingWidthDp = 68f
 private const val IndicatorRestingHeightDp = 50f
+private const val IndicatorMaxStretchDp = 28f
+private const val DragSelectionDelayMs = 72L
+private const val TapSelectionDelayMs = 42L
 
 @Composable
 internal fun SukiFloatingBottomBar(
@@ -70,6 +76,7 @@ internal fun SukiFloatingBottomBar(
     backdrop: LayerBackdrop?
 ) {
     val density = LocalDensity.current
+    val coroutineScope = rememberCoroutineScope()
     var pressed by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var dragAccepted by remember { mutableStateOf(false) }
@@ -88,57 +95,78 @@ internal fun SukiFloatingBottomBar(
     val visualTarget = if (dragging) dragPosition else (pendingTarget ?: selected).toFloat()
     val visualPosition by animateFloatAsState(
         targetValue = visualTarget.coerceIn(0f, (NavigationItemCount - 1).toFloat()),
-        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.8f, stiffness = 430f),
+        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.82f, stiffness = 520f),
         label = "floating-navigation-selection"
     )
 
-    val restingHalfWidth = IndicatorRestingWidthDp / 2f
-    val selectedCenter = NavigationHorizontalPaddingDp + selected * NavigationItemWidthDp + NavigationItemWidthDp / 2f
-    val dragCenter = NavigationHorizontalPaddingDp + dragPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f
-    val settledCenter = NavigationHorizontalPaddingDp + visualPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f
-
-    val rawLeft: Float
-    val rawRight: Float
-    if (dragging) {
-        val leadingCenter = dragCenter
-        val distance = abs(leadingCenter - selectedCenter)
-        val trailingLag = distance * 0.18f
-        if (leadingCenter >= selectedCenter) {
-            rawLeft = selectedCenter - restingHalfWidth + trailingLag
-            rawRight = leadingCenter + restingHalfWidth
-        } else {
-            rawLeft = leadingCenter - restingHalfWidth
-            rawRight = selectedCenter + restingHalfWidth - trailingLag
-        }
-    } else {
-        rawLeft = settledCenter - restingHalfWidth
-        rawRight = settledCenter + restingHalfWidth
+    val segmentFraction = if (dragging) {
+        val lower = floor(dragPosition)
+        (dragPosition - lower).coerceIn(0f, 1f)
+    } else 0f
+    val segmentStretch = if (dragging) {
+        sin(Math.PI.toFloat() * segmentFraction).coerceIn(0f, 1f)
+    } else 0f
+    val direction = when {
+        !dragging -> 0f
+        dragPosition > selected -> 1f
+        dragPosition < selected -> -1f
+        else -> 0f
     }
 
-    val indicatorLeft by animateFloatAsState(
-        targetValue = rawLeft,
-        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.76f, stiffness = 520f),
-        label = "floating-navigation-left-edge"
-    )
-    val indicatorRight by animateFloatAsState(
-        targetValue = rawRight,
-        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.72f, stiffness = 470f),
-        label = "floating-navigation-right-edge"
-    )
+    val baseCenter = NavigationHorizontalPaddingDp + visualPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f
+    val leanedCenter = baseCenter + direction * segmentStretch * 3.5f
+    val pressScaleTarget = when {
+        pressed && !dragging -> 0.95f
+        dragging -> 0.975f
+        else -> 1f
+    }
     val pressedScale by animateFloatAsState(
-        targetValue = when {
-            pressed && !dragging -> 0.91f
-            dragging -> 0.96f
-            else -> 1f
-        },
-        animationSpec = spring(dampingRatio = 0.68f, stiffness = 620f),
+        targetValue = pressScaleTarget,
+        animationSpec = spring(dampingRatio = 0.76f, stiffness = 760f),
         label = "floating-navigation-press-scale"
     )
 
-    val indicatorWidth = max(IndicatorRestingWidthDp, indicatorRight - indicatorLeft)
-    val indicatorCenter = (indicatorLeft + indicatorRight) / 2f
+    val indicatorWidthTarget = if (dragging) {
+        IndicatorRestingWidthDp * pressedScale + IndicatorMaxStretchDp * segmentStretch
+    } else {
+        IndicatorRestingWidthDp * pressedScale
+    }
+    val indicatorHeightTarget = IndicatorRestingHeightDp * (
+        if (dragging) pressedScale - 0.018f * segmentStretch else pressedScale
+    )
+
+    val indicatorCenter by animateFloatAsState(
+        targetValue = leanedCenter,
+        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.78f, stiffness = 560f),
+        label = "floating-navigation-center"
+    )
+    val indicatorWidth by animateFloatAsState(
+        targetValue = indicatorWidthTarget,
+        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.74f, stiffness = 640f),
+        label = "floating-navigation-width"
+    )
+    val indicatorHeight by animateFloatAsState(
+        targetValue = indicatorHeightTarget,
+        animationSpec = spring(dampingRatio = 0.76f, stiffness = 720f),
+        label = "floating-navigation-height"
+    )
+
     val indicatorTranslationDp = indicatorCenter - indicatorWidth / 2f
     val containerColor = MiuixTheme.colorScheme.surfaceContainer
+    val indicatorColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.15f)
+
+    fun settleSelection(target: Int, delayMs: Long) {
+        if (target == updatedSelectedIndex) {
+            pendingTarget = target
+            return
+        }
+        if (pendingTarget != null) return
+        pendingTarget = target
+        coroutineScope.launch {
+            delay(delayMs)
+            updatedOnSelected(target)
+        }
+    }
 
     val barModifier = Modifier
         .width(248.dp)
@@ -149,10 +177,10 @@ internal fun SukiFloatingBottomBar(
                     backdrop = backdrop,
                     shape = { CircleShape },
                     effects = { blur(36f, 36f) },
-                    onDrawSurface = { drawRect(containerColor.copy(alpha = 0.72f)) }
+                    onDrawSurface = { drawRect(containerColor.copy(alpha = 0.76f)) }
                 )
             } else {
-                Modifier.background(containerColor.copy(alpha = 0.86f), CircleShape)
+                Modifier.background(containerColor.copy(alpha = 0.9f), CircleShape)
             }
         )
         .clip(CircleShape)
@@ -201,12 +229,11 @@ internal fun SukiFloatingBottomBar(
                 },
                 onDragEnd = {
                     if (dragAccepted) {
-                        val target = dragPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
-                        pendingTarget = target
+                        val target = (dragPosition + 0.5f).toInt().coerceIn(0, NavigationItemCount - 1)
                         dragAccepted = false
                         dragging = false
                         pressed = false
-                        updatedOnSelected(target)
+                        settleSelection(target, DragSelectionDelayMs)
                     }
                 },
                 onDragCancel = {
@@ -231,32 +258,21 @@ internal fun SukiFloatingBottomBar(
                 modifier = Modifier
                     .graphicsLayer {
                         translationX = with(density) { indicatorTranslationDp.dp.toPx() }
-                        scaleX = pressedScale
-                        scaleY = pressedScale
+                        translationY = with(density) { ((62f - indicatorHeight) / 2f).dp.toPx() }
                     }
-                    .offset(y = 6.dp)
                     .width(indicatorWidth.dp)
-                    .height(IndicatorRestingHeightDp.dp)
-                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.11f), CircleShape)
+                    .height(indicatorHeight.dp)
+                    .background(indicatorColor, CircleShape)
             )
             Row(modifier = Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = 4.dp)) {
                 SukiNavigationItem("概觀", MiuixIcons.Home, visualPosition, 0) {
-                    if (pendingTarget == null) {
-                        pendingTarget = 0
-                        updatedOnSelected(0)
-                    }
+                    settleSelection(0, TapSelectionDelayMs)
                 }
                 SukiNavigationItem("日誌", Icons.Default.List, visualPosition, 1) {
-                    if (pendingTarget == null) {
-                        pendingTarget = 1
-                        updatedOnSelected(1)
-                    }
+                    settleSelection(1, TapSelectionDelayMs)
                 }
                 SukiNavigationItem("設定", MiuixIcons.Settings, visualPosition, 2) {
-                    if (pendingTarget == null) {
-                        pendingTarget = 2
-                        updatedOnSelected(2)
-                    }
+                    settleSelection(2, TapSelectionDelayMs)
                 }
             }
         }
@@ -283,12 +299,7 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick
-            )
-            .graphicsLayer {
-                val scale = 1f + selectedAmount * 0.035f
-                scaleX = scale
-                scaleY = scale
-            },
+            ),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
     ) {
