@@ -2,8 +2,10 @@ package com.lcpatch
 
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -60,6 +62,8 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+private val EnvironmentMorphEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
 @Composable
 internal fun EnvironmentStatusOverviewCard(
@@ -130,7 +134,6 @@ internal fun EnvironmentStatusOverviewCard(
             .graphicsLayer {
                 scaleX = cardScale
                 scaleY = cardScale
-                alpha = if (overlayMounted && !closing) 0f else 1f
             }
             .onGloballyPositioned { sourceBounds = it.boundsInWindow() }
             .clip(RoundedCornerShape(26.dp))
@@ -231,12 +234,18 @@ private fun EnvironmentStatusOverlay(
         if (visible) {
             progress.animateTo(
                 targetValue = 1f,
-                animationSpec = spring(dampingRatio = 0.88f, stiffness = 360f)
+                animationSpec = tween(
+                    durationMillis = 390,
+                    easing = EnvironmentMorphEasing
+                )
             )
         } else {
             progress.animateTo(
                 targetValue = 0f,
-                animationSpec = spring(dampingRatio = 0.91f, stiffness = 430f)
+                animationSpec = tween(
+                    durationMillis = 330,
+                    easing = EnvironmentMorphEasing
+                )
             )
             withFrameNanos { }
             withFrameNanos { }
@@ -275,19 +284,21 @@ private fun EnvironmentStatusOverlay(
             val sourceHeight = if (hasMeasuredSource) with(density) { sourceBounds.height.toDp() } else 142.dp
 
             val fraction = progress.value.coerceIn(0f, 1f)
+            val sourceRight = sourceLeft + sourceWidth
+            val sourceBottom = sourceTop + sourceHeight
             val panelLeft = lerpDp(sourceLeft, 0.dp, fraction)
             val panelTop = lerpDp(sourceTop, 0.dp, fraction)
-            val panelWidth = lerpDp(sourceWidth, maxWidth, fraction)
-            val panelHeight = lerpDp(sourceHeight, maxHeight, fraction)
+            val panelRight = lerpDp(sourceRight, maxWidth, fraction)
+            val panelBottom = lerpDp(sourceBottom, maxHeight, fraction)
+            val panelWidth = (panelRight - panelLeft).coerceAtLeast(0.dp)
+            val panelHeight = (panelBottom - panelTop).coerceAtLeast(0.dp)
             val corner = lerpDp(26.dp, 0.dp, fraction)
-            val panelAlpha = if (visible) 1f else (fraction / 0.14f).coerceIn(0f, 1f)
 
             Box(
                 modifier = Modifier
                     .offset(x = panelLeft, y = panelTop)
                     .width(panelWidth)
                     .height(panelHeight)
-                    .graphicsLayer { alpha = panelAlpha }
                     .clip(RoundedCornerShape(corner))
                     .background(cardColor)
                     .clickable(
