@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -115,6 +116,8 @@ internal fun EnvironmentStatusOverviewCard(
 
     fun closeOverlay() {
         if (!overlayMounted || closing) return
+        // Reveal the source card underneath before the morph reaches it. The overlay remains on top
+        // until its final frames, which avoids a one-frame blank handoff when the dialog is removed.
         closing = true
         overlayVisible = false
     }
@@ -125,7 +128,7 @@ internal fun EnvironmentStatusOverviewCard(
             .graphicsLayer {
                 scaleX = cardScale
                 scaleY = cardScale
-                alpha = if (overlayMounted) 0f else 1f
+                alpha = if (overlayMounted && !closing) 0f else 1f
             }
             .onGloballyPositioned { sourceBounds = it.boundsInWindow() }
             .clip(RoundedCornerShape(26.dp))
@@ -233,6 +236,10 @@ private fun EnvironmentStatusOverlay(
                 targetValue = 0f,
                 animationSpec = spring(dampingRatio = 0.91f, stiffness = 430f)
             )
+            // Keep the overlay window mounted for two rendered frames after reaching the source.
+            // The source card is already visible underneath, so the handoff cannot expose a blank frame.
+            withFrameNanos { }
+            withFrameNanos { }
             latestExitFinished()
         }
     }
@@ -267,12 +274,14 @@ private fun EnvironmentStatusOverlay(
             val panelWidth = lerpDp(sourceWidth, maxWidth, fraction)
             val panelHeight = lerpDp(sourceHeight, maxHeight, fraction)
             val corner = lerpDp(26.dp, 0.dp, fraction)
+            val panelAlpha = if (visible) 1f else (fraction / 0.14f).coerceIn(0f, 1f)
 
             Box(
                 modifier = Modifier
                     .offset(x = panelLeft, y = panelTop)
                     .width(panelWidth)
                     .height(panelHeight)
+                    .graphicsLayer { alpha = panelAlpha }
                     .clip(RoundedCornerShape(corner))
                     .background(cardColor)
                     .clickable(
