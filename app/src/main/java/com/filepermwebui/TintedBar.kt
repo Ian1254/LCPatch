@@ -17,9 +17,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 internal fun rememberBarBackdrop(): LayerBackdrop? {
     if (!isRenderEffectSupported()) return null
-    val surface = MiuixTheme.colorScheme.surface
     return rememberLayerBackdrop {
-        drawRect(surface)
         drawContent()
     }
 }
@@ -28,8 +26,9 @@ internal fun rememberBarBackdrop(): LayerBackdrop? {
 internal fun TintedBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit) {
     val surface = MiuixTheme.colorScheme.surface
     val fade = Brush.verticalGradient(
-        0f to surface.copy(alpha = 0.86f),
-        0.60f to surface.copy(alpha = 0.58f),
+        0f to surface.copy(alpha = 0.58f),
+        0.42f to surface.copy(alpha = 0.30f),
+        0.78f to surface.copy(alpha = 0.10f),
         1f to Color.Transparent
     )
     Box(
@@ -37,7 +36,7 @@ internal fun TintedBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit
             Modifier.drawBackdrop(
                 backdrop = backdrop,
                 shape = { RectangleShape },
-                effects = { blur(36f, 36f) },
+                effects = { blur(28f, 28f) },
                 onDrawSurface = { drawRect(brush = fade) }
             )
         } else {

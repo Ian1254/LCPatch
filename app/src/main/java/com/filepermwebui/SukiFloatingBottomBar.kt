@@ -47,10 +47,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
@@ -65,19 +65,19 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 private const val NavigationItemCount = 3
 private const val NavigationItemWidthDp = 80f
 private const val NavigationHorizontalPaddingDp = 4f
-private const val IndicatorInsetDp = 4f
-private const val IndicatorRestingWidthDp = NavigationItemWidthDp - IndicatorInsetDp * 2f
-private const val IndicatorRestingHeightDp = 62f - IndicatorInsetDp * 2f
+private const val IndicatorVerticalInsetDp = 4f
+private const val IndicatorRestingWidthDp = NavigationItemWidthDp
+private const val IndicatorRestingHeightDp = 62f - IndicatorVerticalInsetDp * 2f
 private const val IndicatorVelocityStretchDp = 11f
 private const val IndicatorDragStretchDp = 9f
 
 /**
  * HyperOS-like floating navigation.
  *
- * All pointer input is handled by one gesture layer. Dragging is accepted only when the gesture
- * starts inside the currently selected capsule. While held, the capsule follows the finger in
- * tab-space 1:1 and page content remains still. Release snaps from the exact drag position to the
- * nearest target; the page follows shortly after. There is no extra arrival pulse or size bounce.
+ * A single pointer stream owns press, drag, tap and release. Dragging is accepted only when the
+ * gesture starts on the visible selected capsule. Taps on the other items always resolve to a
+ * destination on release, so a small amount of finger travel cannot silently discard navigation.
+ * A new gesture can also replace an in-flight settle instead of being ignored.
  */
 @Composable
 internal fun SukiFloatingBottomBar(
@@ -93,19 +93,18 @@ internal fun SukiFloatingBottomBar(
     var dragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
     var releaseHoldPosition by remember { mutableStateOf<Float?>(null) }
-    var pendingTarget by remember { mutableStateOf<Int?>(null) }
     var transitionDirection by remember { mutableFloatStateOf(0f) }
     var motionVelocity by remember { mutableFloatStateOf(0f) }
+    var navigationJob by remember { mutableStateOf<Job?>(null) }
     val visualPosition = remember { Animatable(selectedIndex.toFloat()) }
 
     val updatedSelectedIndex by rememberUpdatedState(selectedIndex)
     val updatedOnSelected by rememberUpdatedState(onSelected)
-    val interactionLocked = pendingTarget != null
     val itemWidthPx = NavigationItemWidthDp * density.density
 
     LaunchedEffect(selectedIndex) {
         if (
-            !dragging && pendingTarget == null && releaseHoldPosition == null &&
+            !dragging && navigationJob?.isActive != true && releaseHoldPosition == null &&
             abs(visualPosition.value - selectedIndex) > 0.001f
         ) {
             transitionDirection = when {
@@ -120,7 +119,9 @@ internal fun SukiFloatingBottomBar(
             motionVelocity = 0f
             transitionDirection = 0f
         }
-        if (!dragging && pendingTarget == null) dragPosition = selectedIndex.toFloat()
+        if (!dragging && navigationJob?.isActive != true) {
+            dragPosition = selectedIndex.toFloat()
+        }
     }
 
     val pressedScale by animateFloatAsState(
@@ -164,19 +165,28 @@ internal fun SukiFloatingBottomBar(
         releaseVelocityItems: Float = 0f,
         startPosition: Float? = null
     ) {
-        if (pendingTarget != null) return
-
         val safeTarget = target.coerceIn(0, NavigationItemCount - 1)
         val current = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
-        val fromPosition = startPosition ?: visualPosition.value
+        val fromPosition = (startPosition ?: visualPosition.value)
+            .coerceIn(0f, (NavigationItemCount - 1).toFloat())
         val delta = safeTarget - fromPosition
 
-        if (safeTarget == current && startPosition == null) {
+        if (safeTarget == current && startPosition == null && abs(delta) < 0.001f) {
+            navigationJob?.cancel()
+            motionVelocity = 0f
+            transitionDirection = 0f
+            releaseHoldPosition = null
             dragPosition = current.toFloat()
             return
         }
+
         if (abs(delta) < 0.001f) {
+            navigationJob?.cancel()
+            motionVelocity = 0f
+            transitionDirection = 0f
+            releaseHoldPosition = null
             dragPosition = safeTarget.toFloat()
+            if (safeTarget != current) updatedOnSelected(safeTarget)
             return
         }
 
@@ -193,20 +203,17 @@ internal fun SukiFloatingBottomBar(
         val leadDelayMs = (96f - min(abs(carriedVelocity) * 6f, 34f)).roundToInt().coerceIn(62, 96)
         val changesPage = safeTarget != current
 
-        pendingTarget = safeTarget
+        navigationJob?.cancel()
         transitionDirection = direction
         releaseHoldPosition = fromPosition
-
-        coroutineScope.launch {
+        navigationJob = coroutineScope.launch {
             visualPosition.snapTo(fromPosition)
             releaseHoldPosition = null
 
             val pageJob = if (changesPage) {
                 launch {
                     delay(leadDelayMs.toLong())
-                    if (pendingTarget == safeTarget) updatedOnSelected(safeTarget)
-                    // MainActivity's top-level pager uses a 360 ms release transition.
-                    delay(380)
+                    updatedOnSelected(safeTarget)
                 }
             } else null
 
@@ -216,10 +223,9 @@ internal fun SukiFloatingBottomBar(
                 initialVelocity = carriedVelocity
             ) { motionVelocity = velocity }
 
+            pageJob?.join()
             motionVelocity = 0f
             transitionDirection = 0f
-            pageJob?.join()
-            if (pendingTarget == safeTarget) pendingTarget = null
             dragPosition = safeTarget.toFloat()
         }
     }
@@ -263,29 +269,29 @@ internal fun SukiFloatingBottomBar(
                 SukiNavigationItem("設定", MiuixIcons.Settings, centerPosition, 2, dark)
             }
 
-            // One pointer stream owns press, drag, tap and release. Child tabs are visual only.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(density, interactionLocked, viewConfiguration.touchSlop) {
+                    .pointerInput(density, viewConfiguration.touchSlop) {
                         val paddingPx = NavigationHorizontalPaddingDp * density.density
                         val halfIndicatorPx = IndicatorRestingWidthDp * density.density / 2f
                         val touchSlop = viewConfiguration.touchSlop
 
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
-                            val current = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
-                            val selectedCenter = paddingPx + current * itemWidthPx + itemWidthPx / 2f
-                            val startsInSelectedCapsule = !interactionLocked &&
-                                down.position.x in (selectedCenter - halfIndicatorPx)..(selectedCenter + halfIndicatorPx)
+                            val downVisualPosition = visualPosition.value
+                                .coerceIn(0f, (NavigationItemCount - 1).toFloat())
+                            val selectedCenter = paddingPx +
+                                downVisualPosition * itemWidthPx + itemWidthPx / 2f
+                            val startsInSelectedCapsule = down.position.x in
+                                (selectedCenter - halfIndicatorPx)..(selectedCenter + halfIndicatorPx)
 
                             pressed = startsInSelectedCapsule
                             dragging = false
-                            dragPosition = current.toFloat()
+                            dragPosition = downVisualPosition
 
                             val downX = down.position.x
                             var lastX = downX
-                            var maxTravel = 0f
                             var lastSampleNanos = System.nanoTime()
                             var releaseVelocityPx = 0f
 
@@ -304,10 +310,11 @@ internal fun SukiFloatingBottomBar(
                                     val velocityItems = releaseVelocityPx / itemWidthPx
                                     val projectedPosition = dragPosition +
                                         velocityItems.coerceIn(-6f, 6f) * 0.075f
+                                    val releaseX = change.position.x
                                     val target = if (wasDragging) {
                                         projectedPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
                                     } else {
-                                        (((downX - paddingPx) / itemWidthPx).toInt())
+                                        (((releaseX - paddingPx) / itemWidthPx).toInt())
                                             .coerceIn(0, NavigationItemCount - 1)
                                     }
 
@@ -316,7 +323,7 @@ internal fun SukiFloatingBottomBar(
 
                                     if (wasDragging) {
                                         commitSelection(target, velocityItems, releaseStart)
-                                    } else if (!interactionLocked && maxTravel <= touchSlop) {
+                                    } else {
                                         commitSelection(target)
                                     }
                                     break
@@ -324,7 +331,6 @@ internal fun SukiFloatingBottomBar(
 
                                 val dx = change.position.x - lastX
                                 val totalDx = change.position.x - downX
-                                maxTravel = max(maxTravel, abs(totalDx))
 
                                 if (startsInSelectedCapsule && !dragging && abs(totalDx) > touchSlop) {
                                     dragging = true
