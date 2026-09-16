@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,6 +52,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
@@ -69,15 +71,15 @@ private const val IndicatorVerticalInsetDp = 4f
 private const val IndicatorRestingWidthDp = NavigationItemWidthDp
 private const val IndicatorRestingHeightDp = 62f - IndicatorVerticalInsetDp * 2f
 private const val IndicatorVelocityStretchDp = 11f
-private const val IndicatorDragStretchDp = 9f
+private const val BarWidthDp = 248f
 
 /**
  * HyperOS-like floating navigation.
  *
- * A single pointer stream owns press, drag, tap and release. Dragging is accepted only when the
- * gesture starts on the visible selected capsule. Taps on the other items always resolve to a
- * destination on release, so a small amount of finger travel cannot silently discard navigation.
- * A new gesture can also replace an in-flight settle instead of being ignored.
+ * A single pointer stream owns press, drag, tap and release. The selected capsule follows the
+ * finger, while its deformation is driven only by horizontal velocity. A new gesture immediately
+ * invalidates the previous settle request so old delayed navigation cannot replay over the latest
+ * gesture. The outer 4 dp inset is preserved even while the capsule stretches.
  */
 @Composable
 internal fun SukiFloatingBottomBar(
@@ -95,6 +97,8 @@ internal fun SukiFloatingBottomBar(
     var releaseHoldPosition by remember { mutableStateOf<Float?>(null) }
     var transitionDirection by remember { mutableFloatStateOf(0f) }
     var motionVelocity by remember { mutableFloatStateOf(0f) }
+    var gestureVelocity by remember { mutableFloatStateOf(0f) }
+    var navigationGeneration by remember { mutableIntStateOf(0) }
     var navigationJob by remember { mutableStateOf<Job?>(null) }
     val visualPosition = remember { Animatable(selectedIndex.toFloat()) }
 
@@ -130,31 +134,47 @@ internal fun SukiFloatingBottomBar(
         label = "hyperos-navigation-press"
     )
 
-    val currentIndex = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
-    val rawDragDelta = if (dragging) dragPosition - currentIndex else 0f
-    val dragTension = (abs(rawDragDelta) / 0.72f).coerceIn(0f, 1f)
-    val speedFactor = (abs(motionVelocity) / 7.5f).coerceIn(0f, 1f)
-    val dragStretch = if (dragging) IndicatorDragStretchDp * dragTension else 0f
-    val velocityStretch = if (!dragging) IndicatorVelocityStretchDp * speedFactor else 0f
-    val stretchDp = dragStretch + velocityStretch
-    val motionDirection = when {
-        dragging && rawDragDelta > 0.01f -> 1f
-        dragging && rawDragDelta < -0.01f -> -1f
-        motionVelocity > 0.06f -> 1f
-        motionVelocity < -0.06f -> -1f
-        else -> transitionDirection
-    }
-    val indicatorWidth = IndicatorRestingWidthDp * pressedScale + stretchDp
-    val indicatorHeight = IndicatorRestingHeightDp * pressedScale
     val centerPosition = when {
         dragging -> dragPosition
         releaseHoldPosition != null -> releaseHoldPosition ?: visualPosition.value
         else -> visualPosition.value
     }
+    val activeVelocity = if (dragging) gestureVelocity else motionVelocity
+    val speedFactor = (abs(activeVelocity) / 7.5f).coerceIn(0f, 1f)
+    val stretchDp = IndicatorVelocityStretchDp * speedFactor
+    val motionDirection = when {
+        dragging && gestureVelocity > 0.06f -> 1f
+        dragging && gestureVelocity < -0.06f -> -1f
+        motionVelocity > 0.06f -> 1f
+        motionVelocity < -0.06f -> -1f
+        else -> transitionDirection
+    }
+
+    val baseWidth = IndicatorRestingWidthDp * pressedScale
+    val indicatorHeight = IndicatorRestingHeightDp * pressedScale
     val baseCenter = NavigationHorizontalPaddingDp +
         centerPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f
-    val indicatorCenter = baseCenter + motionDirection * stretchDp * 0.16f
-    val indicatorTranslationDp = indicatorCenter - indicatorWidth / 2f
+    val baseLeft = baseCenter - baseWidth / 2f
+    val baseRight = baseCenter + baseWidth / 2f
+    val frontStretch = stretchDp * 0.72f
+    val backStretch = stretchDp * 0.28f
+    val rawLeft = when {
+        motionDirection > 0f -> baseLeft - backStretch
+        motionDirection < 0f -> baseLeft - frontStretch
+        else -> baseLeft - stretchDp / 2f
+    }
+    val rawRight = when {
+        motionDirection > 0f -> baseRight + frontStretch
+        motionDirection < 0f -> baseRight + backStretch
+        else -> baseRight + stretchDp / 2f
+    }
+    val minLeft = NavigationHorizontalPaddingDp
+    val maxRight = BarWidthDp - NavigationHorizontalPaddingDp
+    val leftOverflow = max(0f, minLeft - rawLeft)
+    val rightOverflow = max(0f, rawRight - maxRight)
+    val indicatorLeft = (rawLeft - rightOverflow).coerceAtLeast(minLeft)
+    val indicatorRight = (rawRight + leftOverflow).coerceAtMost(maxRight)
+    val indicatorWidth = (indicatorRight - indicatorLeft).coerceAtLeast(1f)
 
     val containerColor = if (dark) Color(0xD91E1E21) else Color(0xEAF4F4F5)
     val indicatorColor = if (dark) Color(0xFF3B3B3F) else Color(0xFFE0E0E3)
@@ -171,22 +191,30 @@ internal fun SukiFloatingBottomBar(
             .coerceIn(0f, (NavigationItemCount - 1).toFloat())
         val delta = safeTarget - fromPosition
 
+        navigationGeneration += 1
+        val generation = navigationGeneration
+        navigationJob?.cancel()
+
         if (safeTarget == current && startPosition == null && abs(delta) < 0.001f) {
-            navigationJob?.cancel()
             motionVelocity = 0f
+            gestureVelocity = 0f
             transitionDirection = 0f
             releaseHoldPosition = null
             dragPosition = current.toFloat()
+            navigationJob = null
             return
         }
 
         if (abs(delta) < 0.001f) {
-            navigationJob?.cancel()
             motionVelocity = 0f
+            gestureVelocity = 0f
             transitionDirection = 0f
             releaseHoldPosition = null
             dragPosition = safeTarget.toFloat()
-            if (safeTarget != current) updatedOnSelected(safeTarget)
+            navigationJob = null
+            if (safeTarget != current && generation == navigationGeneration) {
+                updatedOnSelected(safeTarget)
+            }
             return
         }
 
@@ -203,17 +231,20 @@ internal fun SukiFloatingBottomBar(
         val leadDelayMs = (96f - min(abs(carriedVelocity) * 6f, 34f)).roundToInt().coerceIn(62, 96)
         val changesPage = safeTarget != current
 
-        navigationJob?.cancel()
         transitionDirection = direction
         releaseHoldPosition = fromPosition
+        gestureVelocity = carriedVelocity
         navigationJob = coroutineScope.launch {
             visualPosition.snapTo(fromPosition)
             releaseHoldPosition = null
+            motionVelocity = carriedVelocity
 
             val pageJob = if (changesPage) {
                 launch {
                     delay(leadDelayMs.toLong())
-                    updatedOnSelected(safeTarget)
+                    if (generation == navigationGeneration) {
+                        updatedOnSelected(safeTarget)
+                    }
                 }
             } else null
 
@@ -224,14 +255,18 @@ internal fun SukiFloatingBottomBar(
             ) { motionVelocity = velocity }
 
             pageJob?.join()
-            motionVelocity = 0f
-            transitionDirection = 0f
-            dragPosition = safeTarget.toFloat()
+            if (generation == navigationGeneration) {
+                motionVelocity = 0f
+                gestureVelocity = 0f
+                transitionDirection = 0f
+                dragPosition = safeTarget.toFloat()
+                navigationJob = null
+            }
         }
     }
 
     val barModifier = Modifier
-        .width(248.dp)
+        .width(BarWidthDp.dp)
         .height(62.dp)
         .then(
             if (backdrop != null) {
@@ -256,7 +291,7 @@ internal fun SukiFloatingBottomBar(
             Box(
                 modifier = Modifier
                     .graphicsLayer {
-                        translationX = with(density) { indicatorTranslationDp.dp.toPx() }
+                        translationX = with(density) { indicatorLeft.dp.toPx() }
                         translationY = with(density) { ((62f - indicatorHeight) / 2f).dp.toPx() }
                     }
                     .width(indicatorWidth.dp)
@@ -279,6 +314,15 @@ internal fun SukiFloatingBottomBar(
 
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+
+                            navigationGeneration += 1
+                            navigationJob?.cancel()
+                            navigationJob = null
+                            releaseHoldPosition = null
+                            transitionDirection = 0f
+                            motionVelocity = 0f
+                            gestureVelocity = 0f
+
                             val downVisualPosition = visualPosition.value
                                 .coerceIn(0f, (NavigationItemCount - 1).toFloat())
                             val selectedCenter = paddingPx +
@@ -293,7 +337,6 @@ internal fun SukiFloatingBottomBar(
                             val downX = down.position.x
                             var lastX = downX
                             var lastSampleNanos = System.nanoTime()
-                            var releaseVelocityPx = 0f
 
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Main)
@@ -301,13 +344,14 @@ internal fun SukiFloatingBottomBar(
                                 if (change == null) {
                                     pressed = false
                                     dragging = false
+                                    gestureVelocity = 0f
                                     break
                                 }
 
                                 if (!change.pressed) {
                                     val wasDragging = dragging
                                     val releaseStart = if (wasDragging) dragPosition else null
-                                    val velocityItems = releaseVelocityPx / itemWidthPx
+                                    val velocityItems = gestureVelocity
                                     val projectedPosition = dragPosition +
                                         velocityItems.coerceIn(-6f, 6f) * 0.075f
                                     val releaseX = change.position.x
@@ -324,6 +368,7 @@ internal fun SukiFloatingBottomBar(
                                     if (wasDragging) {
                                         commitSelection(target, velocityItems, releaseStart)
                                     } else {
+                                        gestureVelocity = 0f
                                         commitSelection(target)
                                     }
                                     break
@@ -344,8 +389,9 @@ internal fun SukiFloatingBottomBar(
                                     val now = System.nanoTime()
                                     val dt = (now - lastSampleNanos) / 1_000_000_000f
                                     if (dt in 0.001f..0.08f) {
-                                        val instantaneous = dx / dt
-                                        releaseVelocityPx = releaseVelocityPx * 0.62f + instantaneous * 0.38f
+                                        val instantaneousItems = (dx / dt) / itemWidthPx
+                                        gestureVelocity =
+                                            gestureVelocity * 0.55f + instantaneousItems * 0.45f
                                     }
                                     lastSampleNanos = now
                                 }
