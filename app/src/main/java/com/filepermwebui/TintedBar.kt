@@ -9,29 +9,28 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
-import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.blur
 import top.yukonga.miuix.kmp.blur.drawBackdrop
-import top.yukonga.miuix.kmp.shader.isRenderEffectSupported
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.shader.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 internal fun rememberBarBackdrop(): LayerBackdrop? {
-    if (!isRenderEffectSupported()) return null
-    return rememberLayerBackdrop {
-        drawContent()
-    }
+    if (!isRuntimeShaderSupported()) return null
+    return rememberLayerBackdrop { drawContent() }
 }
 
+/**
+ * Single-pass masked backdrop. The blur stays strong at the edge and fades smoothly into content,
+ * avoiding the three independent off-screen blur passes used previously.
+ */
 @Composable
 private fun MaskedBackdrop(
     modifier: Modifier,
@@ -42,91 +41,56 @@ private fun MaskedBackdrop(
 ) {
     Box(
         modifier = modifier
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                drawRect(brush = mask, blendMode = BlendMode.DstIn)
-            }
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RectangleShape },
-                    effects = { blur(radius, radius) },
-                    onDrawSurface = {
-                        if (surfaceTint.alpha > 0f) drawRect(surfaceTint)
-                    }
-                )
-        )
-    }
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { RectangleShape },
+                effects = { blur(radius, radius) },
+                onDrawSurface = {
+                    if (surfaceTint.alpha > 0f) drawRect(surfaceTint)
+                },
+                contentBlendMode = BlendMode.DstIn
+            )
+            .background(mask)
+    )
 }
 
-/**
- * Blur-only top edge for top-level pages. Several blur bands are blended together so the
- * blur strength itself falls off toward the content instead of drawing one fixed blurred card
- * and merely fading its alpha.
- */
+/** Top-edge overlay for top-level pages. It is drawn over content and should not reserve space. */
 @Composable
 internal fun TopLevelBlurBar(backdrop: LayerBackdrop?) {
     val surface = MiuixTheme.colorScheme.surface
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val mask = Brush.verticalGradient(
+        0f to Color.Black,
+        0.26f to Color.Black.copy(alpha = 0.94f),
+        0.58f to Color.Black.copy(alpha = 0.54f),
+        0.82f to Color.Black.copy(alpha = 0.18f),
+        1f to Color.Transparent
+    )
     val fallback = Brush.verticalGradient(
-        0f to surface.copy(alpha = 0.28f),
-        0.48f to surface.copy(alpha = 0.10f),
+        0f to surface.copy(alpha = 0.24f),
+        0.50f to surface.copy(alpha = 0.08f),
         1f to Color.Transparent
     )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(statusInset + 64.dp)
+            .height(statusInset + 68.dp)
     ) {
         if (backdrop != null) {
-            val strongMask = Brush.verticalGradient(
-                0f to Color.Black,
-                0.30f to Color.Black.copy(alpha = 0.92f),
-                0.58f to Color.Black.copy(alpha = 0.46f),
-                0.76f to Color.Transparent
-            )
-            val mediumMask = Brush.verticalGradient(
-                0f to Color.Black.copy(alpha = 0.44f),
-                0.52f to Color.Black.copy(alpha = 0.34f),
-                0.82f to Color.Black.copy(alpha = 0.12f),
-                1f to Color.Transparent
-            )
-            val lightMask = Brush.verticalGradient(
-                0f to Color.Black.copy(alpha = 0.18f),
-                0.70f to Color.Black.copy(alpha = 0.13f),
-                1f to Color.Transparent
-            )
-
             MaskedBackdrop(
                 modifier = Modifier.matchParentSize(),
                 backdrop = backdrop,
-                radius = 26f,
-                mask = strongMask
-            )
-            MaskedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                backdrop = backdrop,
-                radius = 15f,
-                mask = mediumMask
-            )
-            MaskedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                backdrop = backdrop,
-                radius = 7f,
-                mask = lightMask
+                radius = 24f,
+                mask = mask
             )
             Box(
-                modifier = Modifier
+                Modifier
                     .matchParentSize()
                     .background(
                         Brush.verticalGradient(
-                            0f to surface.copy(alpha = 0.055f),
-                            0.62f to surface.copy(alpha = 0.018f),
+                            0f to surface.copy(alpha = 0.035f),
+                            0.60f to surface.copy(alpha = 0.010f),
                             1f to Color.Transparent
                         )
                     )
@@ -141,15 +105,15 @@ internal fun TopLevelBlurBar(backdrop: LayerBackdrop?) {
 @Composable
 internal fun TintedBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit) {
     val surface = MiuixTheme.colorScheme.surface
-    val fallback = Brush.verticalGradient(
-        0f to surface.copy(alpha = 0.26f),
-        0.55f to surface.copy(alpha = 0.10f),
+    val mask = Brush.verticalGradient(
+        0f to Color.Black,
+        0.48f to Color.Black.copy(alpha = 0.90f),
+        0.78f to Color.Black.copy(alpha = 0.28f),
         1f to Color.Transparent
     )
-    val blurMask = Brush.verticalGradient(
-        0f to Color.Black,
-        0.42f to Color.Black.copy(alpha = 0.90f),
-        0.76f to Color.Black.copy(alpha = 0.30f),
+    val fallback = Brush.verticalGradient(
+        0f to surface.copy(alpha = 0.24f),
+        0.58f to surface.copy(alpha = 0.08f),
         1f to Color.Transparent
     )
 
@@ -158,9 +122,9 @@ internal fun TintedBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit
             MaskedBackdrop(
                 modifier = Modifier.matchParentSize(),
                 backdrop = backdrop,
-                radius = 22f,
-                mask = blurMask,
-                surfaceTint = surface.copy(alpha = 0.055f)
+                radius = 21f,
+                mask = mask,
+                surfaceTint = surface.copy(alpha = 0.035f)
             )
         } else {
             Box(Modifier.matchParentSize().background(fallback))
