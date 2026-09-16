@@ -63,16 +63,18 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 private const val NavigationItemCount = 3
 private const val NavigationItemWidthDp = 80f
 private const val NavigationHorizontalPaddingDp = 4f
-private const val IndicatorRestingWidthDp = 72f
-private const val IndicatorRestingHeightDp = 50f
-private const val IndicatorMaxStretchDp = 12f
+private const val IndicatorRestingWidthDp = 74f
+private const val IndicatorRestingHeightDp = 54f
+private const val IndicatorVelocityStretchDp = 11f
+private const val IndicatorDragStretchDp = 8f
+private const val MaxDragPreviewItems = 0.18f
 
 /**
- * HyperOS-style selector.
+ * HyperOS-like floating navigation.
  *
- * Dragging from the selected capsule only chooses a destination. The capsule stays visually
- * locked while the pointer is down. After release it moves first, with a small velocity-driven
- * stretch, then page navigation is committed a moment later so the content follows behind.
+ * While the finger is down the selected capsule only shows local tension and a small directional
+ * preview; the page does not move. Release commits navigation: the capsule leads, the page follows,
+ * and arrival is confirmed by a deliberately strong shrink-and-settle selection motion.
  */
 @Composable
 internal fun SukiFloatingBottomBar(
@@ -91,11 +93,27 @@ internal fun SukiFloatingBottomBar(
     var transitionDirection by remember { mutableFloatStateOf(0f) }
     var motionVelocity by remember { mutableFloatStateOf(0f) }
     val visualPosition = remember { Animatable(selectedIndex.toFloat()) }
+    val selectionPulse = remember { Animatable(1f) }
 
     val updatedSelectedIndex by rememberUpdatedState(selectedIndex)
     val updatedOnSelected by rememberUpdatedState(onSelected)
     val interactionLocked = pendingTarget != null
     val itemWidthPx = NavigationItemWidthDp * density.density
+
+    fun playSelectionSnap() {
+        coroutineScope.launch {
+            selectionPulse.stop()
+            selectionPulse.snapTo(1f)
+            selectionPulse.animateTo(
+                0.84f,
+                animationSpec = spring(dampingRatio = 0.76f, stiffness = 980f)
+            )
+            selectionPulse.animateTo(
+                1f,
+                animationSpec = spring(dampingRatio = 0.72f, stiffness = 620f)
+            )
+        }
+    }
 
     LaunchedEffect(selectedIndex) {
         if (pendingTarget == selectedIndex) {
@@ -109,33 +127,42 @@ internal fun SukiFloatingBottomBar(
             visualPosition.animateTo(
                 targetValue = selectedIndex.toFloat(),
                 animationSpec = spring(dampingRatio = 0.88f, stiffness = 560f)
-            ) {
-                motionVelocity = velocity
-            }
+            ) { motionVelocity = velocity }
             motionVelocity = 0f
             transitionDirection = 0f
+            playSelectionSnap()
         }
         if (!dragging) dragPosition = selectedIndex.toFloat()
     }
 
     val pressedScale by animateFloatAsState(
-        targetValue = if (pressed) 0.985f else 1f,
-        animationSpec = spring(dampingRatio = 0.82f, stiffness = 820f),
+        targetValue = if (pressed) 0.965f else 1f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 900f),
         label = "hyperos-navigation-press"
     )
 
+    val currentIndex = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
+    val rawDragDelta = if (dragging) dragPosition - currentIndex else 0f
+    val previewOffset = rawDragDelta.coerceIn(-MaxDragPreviewItems, MaxDragPreviewItems)
+    val dragTension = (abs(rawDragDelta) / 0.70f).coerceIn(0f, 1f)
     val speedFactor = (abs(motionVelocity) / 7.5f).coerceIn(0f, 1f)
-    val stretchDp = IndicatorMaxStretchDp * speedFactor
+    val dragStretch = if (dragging) IndicatorDragStretchDp * dragTension else 0f
+    val velocityStretch = if (!dragging) IndicatorVelocityStretchDp * speedFactor else 0f
+    val stretchDp = dragStretch + velocityStretch
     val motionDirection = when {
+        dragging && rawDragDelta > 0.01f -> 1f
+        dragging && rawDragDelta < -0.01f -> -1f
         motionVelocity > 0.06f -> 1f
         motionVelocity < -0.06f -> -1f
         else -> transitionDirection
     }
-    val indicatorWidth = IndicatorRestingWidthDp * pressedScale + stretchDp
-    val indicatorHeight = IndicatorRestingHeightDp * pressedScale
+    val selectedScale = selectionPulse.value
+    val indicatorWidth = (IndicatorRestingWidthDp * pressedScale + stretchDp) * selectedScale
+    val indicatorHeight = IndicatorRestingHeightDp * pressedScale * selectedScale
+    val centerPosition = visualPosition.value + previewOffset
     val baseCenter = NavigationHorizontalPaddingDp +
-        visualPosition.value * NavigationItemWidthDp + NavigationItemWidthDp / 2f
-    val indicatorCenter = baseCenter + motionDirection * stretchDp * 0.18f
+        centerPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f
+    val indicatorCenter = baseCenter + motionDirection * stretchDp * 0.16f
     val indicatorTranslationDp = indicatorCenter - indicatorWidth / 2f
 
     val containerColor = if (dark) Color(0xD91E1E21) else Color(0xEAF4F4F5)
@@ -148,6 +175,7 @@ internal fun SukiFloatingBottomBar(
         if (safeTarget == current) {
             pendingTarget = null
             dragPosition = current.toFloat()
+            playSelectionSnap()
             return
         }
         if (pendingTarget != null) return
@@ -170,11 +198,10 @@ internal fun SukiFloatingBottomBar(
                 targetValue = safeTarget.toFloat(),
                 animationSpec = spring(dampingRatio = 0.86f, stiffness = stiffness),
                 initialVelocity = carriedVelocity
-            ) {
-                motionVelocity = velocity
-            }
+            ) { motionVelocity = velocity }
             motionVelocity = 0f
             transitionDirection = 0f
+            playSelectionSnap()
         }
         coroutineScope.launch {
             delay(leadDelayMs.toLong())
@@ -289,13 +316,13 @@ internal fun SukiFloatingBottomBar(
                     .background(indicatorColor, CircleShape)
             )
             Row(Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = 4.dp)) {
-                SukiNavigationItem("概觀", MiuixIcons.Home, visualPosition.value, 0, dark) {
+                SukiNavigationItem("概觀", MiuixIcons.Home, centerPosition, 0, dark, selectionPulse.value) {
                     commitSelection(0)
                 }
-                SukiNavigationItem("日誌", Icons.Default.List, visualPosition.value, 1, dark) {
+                SukiNavigationItem("日誌", Icons.Default.List, centerPosition, 1, dark, selectionPulse.value) {
                     commitSelection(1)
                 }
-                SukiNavigationItem("設定", MiuixIcons.Settings, visualPosition.value, 2, dark) {
+                SukiNavigationItem("設定", MiuixIcons.Settings, centerPosition, 2, dark, selectionPulse.value) {
                     commitSelection(2)
                 }
             }
@@ -310,6 +337,7 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
     selectionPosition: Float,
     index: Int,
     dark: Boolean,
+    selectionScale: Float,
     onClick: () -> Unit
 ) {
     val selectedAmount = (1f - abs(selectionPosition - index)).coerceIn(0f, 1f)
@@ -329,8 +357,10 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
             icon,
             contentDescription = label,
             modifier = Modifier.size(24.dp).graphicsLayer {
-                scaleX = 0.95f + selectedAmount * 0.05f
-                scaleY = 0.95f + selectedAmount * 0.05f
+                val base = 0.95f + selectedAmount * 0.05f
+                val pulse = 1f - selectedAmount * (1f - selectionScale) * 0.45f
+                scaleX = base * pulse
+                scaleY = base * pulse
             },
             tint = color
         )
