@@ -1,13 +1,11 @@
 package com.lcpatch
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,8 +30,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,13 +42,14 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.min
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -66,89 +63,69 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 private const val NavigationItemCount = 3
 private const val NavigationItemWidthDp = 80f
 private const val NavigationHorizontalPaddingDp = 4f
-private const val IndicatorVerticalInsetDp = 4f
-private const val IndicatorRestingWidthDp = NavigationItemWidthDp
-private const val IndicatorRestingHeightDp = 62f - IndicatorVerticalInsetDp * 2f
-private const val IndicatorVelocityStretchDp = 11f
+private const val IndicatorRestingWidthDp = 72f
+private const val IndicatorRestingHeightDp = 54f
+private const val IndicatorVelocityStretchDp = 12f
 private const val BarWidthDp = 248f
+private const val BarHeightDp = 62f
 
 /**
- * HyperOS-like floating navigation.
- *
- * Drag, release and settle share one visual state. The release frame preserves the drag position
- * and velocity before ownership moves to the Animatable, preventing a one-frame reset and replay.
- * At the outer items the leading edge is clipped instead of transferring overflow to the opposite
- * edge, so momentum never appears to reverse direction.
+ * Floating navigation whose selected position is driven by the same pager position as the page.
+ * The capsule stays anchored while the user drags and only starts travelling after release, while
+ * horizontal velocity still deforms it during the gesture. This removes the second independent
+ * settle animation that previously caused replay and navigation/page desynchronisation.
  */
 @Composable
 internal fun SukiFloatingBottomBar(
     selectedIndex: Int,
+    pagePosition: Float,
     onSelected: (Int) -> Unit,
     backdrop: LayerBackdrop?
 ) {
     val density = LocalDensity.current
     val viewConfiguration = LocalViewConfiguration.current
-    val dark = isSystemInDarkTheme()
-    val coroutineScope = rememberCoroutineScope()
+    val dark = isMiuixDarkTheme()
 
-    var pressed by remember { mutableStateOf(false) }
+    var pressedIndex by remember { mutableIntStateOf(-1) }
+    var selectedGesture by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
-    var dragPosition by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
-    var releaseHoldPosition by remember { mutableStateOf<Float?>(null) }
-    var transitionDirection by remember { mutableFloatStateOf(0f) }
-    var motionVelocity by remember { mutableFloatStateOf(0f) }
     var gestureVelocity by remember { mutableFloatStateOf(0f) }
-    var navigationGeneration by remember { mutableIntStateOf(0) }
-    var navigationJob by remember { mutableStateOf<Job?>(null) }
-    val visualPosition = remember { Animatable(selectedIndex.toFloat()) }
+    var pageMotionVelocity by remember { mutableFloatStateOf(0f) }
+    var lastPagePosition by remember { mutableFloatStateOf(pagePosition) }
+    var lastPageSampleNanos by remember { mutableStateOf(System.nanoTime()) }
 
-    val updatedSelectedIndex by rememberUpdatedState(selectedIndex)
-    val updatedOnSelected by rememberUpdatedState(onSelected)
-    val itemWidthPx = NavigationItemWidthDp * density.density
-
-    LaunchedEffect(selectedIndex) {
-        if (
-            !dragging && navigationJob?.isActive != true && releaseHoldPosition == null &&
-            abs(visualPosition.value - selectedIndex) > 0.001f
-        ) {
-            transitionDirection = when {
-                selectedIndex > visualPosition.value -> 1f
-                selectedIndex < visualPosition.value -> -1f
-                else -> 0f
-            }
-            visualPosition.animateTo(
-                targetValue = selectedIndex.toFloat(),
-                animationSpec = spring(dampingRatio = 0.88f, stiffness = 560f)
-            ) { motionVelocity = velocity }
-            motionVelocity = 0f
-            transitionDirection = 0f
+    LaunchedEffect(pagePosition) {
+        val now = System.nanoTime()
+        val dt = (now - lastPageSampleNanos) / 1_000_000_000f
+        val delta = pagePosition - lastPagePosition
+        if (dt in 0.001f..0.08f) {
+            pageMotionVelocity = if (abs(delta) < 0.0001f) 0f else delta / dt
         }
-        if (!dragging && navigationJob?.isActive != true) {
-            dragPosition = selectedIndex.toFloat()
+        lastPagePosition = pagePosition
+        lastPageSampleNanos = now
+    }
+    LaunchedEffect(selectedIndex, pagePosition) {
+        if (abs(pagePosition - selectedIndex) < 0.001f && !dragging) {
+            pageMotionVelocity = 0f
         }
     }
 
-    val pressedScale by animateFloatAsState(
-        targetValue = if (pressed) 0.95f else 1f,
-        animationSpec = spring(dampingRatio = 0.80f, stiffness = 900f),
-        label = "hyperos-navigation-press"
+    val pressFraction by animateFloatAsState(
+        targetValue = if (pressedIndex >= 0) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 900f),
+        label = "floating-navigation-press"
     )
-    val pressFraction = ((1f - pressedScale) / 0.05f).coerceIn(0f, 1f)
 
-    val centerPosition = when {
-        dragging -> dragPosition
-        releaseHoldPosition != null -> releaseHoldPosition ?: visualPosition.value
-        else -> visualPosition.value
-    }
-    val activeVelocity = if (dragging) gestureVelocity else motionVelocity
+    val selectedPress = if (selectedGesture && pressedIndex >= 0) pressFraction else 0f
+    val pressedScale = 1f - selectedPress * 0.055f
+    val centerPosition = pagePosition.coerceIn(0f, (NavigationItemCount - 1).toFloat())
+    val activeVelocity = if (dragging) gestureVelocity else pageMotionVelocity
     val speedFactor = (abs(activeVelocity) / 7.5f).coerceIn(0f, 1f)
     val stretchDp = IndicatorVelocityStretchDp * speedFactor
     val motionDirection = when {
-        dragging && gestureVelocity > 0.06f -> 1f
-        dragging && gestureVelocity < -0.06f -> -1f
-        motionVelocity > 0.06f -> 1f
-        motionVelocity < -0.06f -> -1f
-        else -> transitionDirection
+        activeVelocity > 0.06f -> 1f
+        activeVelocity < -0.06f -> -1f
+        else -> 0f
     }
 
     val baseWidth = IndicatorRestingWidthDp * pressedScale
@@ -157,144 +134,57 @@ internal fun SukiFloatingBottomBar(
         centerPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f
     val baseLeft = baseCenter - baseWidth / 2f
     val baseRight = baseCenter + baseWidth / 2f
-    val frontStretch = stretchDp * 0.72f
-    val backStretch = stretchDp * 0.28f
-    val rawLeft = when {
-        motionDirection > 0f -> baseLeft - backStretch
-        motionDirection < 0f -> baseLeft - frontStretch
-        else -> baseLeft - stretchDp / 2f
-    }
-    val rawRight = when {
-        motionDirection > 0f -> baseRight + frontStretch
-        motionDirection < 0f -> baseRight + backStretch
-        else -> baseRight + stretchDp / 2f
-    }
     val minLeft = NavigationHorizontalPaddingDp
     val maxRight = BarWidthDp - NavigationHorizontalPaddingDp
-    val indicatorLeft = rawLeft.coerceAtLeast(minLeft)
-    val indicatorRight = rawRight.coerceAtMost(maxRight)
+
+    fun resistedStretch(amount: Float, available: Float): Float {
+        if (amount <= 0f || available <= 0f) return 0f
+        return amount / (1f + amount / (available * 0.85f).coerceAtLeast(0.5f))
+    }
+
+    val desiredFront = stretchDp * 0.74f
+    val desiredBack = stretchDp * 0.26f
+    val indicatorLeft = when {
+        motionDirection < 0f -> baseLeft - resistedStretch(desiredFront, baseLeft - minLeft)
+        motionDirection > 0f -> baseLeft - resistedStretch(desiredBack, baseLeft - minLeft)
+        else -> baseLeft
+    }.coerceAtLeast(minLeft)
+    val indicatorRight = when {
+        motionDirection > 0f -> baseRight + resistedStretch(desiredFront, maxRight - baseRight)
+        motionDirection < 0f -> baseRight + resistedStretch(desiredBack, maxRight - baseRight)
+        else -> baseRight
+    }.coerceAtMost(maxRight)
     val indicatorWidth = (indicatorRight - indicatorLeft).coerceAtLeast(1f)
 
-    val containerColor = if (dark) Color(0xD91E1E21) else Color(0xEAF4F4F5)
-    val indicatorColor = if (dark) Color(0xFF3B3B3F) else Color(0xFFE0E0E3)
+    val containerTint = if (dark) Color(0xFF1E1E21) else Color(0xFFF4F4F5)
+    val fallbackContainer = containerTint.copy(alpha = if (dark) 0.94f else 0.96f)
+    val indicatorColor = if (dark) Color(0xE63B3B3F) else Color(0xECE0E0E3)
     val outlineColor = if (dark) Color.White.copy(alpha = 0.075f) else Color.Black.copy(alpha = 0.07f)
-
-    fun commitSelection(
-        target: Int,
-        releaseVelocityItems: Float = 0f,
-        startPosition: Float? = null
-    ) {
-        val safeTarget = target.coerceIn(0, NavigationItemCount - 1)
-        val current = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
-        val fromPosition = (startPosition ?: visualPosition.value)
-            .coerceIn(0f, (NavigationItemCount - 1).toFloat())
-        val delta = safeTarget - fromPosition
-
-        navigationGeneration += 1
-        val generation = navigationGeneration
-        navigationJob?.cancel()
-
-        if (safeTarget == current && startPosition == null && abs(delta) < 0.001f) {
-            motionVelocity = 0f
-            gestureVelocity = 0f
-            transitionDirection = 0f
-            releaseHoldPosition = null
-            dragPosition = current.toFloat()
-            navigationJob = null
-            return
-        }
-
-        val direction = when {
-            delta > 0.001f -> 1f
-            delta < -0.001f -> -1f
-            releaseVelocityItems > 0.06f -> 1f
-            releaseVelocityItems < -0.06f -> -1f
-            safeTarget > current -> 1f
-            safeTarget < current -> -1f
-            else -> 0f
-        }
-        val distance = abs(delta)
-        val carriedVelocity = when {
-            direction == 0f -> 0f
-            abs(releaseVelocityItems) >= 0.18f && releaseVelocityItems * direction > 0f ->
-                releaseVelocityItems.coerceIn(-9f, 9f)
-            distance < 0.001f -> 0f
-            else -> direction * (1.9f + 0.45f * (distance - 1f).coerceAtLeast(0f))
-        }
-        val stiffness = 500f + min(abs(carriedVelocity) * 24f, 170f)
-        val leadDelayMs = (96f - min(abs(carriedVelocity) * 6f, 34f)).roundToInt().coerceIn(62, 96)
-        val changesPage = safeTarget != current
-
-        // Preserve the exact release geometry synchronously before dragging becomes false.
-        releaseHoldPosition = fromPosition
-        motionVelocity = carriedVelocity
-        gestureVelocity = carriedVelocity
-        transitionDirection = direction
-
-        navigationJob = coroutineScope.launch {
-            visualPosition.snapTo(fromPosition)
-            releaseHoldPosition = null
-
-            if (abs(delta) < 0.001f) {
-                if (changesPage && generation == navigationGeneration) {
-                    updatedOnSelected(safeTarget)
-                }
-                if (generation == navigationGeneration) {
-                    motionVelocity = 0f
-                    gestureVelocity = 0f
-                    transitionDirection = 0f
-                    dragPosition = safeTarget.toFloat()
-                    navigationJob = null
-                }
-                return@launch
-            }
-
-            val pageJob = if (changesPage) {
-                launch {
-                    delay(leadDelayMs.toLong())
-                    if (generation == navigationGeneration) {
-                        updatedOnSelected(safeTarget)
-                    }
-                }
-            } else null
-
-            visualPosition.animateTo(
-                targetValue = safeTarget.toFloat(),
-                animationSpec = spring(dampingRatio = 0.88f, stiffness = stiffness),
-                initialVelocity = carriedVelocity
-            ) { motionVelocity = velocity }
-
-            pageJob?.join()
-            if (generation == navigationGeneration) {
-                motionVelocity = 0f
-                gestureVelocity = 0f
-                transitionDirection = 0f
-                dragPosition = safeTarget.toFloat()
-                navigationJob = null
-            }
-        }
-    }
 
     val barModifier = Modifier
         .width(BarWidthDp.dp)
-        .height(62.dp)
+        .height(BarHeightDp.dp)
         .then(
             if (backdrop != null) {
                 Modifier.drawBackdrop(
                     backdrop = backdrop,
                     shape = { CircleShape },
-                    effects = { blur(34f, 34f) },
-                    onDrawSurface = { drawRect(containerColor.copy(alpha = 0.80f)) }
+                    effects = { blur(30f, 30f) },
+                    onDrawSurface = { drawRect(containerTint.copy(alpha = 0.58f)) }
                 )
-            } else Modifier.background(containerColor, CircleShape)
+            } else {
+                Modifier.background(fallbackContainer, CircleShape)
+            }
         )
         .border(1.dp, outlineColor, CircleShape)
         .clip(CircleShape)
 
     Box(
-        modifier = Modifier.fillMaxWidth().padding(
-            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
-        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
+            ),
         contentAlignment = Alignment.Center
     ) {
         Box(modifier = barModifier) {
@@ -302,49 +192,81 @@ internal fun SukiFloatingBottomBar(
                 modifier = Modifier
                     .graphicsLayer {
                         translationX = with(density) { indicatorLeft.dp.toPx() }
-                        translationY = with(density) { ((62f - indicatorHeight) / 2f).dp.toPx() }
+                        translationY = with(density) {
+                            ((BarHeightDp - indicatorHeight) / 2f).dp.toPx()
+                        }
                     }
                     .width(indicatorWidth.dp)
                     .height(indicatorHeight.dp)
                     .background(indicatorColor, CircleShape)
             )
-            Row(Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = NavigationHorizontalPaddingDp.dp)) {
-                SukiNavigationItem("概觀", MiuixIcons.Home, centerPosition, 0, dark, pressFraction)
-                SukiNavigationItem("日誌", Icons.Default.List, centerPosition, 1, dark, pressFraction)
-                SukiNavigationItem("設定", MiuixIcons.Settings, centerPosition, 2, dark, pressFraction)
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+                    .padding(horizontal = NavigationHorizontalPaddingDp.dp)
+            ) {
+                SukiNavigationItem(
+                    label = "概觀",
+                    icon = MiuixIcons.Home,
+                    selectionPosition = centerPosition,
+                    index = 0,
+                    dark = dark,
+                    pressFraction = if (pressedIndex == 0) pressFraction else 0f,
+                    selected = selectedIndex == 0,
+                    onSemanticClick = { onSelected(0) }
+                )
+                SukiNavigationItem(
+                    label = "日誌",
+                    icon = Icons.Default.List,
+                    selectionPosition = centerPosition,
+                    index = 1,
+                    dark = dark,
+                    pressFraction = if (pressedIndex == 1) pressFraction else 0f,
+                    selected = selectedIndex == 1,
+                    onSemanticClick = { onSelected(1) }
+                )
+                SukiNavigationItem(
+                    label = "設定",
+                    icon = MiuixIcons.Settings,
+                    selectionPosition = centerPosition,
+                    index = 2,
+                    dark = dark,
+                    pressFraction = if (pressedIndex == 2) pressFraction else 0f,
+                    selected = selectedIndex == 2,
+                    onSemanticClick = { onSelected(2) }
+                )
             }
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(density, viewConfiguration.touchSlop) {
+                    .pointerInput(density, viewConfiguration.touchSlop, selectedIndex) {
                         val paddingPx = NavigationHorizontalPaddingDp * density.density
+                        val itemWidthPx = NavigationItemWidthDp * density.density
                         val halfIndicatorPx = IndicatorRestingWidthDp * density.density / 2f
                         val touchSlop = viewConfiguration.touchSlop
 
+                        fun itemAt(x: Float): Int =
+                            (((x - paddingPx) / itemWidthPx).toInt())
+                                .coerceIn(0, NavigationItemCount - 1)
+
+                        fun positionAt(x: Float): Float =
+                            ((x - paddingPx - itemWidthPx / 2f) / itemWidthPx)
+                                .coerceIn(0f, (NavigationItemCount - 1).toFloat())
+
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
-
-                            // Keep the current in-flight geometry visible while a new gesture takes over.
-                            val takeoverPosition = (releaseHoldPosition ?: visualPosition.value)
-                                .coerceIn(0f, (NavigationItemCount - 1).toFloat())
-                            navigationGeneration += 1
-                            navigationJob?.cancel()
-                            navigationJob = null
-                            releaseHoldPosition = takeoverPosition
-                            transitionDirection = 0f
-                            motionVelocity = 0f
-                            gestureVelocity = 0f
-
-                            val downVisualPosition = takeoverPosition
-                            val selectedCenter = paddingPx +
-                                downVisualPosition * itemWidthPx + itemWidthPx / 2f
+                            val selectedCenterPx = paddingPx +
+                                centerPosition * itemWidthPx + itemWidthPx / 2f
                             val startsInSelectedCapsule = down.position.x in
-                                (selectedCenter - halfIndicatorPx)..(selectedCenter + halfIndicatorPx)
+                                (selectedCenterPx - halfIndicatorPx)..(selectedCenterPx + halfIndicatorPx)
 
-                            pressed = startsInSelectedCapsule
+                            pressedIndex = itemAt(down.position.x)
+                            selectedGesture = startsInSelectedCapsule
                             dragging = false
-                            dragPosition = downVisualPosition
+                            gestureVelocity = 0f
 
                             val downX = down.position.x
                             var lastX = downX
@@ -354,54 +276,45 @@ internal fun SukiFloatingBottomBar(
                                 val event = awaitPointerEvent(PointerEventPass.Main)
                                 val change = event.changes.firstOrNull { it.id == down.id }
                                 if (change == null) {
-                                    pressed = false
+                                    pressedIndex = -1
+                                    selectedGesture = false
                                     dragging = false
                                     gestureVelocity = 0f
-                                    commitSelection(updatedSelectedIndex, startPosition = downVisualPosition)
                                     break
                                 }
 
                                 if (!change.pressed) {
-                                    val wasDragging = dragging
-                                    val releaseStart = if (wasDragging) dragPosition else downVisualPosition
-                                    val velocityItems = gestureVelocity
-                                    val projectedPosition = dragPosition +
-                                        velocityItems.coerceIn(-6f, 6f) * 0.075f
                                     val releaseX = change.position.x
-                                    val target = if (wasDragging) {
-                                        projectedPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
+                                    val velocityItems = gestureVelocity
+                                    val target = if (dragging) {
+                                        val projected = positionAt(releaseX) +
+                                            velocityItems.coerceIn(-6f, 6f) * 0.055f
+                                        projected.roundToInt().coerceIn(0, NavigationItemCount - 1)
                                     } else {
-                                        (((releaseX - paddingPx) / itemWidthPx).toInt())
-                                            .coerceIn(0, NavigationItemCount - 1)
+                                        itemAt(releaseX)
                                     }
 
-                                    // Hold the release frame before switching the visual owner.
-                                    releaseHoldPosition = releaseStart
-                                    if (wasDragging) motionVelocity = velocityItems
-                                    pressed = false
-
-                                    if (wasDragging) {
-                                        commitSelection(target, velocityItems, releaseStart)
-                                    } else {
-                                        gestureVelocity = 0f
-                                        commitSelection(target, startPosition = releaseStart)
-                                    }
+                                    pressedIndex = -1
+                                    selectedGesture = false
                                     dragging = false
+                                    gestureVelocity = 0f
+                                    if (target != selectedIndex) onSelected(target)
                                     break
                                 }
 
                                 val dx = change.position.x - lastX
                                 val totalDx = change.position.x - downX
+                                val horizontalDominant =
+                                    abs(totalDx) > abs(change.position.y - down.position.y)
 
-                                if (startsInSelectedCapsule && !dragging && abs(totalDx) > touchSlop) {
+                                if (
+                                    startsInSelectedCapsule && horizontalDominant &&
+                                    !dragging && abs(totalDx) > touchSlop
+                                ) {
                                     dragging = true
                                 }
 
-                                if (dragging && abs(dx) > 0.01f) {
-                                    change.consume()
-                                    dragPosition = (dragPosition + dx / itemWidthPx)
-                                        .coerceIn(0f, (NavigationItemCount - 1).toFloat())
-
+                                if (startsInSelectedCapsule && abs(dx) > 0.01f) {
                                     val now = System.nanoTime()
                                     val dt = (now - lastSampleNanos) / 1_000_000_000f
                                     if (dt in 0.001f..0.08f) {
@@ -412,6 +325,7 @@ internal fun SukiFloatingBottomBar(
                                     lastSampleNanos = now
                                 }
 
+                                if (dragging) change.consume()
                                 lastX = change.position.x
                             }
                         }
@@ -428,30 +342,43 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
     selectionPosition: Float,
     index: Int,
     dark: Boolean,
-    pressFraction: Float
+    pressFraction: Float,
+    selected: Boolean,
+    onSemanticClick: () -> Unit
 ) {
     val selectedAmount = (1f - abs(selectionPosition - index)).coerceIn(0f, 1f)
-    val localPress = pressFraction * selectedAmount
     val selectedColor = if (dark) Color.White else Color(0xFF171719)
     val unselectedColor = if (dark) Color(0xFF8A8A90) else Color(0xFF737378)
     val color = lerp(unselectedColor, selectedColor, selectedAmount)
     val baseScale = 0.95f + selectedAmount * 0.05f
-    val contentScale = baseScale * (1f - localPress * 0.035f)
-    val contentAlpha = 1f - localPress * 0.12f
+    val contentScale = baseScale * (1f - pressFraction * 0.035f)
+    val contentAlpha = 1f - pressFraction * 0.12f
 
     Column(
-        modifier = Modifier.weight(1f).fillMaxHeight(),
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .semantics(mergeDescendants = true) {
+                role = Role.Tab
+                this.selected = selected
+                onClick(label = label) {
+                    onSemanticClick()
+                    true
+                }
+            },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
     ) {
         Icon(
             icon,
             contentDescription = label,
-            modifier = Modifier.size(24.dp).graphicsLayer {
-                scaleX = contentScale
-                scaleY = contentScale
-                alpha = contentAlpha
-            },
+            modifier = Modifier
+                .size(24.dp)
+                .graphicsLayer {
+                    scaleX = contentScale
+                    scaleY = contentScale
+                    alpha = contentAlpha
+                },
             tint = color
         )
         Text(
@@ -459,8 +386,8 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
             color = color,
             fontSize = 11.sp,
             modifier = Modifier.graphicsLayer {
-                scaleX = 1f - localPress * 0.025f
-                scaleY = 1f - localPress * 0.025f
+                scaleX = 1f - pressFraction * 0.025f
+                scaleY = 1f - pressFraction * 0.025f
                 alpha = contentAlpha
             }
         )
