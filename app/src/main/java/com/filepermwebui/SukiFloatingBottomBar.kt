@@ -52,7 +52,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
@@ -76,10 +75,10 @@ private const val BarWidthDp = 248f
 /**
  * HyperOS-like floating navigation.
  *
- * A single pointer stream owns press, drag, tap and release. The selected capsule follows the
- * finger, while its deformation is driven only by horizontal velocity. A new gesture immediately
- * invalidates the previous settle request so old delayed navigation cannot replay over the latest
- * gesture. The outer 4 dp inset is preserved even while the capsule stretches.
+ * Drag, release and settle share one visual state. The release frame preserves the drag position
+ * and velocity before ownership moves to the Animatable, preventing a one-frame reset and replay.
+ * At the outer items the leading edge is clipped instead of transferring overflow to the opposite
+ * edge, so momentum never appears to reverse direction.
  */
 @Composable
 internal fun SukiFloatingBottomBar(
@@ -91,6 +90,7 @@ internal fun SukiFloatingBottomBar(
     val viewConfiguration = LocalViewConfiguration.current
     val dark = isSystemInDarkTheme()
     val coroutineScope = rememberCoroutineScope()
+
     var pressed by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
@@ -133,6 +133,7 @@ internal fun SukiFloatingBottomBar(
         animationSpec = spring(dampingRatio = 0.80f, stiffness = 900f),
         label = "hyperos-navigation-press"
     )
+    val pressFraction = ((1f - pressedScale) / 0.05f).coerceIn(0f, 1f)
 
     val centerPosition = when {
         dragging -> dragPosition
@@ -170,10 +171,8 @@ internal fun SukiFloatingBottomBar(
     }
     val minLeft = NavigationHorizontalPaddingDp
     val maxRight = BarWidthDp - NavigationHorizontalPaddingDp
-    val leftOverflow = max(0f, minLeft - rawLeft)
-    val rightOverflow = max(0f, rawRight - maxRight)
-    val indicatorLeft = (rawLeft - rightOverflow).coerceAtLeast(minLeft)
-    val indicatorRight = (rawRight + leftOverflow).coerceAtMost(maxRight)
+    val indicatorLeft = rawLeft.coerceAtLeast(minLeft)
+    val indicatorRight = rawRight.coerceAtMost(maxRight)
     val indicatorWidth = (indicatorRight - indicatorLeft).coerceAtLeast(1f)
 
     val containerColor = if (dark) Color(0xD91E1E21) else Color(0xEAF4F4F5)
@@ -205,39 +204,50 @@ internal fun SukiFloatingBottomBar(
             return
         }
 
-        if (abs(delta) < 0.001f) {
-            motionVelocity = 0f
-            gestureVelocity = 0f
-            transitionDirection = 0f
-            releaseHoldPosition = null
-            dragPosition = safeTarget.toFloat()
-            navigationJob = null
-            if (safeTarget != current && generation == navigationGeneration) {
-                updatedOnSelected(safeTarget)
-            }
-            return
+        val direction = when {
+            delta > 0.001f -> 1f
+            delta < -0.001f -> -1f
+            releaseVelocityItems > 0.06f -> 1f
+            releaseVelocityItems < -0.06f -> -1f
+            safeTarget > current -> 1f
+            safeTarget < current -> -1f
+            else -> 0f
         }
-
-        val direction = if (delta > 0f) 1f else -1f
         val distance = abs(delta)
-        val carriedVelocity = if (
-            abs(releaseVelocityItems) >= 0.18f && releaseVelocityItems * direction > 0f
-        ) {
-            releaseVelocityItems.coerceIn(-9f, 9f)
-        } else {
-            direction * (1.9f + 0.45f * (distance - 1f).coerceAtLeast(0f))
+        val carriedVelocity = when {
+            direction == 0f -> 0f
+            abs(releaseVelocityItems) >= 0.18f && releaseVelocityItems * direction > 0f ->
+                releaseVelocityItems.coerceIn(-9f, 9f)
+            distance < 0.001f -> 0f
+            else -> direction * (1.9f + 0.45f * (distance - 1f).coerceAtLeast(0f))
         }
         val stiffness = 500f + min(abs(carriedVelocity) * 24f, 170f)
         val leadDelayMs = (96f - min(abs(carriedVelocity) * 6f, 34f)).roundToInt().coerceIn(62, 96)
         val changesPage = safeTarget != current
 
-        transitionDirection = direction
+        // Preserve the exact release geometry synchronously before dragging becomes false.
         releaseHoldPosition = fromPosition
+        motionVelocity = carriedVelocity
         gestureVelocity = carriedVelocity
+        transitionDirection = direction
+
         navigationJob = coroutineScope.launch {
             visualPosition.snapTo(fromPosition)
             releaseHoldPosition = null
-            motionVelocity = carriedVelocity
+
+            if (abs(delta) < 0.001f) {
+                if (changesPage && generation == navigationGeneration) {
+                    updatedOnSelected(safeTarget)
+                }
+                if (generation == navigationGeneration) {
+                    motionVelocity = 0f
+                    gestureVelocity = 0f
+                    transitionDirection = 0f
+                    dragPosition = safeTarget.toFloat()
+                    navigationJob = null
+                }
+                return@launch
+            }
 
             val pageJob = if (changesPage) {
                 launch {
@@ -299,9 +309,9 @@ internal fun SukiFloatingBottomBar(
                     .background(indicatorColor, CircleShape)
             )
             Row(Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = NavigationHorizontalPaddingDp.dp)) {
-                SukiNavigationItem("概觀", MiuixIcons.Home, centerPosition, 0, dark)
-                SukiNavigationItem("日誌", Icons.Default.List, centerPosition, 1, dark)
-                SukiNavigationItem("設定", MiuixIcons.Settings, centerPosition, 2, dark)
+                SukiNavigationItem("概觀", MiuixIcons.Home, centerPosition, 0, dark, pressFraction)
+                SukiNavigationItem("日誌", Icons.Default.List, centerPosition, 1, dark, pressFraction)
+                SukiNavigationItem("設定", MiuixIcons.Settings, centerPosition, 2, dark, pressFraction)
             }
 
             Box(
@@ -315,16 +325,18 @@ internal fun SukiFloatingBottomBar(
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
 
+                            // Keep the current in-flight geometry visible while a new gesture takes over.
+                            val takeoverPosition = (releaseHoldPosition ?: visualPosition.value)
+                                .coerceIn(0f, (NavigationItemCount - 1).toFloat())
                             navigationGeneration += 1
                             navigationJob?.cancel()
                             navigationJob = null
-                            releaseHoldPosition = null
+                            releaseHoldPosition = takeoverPosition
                             transitionDirection = 0f
                             motionVelocity = 0f
                             gestureVelocity = 0f
 
-                            val downVisualPosition = visualPosition.value
-                                .coerceIn(0f, (NavigationItemCount - 1).toFloat())
+                            val downVisualPosition = takeoverPosition
                             val selectedCenter = paddingPx +
                                 downVisualPosition * itemWidthPx + itemWidthPx / 2f
                             val startsInSelectedCapsule = down.position.x in
@@ -345,12 +357,13 @@ internal fun SukiFloatingBottomBar(
                                     pressed = false
                                     dragging = false
                                     gestureVelocity = 0f
+                                    commitSelection(updatedSelectedIndex, startPosition = downVisualPosition)
                                     break
                                 }
 
                                 if (!change.pressed) {
                                     val wasDragging = dragging
-                                    val releaseStart = if (wasDragging) dragPosition else null
+                                    val releaseStart = if (wasDragging) dragPosition else downVisualPosition
                                     val velocityItems = gestureVelocity
                                     val projectedPosition = dragPosition +
                                         velocityItems.coerceIn(-6f, 6f) * 0.075f
@@ -362,15 +375,18 @@ internal fun SukiFloatingBottomBar(
                                             .coerceIn(0, NavigationItemCount - 1)
                                     }
 
+                                    // Hold the release frame before switching the visual owner.
+                                    releaseHoldPosition = releaseStart
+                                    if (wasDragging) motionVelocity = velocityItems
                                     pressed = false
-                                    dragging = false
 
                                     if (wasDragging) {
                                         commitSelection(target, velocityItems, releaseStart)
                                     } else {
                                         gestureVelocity = 0f
-                                        commitSelection(target)
+                                        commitSelection(target, startPosition = releaseStart)
                                     }
+                                    dragging = false
                                     break
                                 }
 
@@ -411,12 +427,18 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
     icon: ImageVector,
     selectionPosition: Float,
     index: Int,
-    dark: Boolean
+    dark: Boolean,
+    pressFraction: Float
 ) {
     val selectedAmount = (1f - abs(selectionPosition - index)).coerceIn(0f, 1f)
+    val localPress = pressFraction * selectedAmount
     val selectedColor = if (dark) Color.White else Color(0xFF171719)
     val unselectedColor = if (dark) Color(0xFF8A8A90) else Color(0xFF737378)
     val color = lerp(unselectedColor, selectedColor, selectedAmount)
+    val baseScale = 0.95f + selectedAmount * 0.05f
+    val contentScale = baseScale * (1f - localPress * 0.035f)
+    val contentAlpha = 1f - localPress * 0.12f
+
     Column(
         modifier = Modifier.weight(1f).fillMaxHeight(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -426,12 +448,21 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
             icon,
             contentDescription = label,
             modifier = Modifier.size(24.dp).graphicsLayer {
-                val base = 0.95f + selectedAmount * 0.05f
-                scaleX = base
-                scaleY = base
+                scaleX = contentScale
+                scaleY = contentScale
+                alpha = contentAlpha
             },
             tint = color
         )
-        Text(label, color = color, fontSize = 11.sp)
+        Text(
+            label,
+            color = color,
+            fontSize = 11.sp,
+            modifier = Modifier.graphicsLayer {
+                scaleX = 1f - localPress * 0.025f
+                scaleY = 1f - localPress * 0.025f
+                alpha = contentAlpha
+            }
+        )
     }
 }

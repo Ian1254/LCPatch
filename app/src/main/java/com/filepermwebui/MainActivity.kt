@@ -799,31 +799,10 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
-                        TintedBar(activeBarBackdrop) {
-                            if (topLevelScreen) {
-                                AnimatedContent(
-                                    targetState = visiblePage,
-                                    transitionSpec = {
-                                        val direction = navigationDirection
-                                        slideInHorizontally(tween(360, easing = PageTransitionEasing)) {
-                                            direction * it
-                                        } togetherWith slideOutHorizontally(
-                                            tween(360, easing = PageTransitionEasing)
-                                        ) { -direction * it }
-                                    },
-                                    label = "top-level-title-transition"
-                                ) { titlePage ->
-                                    SmallTopAppBar(
-                                        title = pageTitle(titlePage),
-                                        color = Color.Transparent,
-                                        scrollBehavior = when (titlePage) {
-                                            OVERVIEW -> overviewScrollBehavior
-                                            LOGS -> logsScrollBehavior
-                                            else -> settingsScrollBehavior
-                                        }
-                                    )
-                                }
-                            } else {
+                        if (topLevelScreen) {
+                            TopLevelBlurBar(activeBarBackdrop)
+                        } else {
+                            TintedBar(activeBarBackdrop) {
                                 val navigationIcon: @Composable () -> Unit = {
                                     if (visiblePage != ONBOARDING || onboardingDone) {
                                         IconButton(onClick = ::navigateBack) {

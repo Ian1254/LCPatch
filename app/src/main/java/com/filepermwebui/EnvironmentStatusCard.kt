@@ -40,6 +40,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -107,6 +108,8 @@ internal fun EnvironmentStatusOverviewCard(
     var overlayVisible by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
     var sourceBounds by remember { mutableStateOf(Rect.Zero) }
+    var frozenSourceBounds by remember { mutableStateOf(Rect.Zero) }
+    val hostView = LocalView.current
     val cardInteraction = remember { MutableInteractionSource() }
     val cardPressed by cardInteraction.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
@@ -117,6 +120,7 @@ internal fun EnvironmentStatusOverviewCard(
 
     fun openOverlay() {
         if (overlayMounted) return
+        frozenSourceBounds = sourceBounds
         closing = false
         overlayMounted = true
         overlayVisible = true
@@ -124,6 +128,9 @@ internal fun EnvironmentStatusOverviewCard(
 
     fun closeOverlay() {
         if (!overlayMounted || closing) return
+        // Freeze one final source rectangle at the start of closing. The target cannot drift
+        // while the overlay is morphing back into it.
+        frozenSourceBounds = sourceBounds
         closing = true
         overlayVisible = false
     }
@@ -135,7 +142,17 @@ internal fun EnvironmentStatusOverviewCard(
                 scaleX = cardScale
                 scaleY = cardScale
             }
-            .onGloballyPositioned { sourceBounds = it.boundsInWindow() }
+            .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInWindow()
+                val origin = IntArray(2)
+                hostView.rootView.getLocationOnScreen(origin)
+                sourceBounds = Rect(
+                    left = bounds.left + origin[0].toFloat(),
+                    top = bounds.top + origin[1].toFloat(),
+                    right = bounds.right + origin[0].toFloat(),
+                    bottom = bounds.bottom + origin[1].toFloat()
+                )
+            }
             .clip(RoundedCornerShape(26.dp))
             .clickable(
                 interactionSource = cardInteraction,
@@ -185,7 +202,7 @@ internal fun EnvironmentStatusOverviewCard(
             healthy = healthy,
             cardColor = cardColor,
             accent = accent,
-            sourceBounds = sourceBounds,
+            sourceBounds = frozenSourceBounds,
             statusTitle = statusTitle,
             statusSubtitle = statusSubtitle,
             statusSummary = statusSummary,
@@ -262,10 +279,15 @@ private fun EnvironmentStatusOverlay(
             decorFitsSystemWindows = false
         )
     ) {
-        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        val dialogView = LocalView.current
+        val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
+        var dialogOrigin by remember(dialogView) { mutableStateOf(Offset.Zero) }
         SideEffect {
             dialogWindow?.setDimAmount(0f)
             dialogWindow?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            val origin = IntArray(2)
+            dialogView.rootView.getLocationOnScreen(origin)
+            dialogOrigin = Offset(origin[0].toFloat(), origin[1].toFloat())
         }
 
         BoxWithConstraints(
@@ -278,8 +300,12 @@ private fun EnvironmentStatusOverlay(
                 )
         ) {
             val hasMeasuredSource = sourceBounds.width > 0f && sourceBounds.height > 0f
-            val sourceLeft = if (hasMeasuredSource) with(density) { sourceBounds.left.toDp() } else 12.dp
-            val sourceTop = if (hasMeasuredSource) with(density) { sourceBounds.top.toDp() } else 76.dp
+            val sourceLeft = if (hasMeasuredSource) {
+                with(density) { (sourceBounds.left - dialogOrigin.x).toDp() }
+            } else 12.dp
+            val sourceTop = if (hasMeasuredSource) {
+                with(density) { (sourceBounds.top - dialogOrigin.y).toDp() }
+            } else 76.dp
             val sourceWidth = if (hasMeasuredSource) with(density) { sourceBounds.width.toDp() } else maxWidth - 24.dp
             val sourceHeight = if (hasMeasuredSource) with(density) { sourceBounds.height.toDp() } else 142.dp
 
