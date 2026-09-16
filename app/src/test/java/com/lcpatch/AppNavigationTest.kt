@@ -44,6 +44,14 @@ class AppNavigationTest {
     }
 
     @Test
+    fun topLevelDirectionFollowsVisualOrder() {
+        assertEquals(1, NavigationState(page = OVERVIEW).navigateTo(LOGS).direction)
+        assertEquals(1, NavigationState(page = LOGS).navigateTo(SETTINGS).direction)
+        assertEquals(-1, NavigationState(page = SETTINGS).navigateTo(LOGS).direction)
+        assertEquals(-1, NavigationState(page = LOGS).navigateTo(OVERVIEW).direction)
+    }
+
+    @Test
     fun fallbackBackNavigationUsesMenuHierarchy() {
         assertEquals(SETTINGS, NavigationState(ABOUT).navigateBack().page)
         assertEquals(SETTINGS, NavigationState(DISPLAY).navigateBack().page)
