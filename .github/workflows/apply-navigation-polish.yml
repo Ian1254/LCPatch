@@ -2,16 +2,13 @@ name: Apply navigation polish
 
 on:
   push:
-    branches:
-      - polish/navigation-and-status-card
-
-permissions:
-  contents: write
+    branches: ["polish/navigation-and-status-card"]
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out polish branch
         uses: actions/checkout@v6
@@ -26,8 +23,8 @@ jobs:
 
           path = Path('app/src/main/java/com/filepermwebui/MainActivity.kt')
           text = path.read_text(encoding='utf-8')
-          start_marker = '''        item {\n            var environmentExpanded by rememberSaveable { mutableStateOf(false) }'''
-          end_marker = '''        item {\n            Card(insideMargin = PaddingValues(18.dp)) {\n                Text("當前漢化", style = MiuixTheme.textStyles.title2)'''
+          start_marker = '        item {\n            var environmentExpanded by rememberSaveable { mutableStateOf(false) }'
+          end_marker = '        item {\n            Card(insideMargin = PaddingValues(18.dp)) {\n                Text("當前漢化", style = MiuixTheme.textStyles.title2)'
           start = text.find(start_marker)
           end = text.find(end_marker, start)
           if start < 0 or end < 0:
