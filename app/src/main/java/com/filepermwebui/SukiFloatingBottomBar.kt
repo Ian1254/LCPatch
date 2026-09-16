@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,12 +25,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,15 +37,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -57,7 +53,6 @@ import top.yukonga.miuix.kmp.blur.drawBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Settings
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private const val NavigationItemCount = 3
 private const val NavigationItemWidthDp = 80f
@@ -65,65 +60,43 @@ private const val NavigationHorizontalPaddingDp = 4f
 private const val IndicatorRestingWidthDp = 68f
 private const val IndicatorRestingHeightDp = 50f
 private const val IndicatorMaxStretchDp = 28f
-private const val DragSelectionDelayMs = 72L
-private const val TapSelectionDelayMs = 42L
-private const val PendingSelectionTimeoutMs = 950L
 
+/** The pager is the only selection state. The bar only renders and manipulates its position. */
 @Composable
 internal fun SukiFloatingBottomBar(
-    selectedIndex: Int,
+    selectionPosition: Float,
+    settledIndex: Int,
+    pagerIsScrolling: Boolean,
     onSelected: (Int) -> Unit,
+    onDragByPageFraction: (Float) -> Unit,
+    onDragFinished: (Int) -> Unit,
     backdrop: LayerBackdrop?
 ) {
     val density = LocalDensity.current
-    val coroutineScope = rememberCoroutineScope()
+    val dark = isSystemInDarkTheme()
     var pressed by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var dragAccepted by remember { mutableStateOf(false) }
-    var dragPosition by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
-    var pendingTarget by remember { mutableStateOf<Int?>(null) }
 
-    val updatedSelectedIndex by rememberUpdatedState(selectedIndex)
+    val updatedPosition by rememberUpdatedState(selectionPosition)
     val updatedOnSelected by rememberUpdatedState(onSelected)
-    val updatedCanDrag by rememberUpdatedState(pendingTarget == null)
+    val updatedOnDragByPageFraction by rememberUpdatedState(onDragByPageFraction)
+    val updatedOnDragFinished by rememberUpdatedState(onDragFinished)
 
-    LaunchedEffect(selectedIndex, pendingTarget, dragging) {
-        val pending = pendingTarget ?: return@LaunchedEffect
-        if (dragging) return@LaunchedEffect
-        if (pending == selectedIndex) {
-            pendingTarget = null
-            return@LaunchedEffect
-        }
-        delay(PendingSelectionTimeoutMs)
-        if (!dragging && pendingTarget == pending && updatedSelectedIndex != pending) {
-            pendingTarget = null
-        }
-    }
-
-    val selected = selectedIndex.coerceIn(0, NavigationItemCount - 1)
-    val visualTarget = if (dragging) dragPosition else (pendingTarget ?: selected).toFloat()
+    val clampedPosition = selectionPosition.coerceIn(0f, (NavigationItemCount - 1).toFloat())
     val visualPosition by animateFloatAsState(
-        targetValue = visualTarget.coerceIn(0f, (NavigationItemCount - 1).toFloat()),
-        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.82f, stiffness = 520f),
-        label = "floating-navigation-selection"
+        targetValue = clampedPosition,
+        animationSpec = if (dragging || pagerIsScrolling) snap()
+        else spring(dampingRatio = 0.86f, stiffness = 600f),
+        label = "floating-navigation-position"
     )
-
-    val segmentFraction = if (dragging) {
-        val lower = floor(dragPosition)
-        (dragPosition - lower).coerceIn(0f, 1f)
-    } else 0f
-    val segmentStretch = if (dragging) {
-        sin(Math.PI.toFloat() * segmentFraction).coerceIn(0f, 1f)
-    } else 0f
+    val segmentFraction = (visualPosition - floor(visualPosition)).coerceIn(0f, 1f)
+    val segmentStretch = sin(Math.PI.toFloat() * segmentFraction).coerceIn(0f, 1f)
     val direction = when {
-        !dragging -> 0f
-        dragPosition > selected -> 1f
-        dragPosition < selected -> -1f
+        visualPosition > settledIndex -> 1f
+        visualPosition < settledIndex -> -1f
         else -> 0f
     }
-
-    val baseCenter = NavigationHorizontalPaddingDp + visualPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f
-    val leanedCenter = baseCenter + direction * segmentStretch * 3.5f
     val pressScaleTarget = when {
         pressed && !dragging -> 0.95f
         dragging -> 0.975f
@@ -131,51 +104,19 @@ internal fun SukiFloatingBottomBar(
     }
     val pressedScale by animateFloatAsState(
         targetValue = pressScaleTarget,
-        animationSpec = spring(dampingRatio = 0.76f, stiffness = 760f),
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 760f),
         label = "floating-navigation-press-scale"
     )
-
-    val indicatorWidthTarget = if (dragging) {
-        IndicatorRestingWidthDp * pressedScale + IndicatorMaxStretchDp * segmentStretch
-    } else {
-        IndicatorRestingWidthDp * pressedScale
-    }
-    val indicatorHeightTarget = IndicatorRestingHeightDp * (
-        if (dragging) pressedScale - 0.018f * segmentStretch else pressedScale
-    )
-
-    val indicatorCenter by animateFloatAsState(
-        targetValue = leanedCenter,
-        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.78f, stiffness = 560f),
-        label = "floating-navigation-center"
-    )
-    val indicatorWidth by animateFloatAsState(
-        targetValue = indicatorWidthTarget,
-        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.74f, stiffness = 640f),
-        label = "floating-navigation-width"
-    )
-    val indicatorHeight by animateFloatAsState(
-        targetValue = indicatorHeightTarget,
-        animationSpec = spring(dampingRatio = 0.76f, stiffness = 720f),
-        label = "floating-navigation-height"
-    )
-
+    val indicatorWidth = IndicatorRestingWidthDp * pressedScale + IndicatorMaxStretchDp * segmentStretch
+    val indicatorHeight = IndicatorRestingHeightDp * (pressedScale - if (dragging) 0.018f * segmentStretch else 0f)
+    val indicatorCenter = NavigationHorizontalPaddingDp +
+        visualPosition * NavigationItemWidthDp + NavigationItemWidthDp / 2f +
+        direction * segmentStretch * 3.5f
     val indicatorTranslationDp = indicatorCenter - indicatorWidth / 2f
-    val containerColor = MiuixTheme.colorScheme.surfaceContainer
-    val indicatorColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.15f)
 
-    fun settleSelection(target: Int, delayMs: Long) {
-        if (target == updatedSelectedIndex) {
-            pendingTarget = target
-            return
-        }
-        if (pendingTarget != null) return
-        pendingTarget = target
-        coroutineScope.launch {
-            delay(delayMs)
-            updatedOnSelected(target)
-        }
-    }
+    // Neutral UI colors; green and red stay reserved for semantic state.
+    val containerColor = if (dark) Color(0xE61B1B1D) else Color(0xE6F4F4F5)
+    val indicatorColor = if (dark) Color(0xFF3A3A3E) else Color(0xFFE0E0E3)
 
     val barModifier = Modifier
         .width(248.dp)
@@ -186,10 +127,10 @@ internal fun SukiFloatingBottomBar(
                     backdrop = backdrop,
                     shape = { CircleShape },
                     effects = { blur(36f, 36f) },
-                    onDrawSurface = { drawRect(containerColor.copy(alpha = 0.76f)) }
+                    onDrawSurface = { drawRect(containerColor.copy(alpha = 0.78f)) }
                 )
             } else {
-                Modifier.background(containerColor.copy(alpha = 0.9f), CircleShape)
+                Modifier.background(containerColor, CircleShape)
             }
         )
         .clip(CircleShape)
@@ -197,60 +138,38 @@ internal fun SukiFloatingBottomBar(
             val itemWidthPx = NavigationItemWidthDp * density.density
             val paddingPx = NavigationHorizontalPaddingDp * density.density
             val halfIndicatorPx = IndicatorRestingWidthDp * density.density / 2f
-            awaitPointerEventScope {
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    event.changes.forEach { change ->
-                        if (!change.previousPressed && change.pressed) {
-                            val current = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
-                            val center = paddingPx + current * itemWidthPx + itemWidthPx / 2f
-                            if (change.position.x in (center - halfIndicatorPx)..(center + halfIndicatorPx)) {
-                                pressed = updatedCanDrag
-                            }
-                        } else if (change.previousPressed && !change.pressed) {
-                            pressed = false
-                        }
-                    }
-                }
-            }
-        }
-        .pointerInput(density) {
-            val itemWidthPx = NavigationItemWidthDp * density.density
-            val paddingPx = NavigationHorizontalPaddingDp * density.density
-            val halfIndicatorPx = IndicatorRestingWidthDp * density.density / 2f
             detectHorizontalDragGestures(
                 onDragStart = { start ->
-                    val current = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
+                    val current = updatedPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
                     val center = paddingPx + current * itemWidthPx + itemWidthPx / 2f
-                    dragAccepted = updatedCanDrag && start.x in (center - halfIndicatorPx)..(center + halfIndicatorPx)
+                    dragAccepted = start.x in (center - halfIndicatorPx)..(center + halfIndicatorPx)
                     if (dragAccepted) {
                         pressed = true
                         dragging = true
-                        dragPosition = current.toFloat()
                     }
                 },
                 onHorizontalDrag = { change, amount ->
                     if (dragAccepted) {
                         change.consume()
-                        dragPosition = (dragPosition + amount / itemWidthPx)
-                            .coerceIn(0f, (NavigationItemCount - 1).toFloat())
+                        updatedOnDragByPageFraction(amount / itemWidthPx)
                     }
                 },
                 onDragEnd = {
                     if (dragAccepted) {
-                        val target = (dragPosition + 0.5f).toInt().coerceIn(0, NavigationItemCount - 1)
+                        val target = updatedPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
                         dragAccepted = false
                         dragging = false
                         pressed = false
-                        settleSelection(target, DragSelectionDelayMs)
+                        updatedOnDragFinished(target)
                     }
                 },
                 onDragCancel = {
                     if (dragAccepted) {
+                        val target = updatedPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
                         dragAccepted = false
                         dragging = false
                         pressed = false
-                        pendingTarget = updatedSelectedIndex.coerceIn(0, NavigationItemCount - 1)
+                        updatedOnDragFinished(target)
                     }
                 }
             )
@@ -274,15 +193,9 @@ internal fun SukiFloatingBottomBar(
                     .background(indicatorColor, CircleShape)
             )
             Row(modifier = Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = 4.dp)) {
-                SukiNavigationItem("概觀", MiuixIcons.Home, visualPosition, 0) {
-                    settleSelection(0, TapSelectionDelayMs)
-                }
-                SukiNavigationItem("日誌", Icons.Default.List, visualPosition, 1) {
-                    settleSelection(1, TapSelectionDelayMs)
-                }
-                SukiNavigationItem("設定", MiuixIcons.Settings, visualPosition, 2) {
-                    settleSelection(2, TapSelectionDelayMs)
-                }
+                SukiNavigationItem("概觀", MiuixIcons.Home, visualPosition, 0, dark) { updatedOnSelected(0) }
+                SukiNavigationItem("日誌", Icons.Default.List, visualPosition, 1, dark) { updatedOnSelected(1) }
+                SukiNavigationItem("設定", MiuixIcons.Settings, visualPosition, 2, dark) { updatedOnSelected(2) }
             }
         }
     }
@@ -294,12 +207,13 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
     icon: ImageVector,
     selectionPosition: Float,
     index: Int,
+    dark: Boolean,
     onClick: () -> Unit
 ) {
     val selectedAmount = (1f - abs(selectionPosition - index)).coerceIn(0f, 1f)
-    val selectedColor = MiuixTheme.colorScheme.primary
-    val unselectedColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val color: Color = lerp(unselectedColor, selectedColor, selectedAmount)
+    val selectedColor = if (dark) Color.White else Color(0xFF171719)
+    val unselectedColor = if (dark) Color(0xFF929298) else Color(0xFF707075)
+    val color = lerp(unselectedColor, selectedColor, selectedAmount)
     Column(
         modifier = Modifier
             .weight(1f)
@@ -312,7 +226,15 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
     ) {
-        Icon(icon, contentDescription = label, modifier = Modifier.size(24.dp), tint = color)
+        Icon(
+            icon,
+            contentDescription = label,
+            modifier = Modifier.size(24.dp).graphicsLayer {
+                scaleX = 0.92f + 0.08f * selectedAmount
+                scaleY = 0.92f + 0.08f * selectedAmount
+            },
+            tint = color
+        )
         Text(label, color = color, fontSize = 11.sp)
     }
 }
