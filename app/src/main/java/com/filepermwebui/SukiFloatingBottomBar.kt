@@ -40,13 +40,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.awaitPointerEventScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -242,16 +242,22 @@ internal fun SukiFloatingBottomBar(
             )
             Row(modifier = Modifier.fillMaxWidth().fillMaxHeight().padding(horizontal = 4.dp)) {
                 SukiNavigationItem("概觀", MiuixIcons.Home, visualPosition, 0) {
-                    pendingTarget = 0
-                    updatedOnSelected(0)
+                    if (pendingTarget == null) {
+                        pendingTarget = 0
+                        updatedOnSelected(0)
+                    }
                 }
                 SukiNavigationItem("日誌", Icons.Default.List, visualPosition, 1) {
-                    pendingTarget = 1
-                    updatedOnSelected(1)
+                    if (pendingTarget == null) {
+                        pendingTarget = 1
+                        updatedOnSelected(1)
+                    }
                 }
                 SukiNavigationItem("設定", MiuixIcons.Settings, visualPosition, 2) {
-                    pendingTarget = 2
-                    updatedOnSelected(2)
+                    if (pendingTarget == null) {
+                        pendingTarget = 2
+                        updatedOnSelected(2)
+                    }
                 }
             }
         }
