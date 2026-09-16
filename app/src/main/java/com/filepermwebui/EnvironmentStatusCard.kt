@@ -13,6 +13,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -86,6 +88,13 @@ internal fun EnvironmentStatusOverviewCard(
     var overlayVisible by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val cardInteraction = remember { MutableInteractionSource() }
+    val cardPressed by cardInteraction.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(
+        targetValue = if (cardPressed && !overlayMounted) 0.985f else 1f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 760f),
+        label = "environment-card-press"
+    )
 
     fun openOverlay() {
         if (!overlayMounted) {
@@ -117,8 +126,16 @@ internal fun EnvironmentStatusOverviewCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = cardScale
+                scaleY = cardScale
+            }
             .clip(RoundedCornerShape(26.dp))
-            .clickable(onClick = ::openOverlay),
+            .clickable(
+                interactionSource = cardInteraction,
+                indication = null,
+                onClick = ::openOverlay
+            ),
         colors = CardDefaults.defaultColors(color = cardColor)
     ) {
         Box(modifier = Modifier.fillMaxWidth().height(142.dp)) {
