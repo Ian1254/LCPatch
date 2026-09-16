@@ -357,7 +357,7 @@ private fun EnvironmentStatusOverlay(
                         if (gameInstalled) "已安裝 · $gameVersion" else "未安裝"
                     )
                     Spacer(Modifier.height(14.dp))
-                    Button(Modifier.fillMaxWidth(), onClick = onCheckScope) {
+                    Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) {
                         Text("重新檢查模組作用域")
                     }
                     Spacer(Modifier.height(8.dp))
@@ -367,7 +367,11 @@ private fun EnvironmentStatusOverlay(
                         enabled = rootStatus != "正在請求",
                         onClick = onRequestRoot
                     )
-                    TextButton(Modifier.fillMaxWidth(), text = "完成", onClick = onDismiss)
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = "完成",
+                        onClick = onDismiss
+                    )
                 }
             }
         }
