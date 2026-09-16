@@ -1,5 +1,6 @@
 package com.lcpatch
 
+import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -116,8 +120,6 @@ internal fun EnvironmentStatusOverviewCard(
 
     fun closeOverlay() {
         if (!overlayMounted || closing) return
-        // Reveal the source card underneath before the morph reaches it. The overlay remains on top
-        // until its final frames, which avoids a one-frame blank handoff when the dialog is removed.
         closing = true
         overlayVisible = false
     }
@@ -236,8 +238,6 @@ private fun EnvironmentStatusOverlay(
                 targetValue = 0f,
                 animationSpec = spring(dampingRatio = 0.91f, stiffness = 430f)
             )
-            // Keep the overlay window mounted for two rendered frames after reaching the source.
-            // The source card is already visible underneath, so the handoff cannot expose a blank frame.
             withFrameNanos { }
             withFrameNanos { }
             latestExitFinished()
@@ -253,6 +253,12 @@ private fun EnvironmentStatusOverlay(
             decorFitsSystemWindows = false
         )
     ) {
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            dialogWindow?.setDimAmount(0f)
+            dialogWindow?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
