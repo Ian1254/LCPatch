@@ -1,26 +1,36 @@
-# LCPatch 1.2.1-beta.12
+# LCPatch 1.2.1-beta.13
 
-這個測試版集中修正 beta.11 的頂欄模糊卡片感、底欄拖曳／放手動畫重播，以及「已啟用」卡片返回最後的重影與小上滑。
+這個測試版一次完成主頁滾動、導航同步、底欄材質與無障礙、頂欄模糊、已啟用卡片 Morph、主題一致性，以及 Limbus Company 1.114.0 適配。
 
-## 懸浮底欄
+## 主頁與導航
+- 頂層頁面移除多餘的 nestedScroll，修復概觀／日誌／設定上下滾動。
+- 簡化底欄手勢狀態，拖曳只做預覽，放手後才選擇目標頁。
+- Pager 成為頁面位移的唯一進度來源，底欄膠囊直接跟隨 pager progress，不再另跑一套 settle 動畫。
+- 分離 item 寬度與膠囊寬度，改善三個項目的視覺間距。
+- 左右邊界拉伸改為漸進阻力，減少硬切與卡住感。
+- 未選中頁籤加入按壓回饋。
+- 底欄降低實色遮罩比例，強化背景玻璃感。
+- 底欄支援 selected semantics，並依 font scale 增加高度容錯。
 
-- 重整拖曳、放手與 settle 的位置／速度交接，避免 release 當幀短暫歸零後再重新播放形變。
-- 修正拖到最左／最右後 `visualPosition` 沒有同步，造成整段位移從舊位置再次播放的問題。
-- 移除邊界 overflow 轉移到反方向的補償；最左／最右改為直接限制前緣，保留手勢方向，不再出現反向拉長。
-- 圖示、文字與膠囊共用按壓回饋，選中項目的視覺反應更一致。
+## 頂欄、Motion 與主題
+- 頂部漸層模糊由多層 blur pass 改為單一路徑 mask blur，降低分層霧感與離屏渲染負擔。
+- Pager、子頁轉場與卡片 Morph 統一為 340 ms、相同 CubicBezierEasing。
+- 深淺模式與底欄／卡片配色改以 MiuixTheme 為來源，不再各自直接讀系統模式。
+- About shimmer、日誌狀態色與半透明卡片移除固定紫色／獨立深淺判斷，改跟隨 App 主題。
 
-## 頂欄與模糊
+## 已啟用卡片
+- 原卡片與 overlay 共用同一個 collapsed content composable，收合終點文字、顏色與幾何一致。
+- overlay 開啟後來源卡片停止重複繪製，避免最後一幀雙影、接合感與小上滑。
+- Morph 開始後由 overlay 接管顯示，避免 press 回彈和展開動畫互相打架。
+- 詳情／操作按鈕未完全顯示前直接 disabled，避免透明元件誤觸。
+- 收合只保留一個 frame handoff，減少尾段閃動。
 
-- 頂層頁面移除帶標題的 `SmallTopAppBar`，改為獨立頂部模糊過渡層。
-- 頂部模糊改由多層不同半徑的 blur 疊加並分別漸隱，讓模糊強度本身由上往下逐漸降低，而不是只把固定模糊結果淡出。
-- 內頁仍保留返回鍵與標題所需的標準 TopAppBar。
+## Limbus Company 1.114.0
+- 新增 1.114.0 Unity fingerprint。
+- Font Entry 更新為 `+0xB92F30`，Accessor 更新為 `+0xB73E90`。
+- 更新入口指令驗證資料，保留未知 Unity build 安全停用行為。
+- FontProfiles 新增 1.114.0 驗證條目。
 
-## 已啟用狀態卡片
-
-- 返回開始時凍結來源卡片 bounds，避免 closing 過程中目標位置被重新量測後微幅漂移。
-- 統一 Activity 與 Dialog 的座標換算，讓 overlay 收縮終點真正對齊來源卡片。
-- 最後交接改為在 overlay 與來源卡片幾何重合後再卸載，降低雙影、瞬間上滑與位置閃動。
-
-## 驗證範圍
-
-預發布流程包含 `git diff --check`、單元測試、Lint、原生元件建置、Release APK 組裝、APK 簽章及簽章驗證。
+## 驗證與發布
+- PR CI 執行共用 Android validation：單元測試、Lint、native build、Release APK 組裝。
+- 合併 main 後由 Android Release workflow 自動簽章並發布 prerelease，維持只保留最新預發布版本。

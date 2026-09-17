@@ -27,9 +27,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 internal fun rememberBarBackdrop(): LayerBackdrop? {
     if (!isRenderEffectSupported()) return null
-    return rememberLayerBackdrop {
-        drawContent()
-    }
+    return rememberLayerBackdrop { drawContent() }
 }
 
 @Composable
@@ -55,81 +53,36 @@ private fun MaskedBackdrop(
                     backdrop = backdrop,
                     shape = { RectangleShape },
                     effects = { blur(radius, radius) },
-                    onDrawSurface = {
-                        if (surfaceTint.alpha > 0f) drawRect(surfaceTint)
-                    }
+                    onDrawSurface = { if (surfaceTint.alpha > 0f) drawRect(surfaceTint) }
                 )
         )
     }
 }
 
-/**
- * Blur-only top edge for top-level pages. Several blur bands are blended together so the
- * blur strength itself falls off toward the content instead of drawing one fixed blurred card
- * and merely fading its alpha.
- */
+/** Single-pass gradient blur: no stacked blur cards / repeated offscreen blur passes. */
 @Composable
 internal fun TopLevelBlurBar(backdrop: LayerBackdrop?) {
     val surface = MiuixTheme.colorScheme.surface
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val fallback = Brush.verticalGradient(
-        0f to surface.copy(alpha = 0.28f),
-        0.48f to surface.copy(alpha = 0.10f),
+    val mask = Brush.verticalGradient(
+        0f to Color.Black,
+        0.34f to Color.Black.copy(alpha = 0.94f),
+        0.66f to Color.Black.copy(alpha = 0.42f),
         1f to Color.Transparent
     )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(statusInset + 64.dp)
-    ) {
+    val fallback = Brush.verticalGradient(
+        0f to surface.copy(alpha = 0.25f),
+        0.58f to surface.copy(alpha = 0.08f),
+        1f to Color.Transparent
+    )
+    Box(Modifier.fillMaxWidth().height(statusInset + 64.dp)) {
         if (backdrop != null) {
-            val strongMask = Brush.verticalGradient(
-                0f to Color.Black,
-                0.30f to Color.Black.copy(alpha = 0.92f),
-                0.58f to Color.Black.copy(alpha = 0.46f),
-                0.76f to Color.Transparent
-            )
-            val mediumMask = Brush.verticalGradient(
-                0f to Color.Black.copy(alpha = 0.44f),
-                0.52f to Color.Black.copy(alpha = 0.34f),
-                0.82f to Color.Black.copy(alpha = 0.12f),
-                1f to Color.Transparent
-            )
-            val lightMask = Brush.verticalGradient(
-                0f to Color.Black.copy(alpha = 0.18f),
-                0.70f to Color.Black.copy(alpha = 0.13f),
-                1f to Color.Transparent
-            )
-
             MaskedBackdrop(
                 modifier = Modifier.matchParentSize(),
                 backdrop = backdrop,
-                radius = 26f,
-                mask = strongMask
-            )
-            MaskedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                backdrop = backdrop,
-                radius = 15f,
-                mask = mediumMask
-            )
-            MaskedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                backdrop = backdrop,
-                radius = 7f,
-                mask = lightMask
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to surface.copy(alpha = 0.055f),
-                            0.62f to surface.copy(alpha = 0.018f),
-                            1f to Color.Transparent
-                        )
-                    )
+                radius = 24f,
+                mask = mask,
+                surfaceTint = surface.copy(alpha = 0.035f)
             )
         } else {
             Box(Modifier.matchParentSize().background(fallback))
@@ -152,7 +105,6 @@ internal fun TintedBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit
         0.76f to Color.Black.copy(alpha = 0.30f),
         1f to Color.Transparent
     )
-
     Box {
         if (backdrop != null) {
             MaskedBackdrop(
@@ -162,9 +114,7 @@ internal fun TintedBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit
                 mask = blurMask,
                 surfaceTint = surface.copy(alpha = 0.055f)
             )
-        } else {
-            Box(Modifier.matchParentSize().background(fallback))
-        }
+        } else Box(Modifier.matchParentSize().background(fallback))
         content()
     }
 }

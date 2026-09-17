@@ -10,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -65,6 +64,7 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val EnvironmentMorphEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+private const val EnvironmentMotionDurationMs = 340
 
 @Composable
 internal fun EnvironmentStatusOverviewCard(
@@ -77,15 +77,14 @@ internal fun EnvironmentStatusOverviewCard(
 ) {
     val healthy = scopeStatus == "已啟用"
     val hasError = scopeStatus == "尚未授權遊戲"
-    val dark = isSystemInDarkTheme()
     val cardColor = when {
-        healthy -> if (dark) Color(0xFF173D27) else Color(0xFFDFFAE4)
-        hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
-        else -> MiuixTheme.colorScheme.secondaryContainer
+        hasError -> MiuixTheme.colorScheme.error.copy(alpha = 0.16f)
+        healthy -> MiuixTheme.colorScheme.secondaryContainer
+        else -> MiuixTheme.colorScheme.surfaceContainer
     }
     val accent = when {
-        healthy -> Color(0xFF43D477)
-        hasError -> Color(0xFFFF6B70)
+        hasError -> MiuixTheme.colorScheme.error
+        healthy -> MiuixTheme.colorScheme.primary
         else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
     }
     val statusTitle = when {
@@ -114,7 +113,7 @@ internal fun EnvironmentStatusOverviewCard(
     val cardPressed by cardInteraction.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
         targetValue = if (cardPressed && !overlayMounted) 0.982f else 1f,
-        animationSpec = spring(dampingRatio = 0.80f, stiffness = 760f),
+        animationSpec = spring(dampingRatio = 0.86f, stiffness = 620f),
         label = "environment-card-press"
     )
 
@@ -128,8 +127,6 @@ internal fun EnvironmentStatusOverviewCard(
 
     fun closeOverlay() {
         if (!overlayMounted || closing) return
-        // Freeze one final source rectangle at the start of closing. The target cannot drift
-        // while the overlay is morphing back into it.
         frozenSourceBounds = sourceBounds
         closing = true
         overlayVisible = false
@@ -141,6 +138,7 @@ internal fun EnvironmentStatusOverviewCard(
             .graphicsLayer {
                 scaleX = cardScale
                 scaleY = cardScale
+                alpha = if (overlayMounted) 0f else 1f
             }
             .onGloballyPositioned { coordinates ->
                 val bounds = coordinates.boundsInWindow()
@@ -161,39 +159,14 @@ internal fun EnvironmentStatusOverviewCard(
             ),
         colors = CardDefaults.defaultColors(color = cardColor)
     ) {
-        Box(modifier = Modifier.fillMaxWidth().height(142.dp)) {
-            Column(modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 16.dp)) {
-                Text(statusTitle, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(3.dp))
-                Text(statusSubtitle, fontSize = 15.sp)
-            }
-
-            Icon(
-                painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
-                contentDescription = null,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(68.dp),
-                tint = accent
-            )
-
-            Row(
-                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    statusSummary,
-                    modifier = Modifier.weight(1f).padding(end = 12.dp),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    "詳情 ›",
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
+        EnvironmentCollapsedContent(
+            healthy = healthy,
+            accent = accent,
+            statusTitle = statusTitle,
+            statusSubtitle = statusSubtitle,
+            statusSummary = statusSummary,
+            modifier = Modifier.fillMaxWidth().height(142.dp)
+        )
     }
 
     if (overlayMounted) {
@@ -223,6 +196,54 @@ internal fun EnvironmentStatusOverviewCard(
 }
 
 @Composable
+private fun EnvironmentCollapsedContent(
+    healthy: Boolean,
+    accent: Color,
+    statusTitle: String,
+    statusSubtitle: String,
+    statusSummary: String,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        Column(modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 16.dp)) {
+            Text(statusTitle, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                statusSubtitle,
+                fontSize = 15.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+        }
+
+        Icon(
+            painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
+            contentDescription = null,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(68.dp),
+            tint = accent
+        )
+
+        Row(
+            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                statusSummary,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                "詳情 ›",
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
 private fun EnvironmentStatusOverlay(
     visible: Boolean,
     healthy: Boolean,
@@ -241,30 +262,20 @@ private fun EnvironmentStatusOverlay(
     onDismiss: () -> Unit,
     onExitFinished: () -> Unit
 ) {
-    val dark = isSystemInDarkTheme()
     val density = LocalDensity.current
     val progress = remember { Animatable(0f) }
     val panelInteraction = remember { MutableInteractionSource() }
     val latestExitFinished by androidx.compose.runtime.rememberUpdatedState(onExitFinished)
 
     LaunchedEffect(visible) {
-        if (visible) {
-            progress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 390,
-                    easing = EnvironmentMorphEasing
-                )
+        progress.animateTo(
+            targetValue = if (visible) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = EnvironmentMotionDurationMs,
+                easing = EnvironmentMorphEasing
             )
-        } else {
-            progress.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = 330,
-                    easing = EnvironmentMorphEasing
-                )
-            )
-            withFrameNanos { }
+        )
+        if (!visible) {
             withFrameNanos { }
             latestExitFinished()
         }
@@ -296,6 +307,7 @@ private fun EnvironmentStatusOverlay(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
+                    enabled = progress.value > 0.02f,
                     onClick = onDismiss
                 )
         ) {
@@ -337,61 +349,48 @@ private fun EnvironmentStatusOverlay(
                     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                     val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val expandedTitleTop = statusInset + 22.dp
-                    val titleStart = lerpDp(16.dp, 24.dp, fraction)
-                    val titleTop = lerpDp(16.dp, expandedTitleTop, fraction)
-                    val iconSize = lerpDp(68.dp, 46.dp, fraction)
-                    val collapsedIconX = sourceWidth - 68.dp - 14.dp
-                    val collapsedIconY = 14.dp
-                    val expandedIconX = maxWidth - 24.dp - 46.dp
-                    val expandedIconY = expandedTitleTop
-                    val iconX = lerpDp(collapsedIconX, expandedIconX, fraction)
-                    val iconY = lerpDp(collapsedIconY, expandedIconY, fraction)
-                    val summaryAlpha = (1f - fraction / 0.30f).coerceIn(0f, 1f)
-                    val detailsAlpha = ((fraction - 0.25f) / 0.46f).coerceIn(0f, 1f)
-                    val actionsAlpha = ((fraction - 0.45f) / 0.36f).coerceIn(0f, 1f)
-                    val detailSurface = if (dark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.055f)
-                    val actionSurface = if (dark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.065f)
+                    val collapsedAlpha = (1f - fraction / 0.34f).coerceIn(0f, 1f)
+                    val expandedHeaderAlpha = ((fraction - 0.12f) / 0.34f).coerceIn(0f, 1f)
+                    val detailsAlpha = ((fraction - 0.28f) / 0.44f).coerceIn(0f, 1f)
+                    val actionsAlpha = ((fraction - 0.48f) / 0.32f).coerceIn(0f, 1f)
+                    val actionsEnabled = visible && actionsAlpha > 0.98f
+                    val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
+                    val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
 
-                    Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
-                        Text(
-                            statusTitle,
-                            fontSize = (22f + 7f * fraction).sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            statusSubtitle,
-                            fontSize = (15f + fraction).sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
-
-                    Icon(
-                        painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
-                        contentDescription = null,
-                        modifier = Modifier.offset(x = iconX, y = iconY).size(iconSize),
-                        tint = accent
+                    EnvironmentCollapsedContent(
+                        healthy = healthy,
+                        accent = accent,
+                        statusTitle = statusTitle,
+                        statusSubtitle = statusSubtitle,
+                        statusSummary = statusSummary,
+                        modifier = Modifier
+                            .width(sourceWidth)
+                            .height(sourceHeight)
+                            .graphicsLayer { alpha = collapsedAlpha }
                     )
 
                     Row(
                         modifier = Modifier
-                            .offset(x = 16.dp, y = sourceHeight - 39.dp)
-                            .width((sourceWidth - 32.dp).coerceAtLeast(0.dp))
-                            .graphicsLayer { alpha = summaryAlpha },
+                            .fillMaxWidth()
+                            .padding(start = 24.dp, end = 24.dp, top = expandedTitleTop)
+                            .graphicsLayer { alpha = expandedHeaderAlpha },
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Text(
-                            statusSummary,
-                            modifier = Modifier.weight(1f).padding(end = 12.dp),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            "詳情 ›",
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
+                        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                            Text(statusTitle, fontSize = 29.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                statusSubtitle,
+                                fontSize = 16.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
+                        }
+                        Icon(
+                            painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
+                            contentDescription = null,
+                            modifier = Modifier.size(46.dp),
+                            tint = accent
                         )
                     }
 
@@ -413,7 +412,7 @@ private fun EnvironmentStatusOverlay(
                             "環境與權限",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (dark) Color.White.copy(alpha = 0.86f) else Color.Black.copy(alpha = 0.74f)
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                         Spacer(Modifier.height(10.dp))
                         Column(
@@ -442,6 +441,7 @@ private fun EnvironmentStatusOverlay(
                         ) {
                             Button(
                                 modifier = Modifier.fillMaxWidth().height(54.dp),
+                                enabled = actionsEnabled,
                                 onClick = onCheckScope
                             ) {
                                 Text("重新檢查模組作用域")
@@ -454,7 +454,7 @@ private fun EnvironmentStatusOverlay(
                                     .clip(RoundedCornerShape(18.dp))
                                     .background(actionSurface),
                                 text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
-                                enabled = rootStatus != "正在請求",
+                                enabled = actionsEnabled && rootStatus != "正在請求",
                                 onClick = onRequestRoot
                             )
                             Spacer(Modifier.height(10.dp))
@@ -465,6 +465,7 @@ private fun EnvironmentStatusOverlay(
                                     .clip(RoundedCornerShape(18.dp))
                                     .background(actionSurface),
                                 text = "完成",
+                                enabled = actionsEnabled,
                                 onClick = onDismiss
                             )
                         }
