@@ -114,6 +114,8 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
 import top.yukonga.miuix.kmp.blur.layerBackdrop
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
 
 private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -263,6 +265,7 @@ class MainActivity : ComponentActivity() {
         val displayScrollBehavior = MiuixScrollBehavior()
         val conversionScrollBehavior = MiuixScrollBehavior()
         val barBackdrop = rememberBarBackdrop()
+        val topHazeState = rememberHazeState()
         val activeBarBackdrop = if (blurEnabled) barBackdrop else null
         val scope = rememberCoroutineScope()
         LaunchedEffect(page) {
@@ -805,7 +808,7 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
                         if (topLevelScreen) {
-                            TopLevelBlurBar(activeBarBackdrop)
+                            TopLevelBlurBar(topHazeState)
                         } else {
                             TintedBar(activeBarBackdrop) {
                                 val navigationIcon: @Composable () -> Unit = {
@@ -847,9 +850,12 @@ class MainActivity : ComponentActivity() {
                     }
                 ) { padding ->
                     Box(
-                        modifier = Modifier.fillMaxSize().then(
-                            if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier
-                        )
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .hazeSource(topHazeState)
+                            .then(
+                                if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier
+                            )
                     ) {
                         if (topLevelScreen) {
                             HorizontalPager(
