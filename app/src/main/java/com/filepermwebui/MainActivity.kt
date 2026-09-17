@@ -114,8 +114,6 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
 import top.yukonga.miuix.kmp.blur.layerBackdrop
-import dev.chrisbanes.haze.rememberHazeState
-import dev.chrisbanes.haze.hazeSource
 
 private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -265,7 +263,6 @@ class MainActivity : ComponentActivity() {
         val displayScrollBehavior = MiuixScrollBehavior()
         val conversionScrollBehavior = MiuixScrollBehavior()
         val barBackdrop = rememberBarBackdrop()
-        val topHazeState = rememberHazeState()
         val activeBarBackdrop = if (blurEnabled) barBackdrop else null
         val scope = rememberCoroutineScope()
         LaunchedEffect(page) {
@@ -807,9 +804,7 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
-                        if (topLevelScreen) {
-                            TopLevelBlurBar(topHazeState)
-                        } else {
+                        if (!topLevelScreen) {
                             TintedBar(activeBarBackdrop) {
                                 val navigationIcon: @Composable () -> Unit = {
                                     if (visiblePage != ONBOARDING || onboardingDone) {
@@ -852,20 +847,55 @@ class MainActivity : ComponentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .hazeSource(topHazeState)
                             .then(
-                                if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier
+                                if (!topLevelScreen && activeBarBackdrop != null) {
+                                    Modifier.layerBackdrop(activeBarBackdrop)
+                                } else Modifier
                             )
                     ) {
                         if (topLevelScreen) {
                             HorizontalPager(
                                 state = pagerState,
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(bottom = padding.calculateBottomPadding()),
                                 beyondViewportPageCount = 1,
                                 userScrollEnabled = false,
                                 key = { topPages[it] }
                             ) { index ->
-                                renderPage(topPages[index], padding)
+                                val scenePage = topPages[index]
+                                val sceneScrollBehavior = when (scenePage) {
+                                    OVERVIEW -> overviewScrollBehavior
+                                    LOGS -> logsScrollBehavior
+                                    else -> settingsScrollBehavior
+                                }
+                                val sceneBackdrop = rememberBarBackdrop()
+                                Scaffold(
+                                    contentWindowInsets = WindowInsets.systemBars
+                                        .add(WindowInsets.displayCutout)
+                                        .only(WindowInsetsSides.Horizontal),
+                                    topBar = {
+                                        PageGlassBar(sceneBackdrop) {
+                                            SmallTopAppBar(
+                                                title = pageTitle(scenePage),
+                                                color = Color.Transparent,
+                                                scrollBehavior = sceneScrollBehavior
+                                            )
+                                        }
+                                    }
+                                ) { scenePadding ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .then(
+                                                if (sceneBackdrop != null) {
+                                                    Modifier.layerBackdrop(sceneBackdrop)
+                                                } else Modifier
+                                            )
+                                    ) {
+                                        renderPage(scenePage, scenePadding)
+                                    }
+                                }
                             }
                         } else {
                             renderPage(animatedShell, padding)

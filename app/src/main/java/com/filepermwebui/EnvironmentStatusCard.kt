@@ -35,7 +35,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +42,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -76,14 +76,15 @@ internal fun EnvironmentStatusOverviewCard(
 ) {
     val healthy = scopeStatus == "已啟用"
     val hasError = scopeStatus == "尚未授權遊戲"
+    val dark = MiuixTheme.colorScheme.surface.luminance() < 0.5f
     val cardColor = when {
-        hasError -> MiuixTheme.colorScheme.error.copy(alpha = 0.16f)
-        healthy -> MiuixTheme.colorScheme.secondaryContainer
+        healthy -> if (dark) Color(0xFF173D27) else Color(0xFFDFFAE4)
+        hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
         else -> MiuixTheme.colorScheme.surfaceContainer
     }
     val accent = when {
-        hasError -> MiuixTheme.colorScheme.error
-        healthy -> MiuixTheme.colorScheme.primary
+        healthy -> Color(0xFF43D477)
+        hasError -> Color(0xFFFF6B70)
         else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
     }
     val statusTitle = when {
@@ -262,8 +263,6 @@ private fun EnvironmentStatusOverlay(
                     easing = EnvironmentMorphEasing
                 )
             )
-            withFrameNanos { }
-            withFrameNanos { }
             latestExitFinished()
         }
     }
@@ -348,7 +347,6 @@ private fun EnvironmentStatusOverlay(
                     val detailsAlpha = ((fraction - 0.25f) / 0.46f).coerceIn(0f, 1f)
                     val actionsAlpha = ((fraction - 0.45f) / 0.36f).coerceIn(0f, 1f)
                     val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
-                    val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
 
                     Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
                         Text(
@@ -450,7 +448,9 @@ private fun EnvironmentStatusOverlay(
                                     .fillMaxWidth()
                                     .height(54.dp)
                                     .clip(RoundedCornerShape(18.dp))
-                                    .background(actionSurface),
+                                    .background(
+                                        MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                    ),
                                 text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
                                 enabled = rootStatus != "正在請求",
                                 onClick = onRequestRoot
@@ -461,7 +461,9 @@ private fun EnvironmentStatusOverlay(
                                     .fillMaxWidth()
                                     .height(54.dp)
                                     .clip(RoundedCornerShape(18.dp))
-                                    .background(actionSurface),
+                                    .background(
+                                        MiuixTheme.colorScheme.onSurface.copy(alpha = 0.07f)
+                                    ),
                                 text = "完成",
                                 onClick = onDismiss
                             )

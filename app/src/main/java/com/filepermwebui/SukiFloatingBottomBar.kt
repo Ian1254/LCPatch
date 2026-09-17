@@ -53,7 +53,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.min
@@ -228,7 +227,6 @@ internal fun SukiFloatingBottomBar(
             else -> direction * (1.9f + 0.45f * (distance - 1f).coerceAtLeast(0f))
         }
         val stiffness = 500f + min(abs(carriedVelocity) * 24f, 170f)
-        val leadDelayMs = (96f - min(abs(carriedVelocity) * 6f, 34f)).roundToInt().coerceIn(62, 96)
         val changesPage = safeTarget != current
 
         // Preserve the exact release geometry synchronously before dragging becomes false.
@@ -255,14 +253,9 @@ internal fun SukiFloatingBottomBar(
                 return@launch
             }
 
-            val pageJob = if (changesPage) {
-                launch {
-                    delay(leadDelayMs.toLong())
-                    if (generation == navigationGeneration) {
-                        updatedOnSelected(safeTarget)
-                    }
-                }
-            } else null
+            if (changesPage && generation == navigationGeneration) {
+                updatedOnSelected(safeTarget)
+            }
 
             visualPosition.animateTo(
                 targetValue = safeTarget.toFloat(),
@@ -270,7 +263,6 @@ internal fun SukiFloatingBottomBar(
                 initialVelocity = carriedVelocity
             ) { motionVelocity = velocity }
 
-            pageJob?.join()
             if (generation == navigationGeneration) {
                 motionVelocity = 0f
                 gestureVelocity = 0f
@@ -374,10 +366,13 @@ internal fun SukiFloatingBottomBar(
                                     val projectedPosition = dragPosition +
                                         velocityItems.coerceIn(-6f, 6f) * 0.075f
                                     val releaseX = change.position.x
-                                    val target = if (wasDragging) {
-                                        projectedPosition.roundToInt().coerceIn(0, NavigationItemCount - 1)
-                                    } else {
-                                        (((releaseX - paddingPx) / itemWidthPx).toInt())
+                                    val target = when {
+                                        wasDragging -> projectedPosition.roundToInt()
+                                            .coerceIn(0, NavigationItemCount - 1)
+                                        !startsInSelectedCapsule &&
+                                            abs(releaseX - downX) > touchSlop ->
+                                            updatedSelectedIndex
+                                        else -> (((releaseX - paddingPx) / itemWidthPx).toInt())
                                             .coerceIn(0, NavigationItemCount - 1)
                                     }
 
