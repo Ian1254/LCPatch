@@ -531,11 +531,16 @@ class MainActivity : ComponentActivity() {
                 ABOUT -> aboutScrollBehavior; UPDATE -> updateScrollBehavior; DOWNLOAD -> downloadScrollBehavior; ONBOARDING -> onboardingScrollBehavior
                 DOWNLOADED -> downloadedScrollBehavior; DISPLAY -> displayScrollBehavior; else -> conversionScrollBehavior
             }
+            val listModifier = if (visiblePage in topPages) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier.fillMaxSize().nestedScroll(visibleScrollBehavior.nestedScrollConnection)
+            }
             Box(Modifier.fillMaxSize()) {
                 key(visiblePage) {
                     LazyColumn(
                         state = visibleListState,
-                        modifier = Modifier.fillMaxSize().nestedScroll(visibleScrollBehavior.nestedScrollConnection),
+                        modifier = listModifier,
                         contentPadding = PaddingValues(
                             start = 12.dp,
                             end = 12.dp,
