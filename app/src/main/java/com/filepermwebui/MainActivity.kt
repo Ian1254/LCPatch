@@ -29,9 +29,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.add
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -856,34 +858,23 @@ class MainActivity : ComponentActivity() {
                         if (topLevelScreen) {
                             HorizontalPager(
                                 state = pagerState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(bottom = padding.calculateBottomPadding()),
+                                modifier = Modifier.fillMaxSize(),
                                 beyondViewportPageCount = 1,
                                 userScrollEnabled = false,
                                 key = { topPages[it] }
                             ) { index ->
                                 val scenePage = topPages[index]
-                                val sceneScrollBehavior = when (scenePage) {
-                                    OVERVIEW -> overviewScrollBehavior
-                                    LOGS -> logsScrollBehavior
-                                    else -> settingsScrollBehavior
-                                }
                                 val sceneBackdrop = rememberBarBackdrop()
-                                Scaffold(
-                                    contentWindowInsets = WindowInsets.systemBars
-                                        .add(WindowInsets.displayCutout)
-                                        .only(WindowInsetsSides.Horizontal),
-                                    topBar = {
-                                        PageGlassBar(sceneBackdrop) {
-                                            SmallTopAppBar(
-                                                title = pageTitle(scenePage),
-                                                color = Color.Transparent,
-                                                scrollBehavior = sceneScrollBehavior
-                                            )
-                                        }
-                                    }
-                                ) { scenePadding ->
+                                val statusInset = WindowInsets.statusBars
+                                    .asPaddingValues()
+                                    .calculateTopPadding()
+                                val topBarHeight = statusInset + 64.dp
+                                val scenePadding = PaddingValues(
+                                    top = topBarHeight,
+                                    bottom = padding.calculateBottomPadding()
+                                )
+
+                                Box(Modifier.fillMaxSize()) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
@@ -894,6 +885,26 @@ class MainActivity : ComponentActivity() {
                                             )
                                     ) {
                                         renderPage(scenePage, scenePadding)
+                                    }
+                                    PageGlassBar(
+                                        backdrop = sceneBackdrop,
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .fillMaxWidth()
+                                            .height(topBarHeight)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(top = statusInset),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = pageTitle(scenePage),
+                                                fontSize = 22.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
                                     }
                                 }
                             }
