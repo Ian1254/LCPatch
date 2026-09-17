@@ -29,11 +29,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.add
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -116,6 +114,8 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
 import top.yukonga.miuix.kmp.blur.layerBackdrop
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
 
 private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -265,6 +265,7 @@ class MainActivity : ComponentActivity() {
         val displayScrollBehavior = MiuixScrollBehavior()
         val conversionScrollBehavior = MiuixScrollBehavior()
         val barBackdrop = rememberBarBackdrop()
+        val topHazeState = rememberHazeState()
         val activeBarBackdrop = if (blurEnabled) barBackdrop else null
         val scope = rememberCoroutineScope()
         LaunchedEffect(page) {
@@ -806,7 +807,9 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
-                        if (!topLevelScreen) {
+                        if (topLevelScreen) {
+                            TopLevelBlurBar(topHazeState)
+                        } else {
                             TintedBar(activeBarBackdrop) {
                                 val navigationIcon: @Composable () -> Unit = {
                                     if (visiblePage != ONBOARDING || onboardingDone) {
@@ -849,10 +852,9 @@ class MainActivity : ComponentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .hazeSource(topHazeState)
                             .then(
-                                if (!topLevelScreen && activeBarBackdrop != null) {
-                                    Modifier.layerBackdrop(activeBarBackdrop)
-                                } else Modifier
+                                if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier
                             )
                     ) {
                         if (topLevelScreen) {
@@ -863,50 +865,7 @@ class MainActivity : ComponentActivity() {
                                 userScrollEnabled = false,
                                 key = { topPages[it] }
                             ) { index ->
-                                val scenePage = topPages[index]
-                                val sceneBackdrop = rememberBarBackdrop()
-                                val statusInset = WindowInsets.statusBars
-                                    .asPaddingValues()
-                                    .calculateTopPadding()
-                                val topBarHeight = statusInset + 64.dp
-                                val scenePadding = PaddingValues(
-                                    top = topBarHeight,
-                                    bottom = padding.calculateBottomPadding()
-                                )
-
-                                Box(Modifier.fillMaxSize()) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .then(
-                                                if (sceneBackdrop != null) {
-                                                    Modifier.layerBackdrop(sceneBackdrop)
-                                                } else Modifier
-                                            )
-                                    ) {
-                                        renderPage(scenePage, scenePadding)
-                                    }
-                                    PageGlassBar(
-                                        backdrop = sceneBackdrop,
-                                        modifier = Modifier
-                                            .align(Alignment.TopCenter)
-                                            .fillMaxWidth()
-                                            .height(topBarHeight)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(top = statusInset),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = pageTitle(scenePage),
-                                                fontSize = 22.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-                                    }
-                                }
+                                renderPage(topPages[index], padding)
                             }
                         } else {
                             renderPage(animatedShell, padding)

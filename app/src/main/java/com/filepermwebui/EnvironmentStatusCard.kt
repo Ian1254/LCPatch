@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,7 +43,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -76,15 +76,14 @@ internal fun EnvironmentStatusOverviewCard(
 ) {
     val healthy = scopeStatus == "已啟用"
     val hasError = scopeStatus == "尚未授權遊戲"
-    val dark = MiuixTheme.colorScheme.surface.luminance() < 0.5f
     val cardColor = when {
-        healthy -> if (dark) Color(0xFF173D27) else Color(0xFFDFFAE4)
-        hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
+        hasError -> MiuixTheme.colorScheme.error.copy(alpha = 0.16f)
+        healthy -> MiuixTheme.colorScheme.secondaryContainer
         else -> MiuixTheme.colorScheme.surfaceContainer
     }
     val accent = when {
-        healthy -> Color(0xFF43D477)
-        hasError -> Color(0xFFFF6B70)
+        hasError -> MiuixTheme.colorScheme.error
+        healthy -> MiuixTheme.colorScheme.primary
         else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
     }
     val statusTitle = when {
@@ -106,7 +105,6 @@ internal fun EnvironmentStatusOverviewCard(
     var overlayMounted by remember { mutableStateOf(false) }
     var overlayVisible by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
-    var sourceRevealed by remember { mutableStateOf(false) }
     var sourceBounds by remember { mutableStateOf(Rect.Zero) }
     var frozenSourceBounds by remember { mutableStateOf(Rect.Zero) }
     val hostView = LocalView.current
@@ -122,7 +120,6 @@ internal fun EnvironmentStatusOverviewCard(
         if (overlayMounted) return
         frozenSourceBounds = sourceBounds
         closing = false
-        sourceRevealed = false
         overlayMounted = true
         overlayVisible = true
     }
@@ -142,7 +139,7 @@ internal fun EnvironmentStatusOverviewCard(
             .graphicsLayer {
                 scaleX = cardScale
                 scaleY = cardScale
-                alpha = if (!overlayMounted || sourceRevealed) 1f else 0f
+                alpha = if (overlayMounted) 0f else 1f
             }
             .onGloballyPositioned { coordinates ->
                 val bounds = coordinates.boundsInWindow()
@@ -215,12 +212,10 @@ internal fun EnvironmentStatusOverviewCard(
             onCheckScope = onCheckScope,
             onRequestRoot = onRequestRoot,
             onDismiss = ::closeOverlay,
-            onReturnHandoff = { sourceRevealed = true },
             onExitFinished = {
                 overlayMounted = false
                 overlayVisible = false
                 closing = false
-                sourceRevealed = false
             }
         )
     }
@@ -243,39 +238,32 @@ private fun EnvironmentStatusOverlay(
     onCheckScope: () -> Unit,
     onRequestRoot: () -> Unit,
     onDismiss: () -> Unit,
-    onReturnHandoff: () -> Unit,
     onExitFinished: () -> Unit
 ) {
     val density = LocalDensity.current
     val progress = remember { Animatable(0f) }
     val panelInteraction = remember { MutableInteractionSource() }
     val latestExitFinished by androidx.compose.runtime.rememberUpdatedState(onExitFinished)
-    val latestReturnHandoff by androidx.compose.runtime.rememberUpdatedState(onReturnHandoff)
 
     LaunchedEffect(visible) {
         if (visible) {
             progress.animateTo(
                 targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = 0.90f,
-                    stiffness = 420f
+                animationSpec = tween(
+                    durationMillis = 390,
+                    easing = EnvironmentMorphEasing
                 )
             )
         } else {
-            var handedOff = false
             progress.animateTo(
                 targetValue = 0f,
-                animationSpec = spring(
-                    dampingRatio = 0.94f,
-                    stiffness = 500f
+                animationSpec = tween(
+                    durationMillis = 330,
+                    easing = EnvironmentMorphEasing
                 )
-            ) {
-                if (!handedOff && value <= 0.08f) {
-                    handedOff = true
-                    latestReturnHandoff()
-                }
-            }
-            if (!handedOff) latestReturnHandoff()
+            )
+            withFrameNanos { }
+            withFrameNanos { }
             latestExitFinished()
         }
     }
@@ -360,6 +348,7 @@ private fun EnvironmentStatusOverlay(
                     val detailsAlpha = ((fraction - 0.25f) / 0.46f).coerceIn(0f, 1f)
                     val actionsAlpha = ((fraction - 0.45f) / 0.36f).coerceIn(0f, 1f)
                     val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
+                    val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
 
                     Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
                         Text(
@@ -461,9 +450,7 @@ private fun EnvironmentStatusOverlay(
                                     .fillMaxWidth()
                                     .height(54.dp)
                                     .clip(RoundedCornerShape(18.dp))
-                                    .background(
-                                        MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                                    ),
+                                    .background(actionSurface),
                                 text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
                                 enabled = rootStatus != "正在請求",
                                 onClick = onRequestRoot
@@ -474,9 +461,7 @@ private fun EnvironmentStatusOverlay(
                                     .fillMaxWidth()
                                     .height(54.dp)
                                     .clip(RoundedCornerShape(18.dp))
-                                    .background(
-                                        MiuixTheme.colorScheme.onSurface.copy(alpha = 0.07f)
-                                    ),
+                                    .background(actionSurface),
                                 text = "完成",
                                 onClick = onDismiss
                             )
