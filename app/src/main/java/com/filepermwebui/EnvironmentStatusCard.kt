@@ -411,7 +411,7 @@ private fun EnvironmentStatusOverlay(
                             "環境與權限",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (dark) Color.White.copy(alpha = 0.86f) else Color.Black.copy(alpha = 0.74f)
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                         Spacer(Modifier.height(10.dp))
                         Column(
