@@ -21,7 +21,7 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 X
 - 支援 libxposed API 102 的 LSPosed 環境
 - 已安裝 Limbus Company
 
-目前完整驗證的遊戲版本為 `1.113.1`（versionCode `468`）。遇到其他遊戲版本時，native 核心會先檢查 Unity Build ID、指令特徵及唯一候選；無法安全確認時會停用字型 hook，避免套用猜測位址。遊戲更新後仍應重新進行實機驗證。
+目前完整驗證的遊戲版本為 `1.113.1`（versionCode `468`）與 `1.114.0`（versionCode `469`）。遇到其他遊戲版本時，native 核心會先檢查 Unity Build ID、指令特徵及唯一候選；無法安全確認時會停用字型 hook，避免套用猜測位址。遊戲更新後仍應重新進行實機驗證。
 
 ## 安裝與使用
 
