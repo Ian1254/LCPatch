@@ -59,9 +59,13 @@ private fun MaskedBackdrop(
 
 /** Solid glass bar used inside each top-level page scene. */
 @Composable
-internal fun PageGlassBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit) {
+internal fun PageGlassBar(
+    backdrop: LayerBackdrop?,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
     val surface = MiuixTheme.colorScheme.surface
-    Box {
+    Box(modifier = modifier) {
         if (backdrop != null) {
             Box(
                 modifier = Modifier
@@ -69,12 +73,12 @@ internal fun PageGlassBar(backdrop: LayerBackdrop?, content: @Composable () -> U
                     .drawBackdrop(
                         backdrop = backdrop,
                         shape = { RectangleShape },
-                        effects = { blur(28f, 28f) },
-                        onDrawSurface = { drawRect(surface.copy(alpha = 0.72f)) }
+                        effects = { blur(20f, 20f) },
+                        onDrawSurface = { drawRect(surface.copy(alpha = 0.82f)) }
                     )
             )
         } else {
-            Box(Modifier.matchParentSize().background(surface.copy(alpha = 0.94f)))
+            Box(Modifier.matchParentSize().background(surface.copy(alpha = 0.96f)))
         }
         content()
     }
