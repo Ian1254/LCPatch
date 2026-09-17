@@ -59,8 +59,6 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.3")
-    implementation("dev.chrisbanes.haze:haze:2.0.0-rc01")
-    implementation("dev.chrisbanes.haze:haze-blur:2.0.0-rc01")
     implementation("com.github.houbb:opencc4j:1.14.0")
     implementation("androidx.compose.material:material-icons-core:1.7.8")
     compileOnly("io.github.libxposed:api:102.0.0")
