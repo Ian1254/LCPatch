@@ -1,16 +1,25 @@
-# LCPatch 1.2.1-beta.16
+# LCPatch 1.2.1-beta.17
 
-這個測試版調整主題配色與頂欄材質，同時保留 beta.15 作為可回退版本。
+本測試版重構底部導航列、頁面切換與頂層頁面頂欄，供實機驗證 HyperOS／MIUIX 式互動。
 
-## 介面調整
+## 底部導航
 
-- 恢復底欄以外區域的 Miuix 原本主題配色，移除全域黑白灰覆寫。
-- 概觀環境狀態卡恢復成功綠與錯誤紅的語義色。
-- 頂層頁面移除漸變模糊，改為固定強度的黑色毛玻璃頂欄。
-- 頂欄重新顯示「概觀／日誌／設定」頁面名稱，文字使用目前頁面的主題色。
-- 懸浮底欄樣式、手勢與動畫維持 beta.15 行為，不做修改。
+- 選中背景改為獨立 Selection Overlay，不再由各 NavigationItem 各自繪製。
+- Overlay 左右邊界分開動畫，移動時會先向目標方向拉伸，再由後方邊界跟上。
+- 按壓回饋與導航動畫分離；只有放開確認後才切換頁面。
+- 移除延遲計時、導航 Job、generation 與多套拖曳狀態，避免動畫重播或頁面不同步。
+- Pager 與 Overlay 由同一個 navigation transaction 同時開始。
+- navigation bar inset 僅處理一次，避免底部額外色塊。
 
-## 相容性
+## 頂部欄
 
-- 保留 beta.15 的 Pager、捲動與頁面轉場邏輯。
-- 繼續保留 Limbus Company 1.114.0 支援。
+- 使用獨立的 Expanded Title 與 Collapsed Title，不再將單一文字縮放搬移。
+- 各頁捲動位置分別控制 collapseProgress。
+- contentUnderTopBar 獨立控制 Blur／Material，只在內容進入頂欄後顯示材質。
+- 移除容易閃爍的漸層 Blur mask，改用穩定的均勻材質層。
+- 頂欄僅顯示目前頁面名稱。
+
+## 驗證
+
+- 已通過單元測試、Lint、原生元件建置與 Release APK 組裝。
+- 本版本主要供實機檢查快速切頁、慢速捲動、Blur 穩定性及系統導覽列 inset。
