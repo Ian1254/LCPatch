@@ -10,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -77,15 +76,14 @@ internal fun EnvironmentStatusOverviewCard(
 ) {
     val healthy = scopeStatus == "已啟用"
     val hasError = scopeStatus == "尚未授權遊戲"
-    val dark = isSystemInDarkTheme()
     val cardColor = when {
-        healthy -> if (dark) Color(0xFF173D27) else Color(0xFFDFFAE4)
-        hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
-        else -> MiuixTheme.colorScheme.secondaryContainer
+        hasError -> MiuixTheme.colorScheme.error.copy(alpha = 0.16f)
+        healthy -> MiuixTheme.colorScheme.secondaryContainer
+        else -> MiuixTheme.colorScheme.surfaceContainer
     }
     val accent = when {
-        healthy -> Color(0xFF43D477)
-        hasError -> Color(0xFFFF6B70)
+        hasError -> MiuixTheme.colorScheme.error
+        healthy -> MiuixTheme.colorScheme.primary
         else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
     }
     val statusTitle = when {
@@ -141,6 +139,7 @@ internal fun EnvironmentStatusOverviewCard(
             .graphicsLayer {
                 scaleX = cardScale
                 scaleY = cardScale
+                alpha = if (overlayMounted) 0f else 1f
             }
             .onGloballyPositioned { coordinates ->
                 val bounds = coordinates.boundsInWindow()
@@ -241,7 +240,6 @@ private fun EnvironmentStatusOverlay(
     onDismiss: () -> Unit,
     onExitFinished: () -> Unit
 ) {
-    val dark = isSystemInDarkTheme()
     val density = LocalDensity.current
     val progress = remember { Animatable(0f) }
     val panelInteraction = remember { MutableInteractionSource() }
@@ -349,8 +347,8 @@ private fun EnvironmentStatusOverlay(
                     val summaryAlpha = (1f - fraction / 0.30f).coerceIn(0f, 1f)
                     val detailsAlpha = ((fraction - 0.25f) / 0.46f).coerceIn(0f, 1f)
                     val actionsAlpha = ((fraction - 0.45f) / 0.36f).coerceIn(0f, 1f)
-                    val detailSurface = if (dark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.055f)
-                    val actionSurface = if (dark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.065f)
+                    val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
+                    val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
 
                     Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
                         Text(
@@ -413,7 +411,7 @@ private fun EnvironmentStatusOverlay(
                             "環境與權限",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (dark) Color.White.copy(alpha = 0.86f) else Color.Black.copy(alpha = 0.74f)
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                         Spacer(Modifier.height(10.dp))
                         Column(

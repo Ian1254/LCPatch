@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,11 +40,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
@@ -62,6 +66,7 @@ import top.yukonga.miuix.kmp.blur.drawBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private const val NavigationItemCount = 3
 private const val NavigationItemWidthDp = 80f
@@ -88,7 +93,8 @@ internal fun SukiFloatingBottomBar(
 ) {
     val density = LocalDensity.current
     val viewConfiguration = LocalViewConfiguration.current
-    val dark = isSystemInDarkTheme()
+    val dark = MiuixTheme.colorScheme.surface.luminance() < 0.5f
+    val barHeightDp = 62f + ((density.fontScale - 1f).coerceIn(0f, 1f) * 10f)
     val coroutineScope = rememberCoroutineScope()
 
     var pressed by remember { mutableStateOf(false) }
@@ -277,7 +283,7 @@ internal fun SukiFloatingBottomBar(
 
     val barModifier = Modifier
         .width(BarWidthDp.dp)
-        .height(62.dp)
+        .height(barHeightDp.dp)
         .then(
             if (backdrop != null) {
                 Modifier.drawBackdrop(
@@ -302,7 +308,7 @@ internal fun SukiFloatingBottomBar(
                 modifier = Modifier
                     .graphicsLayer {
                         translationX = with(density) { indicatorLeft.dp.toPx() }
-                        translationY = with(density) { ((62f - indicatorHeight) / 2f).dp.toPx() }
+                        translationY = with(density) { ((barHeightDp - indicatorHeight) / 2f).dp.toPx() }
                     }
                     .width(indicatorWidth.dp)
                     .height(indicatorHeight.dp)
@@ -440,7 +446,13 @@ private fun androidx.compose.foundation.layout.RowScope.SukiNavigationItem(
     val contentAlpha = 1f - localPress * 0.12f
 
     Column(
-        modifier = Modifier.weight(1f).fillMaxHeight(),
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .semantics {
+                role = Role.Tab
+                selected = selectedAmount > 0.5f
+            },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
     ) {

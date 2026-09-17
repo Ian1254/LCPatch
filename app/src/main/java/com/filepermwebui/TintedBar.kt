@@ -17,6 +17,11 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeProgressive
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.hazeBlur
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.blur
@@ -69,72 +74,26 @@ private fun MaskedBackdrop(
  * and merely fading its alpha.
  */
 @Composable
-internal fun TopLevelBlurBar(backdrop: LayerBackdrop?) {
+internal fun TopLevelBlurBar(hazeState: HazeState) {
     val surface = MiuixTheme.colorScheme.surface
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val fallback = Brush.verticalGradient(
-        0f to surface.copy(alpha = 0.28f),
-        0.48f to surface.copy(alpha = 0.10f),
-        1f to Color.Transparent
-    )
-
+    val style = HazeBlurStyle {
+        blurRadius(32.dp)
+        progressive(HazeProgressive.verticalGradient(startIntensity = 1f, endIntensity = 0f))
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(statusInset + 64.dp)
-    ) {
-        if (backdrop != null) {
-            val strongMask = Brush.verticalGradient(
-                0f to Color.Black,
-                0.30f to Color.Black.copy(alpha = 0.92f),
-                0.58f to Color.Black.copy(alpha = 0.46f),
-                0.76f to Color.Transparent
+            .hazeBlur(input = HazeInput.Sources(hazeState), style = style)
+            .background(
+                Brush.verticalGradient(
+                    0f to surface.copy(alpha = 0.055f),
+                    0.62f to surface.copy(alpha = 0.018f),
+                    1f to Color.Transparent
+                )
             )
-            val mediumMask = Brush.verticalGradient(
-                0f to Color.Black.copy(alpha = 0.44f),
-                0.52f to Color.Black.copy(alpha = 0.34f),
-                0.82f to Color.Black.copy(alpha = 0.12f),
-                1f to Color.Transparent
-            )
-            val lightMask = Brush.verticalGradient(
-                0f to Color.Black.copy(alpha = 0.18f),
-                0.70f to Color.Black.copy(alpha = 0.13f),
-                1f to Color.Transparent
-            )
-
-            MaskedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                backdrop = backdrop,
-                radius = 26f,
-                mask = strongMask
-            )
-            MaskedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                backdrop = backdrop,
-                radius = 15f,
-                mask = mediumMask
-            )
-            MaskedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                backdrop = backdrop,
-                radius = 7f,
-                mask = lightMask
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to surface.copy(alpha = 0.055f),
-                            0.62f to surface.copy(alpha = 0.018f),
-                            1f to Color.Transparent
-                        )
-                    )
-            )
-        } else {
-            Box(Modifier.matchParentSize().background(fallback))
-        }
-    }
+    )
 }
 
 /** Inner-page / standard navigation bar backdrop. */
