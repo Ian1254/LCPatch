@@ -2,11 +2,6 @@ package com.lcpatch
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -16,12 +11,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.dp
-import dev.chrisbanes.haze.HazeInput
-import dev.chrisbanes.haze.HazeProgressive
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.blur.HazeBlurStyle
-import dev.chrisbanes.haze.blur.hazeBlur
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.blur
@@ -68,32 +57,27 @@ private fun MaskedBackdrop(
     }
 }
 
-/**
- * Blur-only top edge for top-level pages. Several blur bands are blended together so the
- * blur strength itself falls off toward the content instead of drawing one fixed blurred card
- * and merely fading its alpha.
- */
+/** Solid glass bar used inside each top-level page scene. */
 @Composable
-internal fun TopLevelBlurBar(hazeState: HazeState) {
+internal fun PageGlassBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit) {
     val surface = MiuixTheme.colorScheme.surface
-    val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val style = HazeBlurStyle {
-        blurRadius(32.dp)
-        progressive(HazeProgressive.verticalGradient(startIntensity = 1f, endIntensity = 0f))
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(statusInset + 64.dp)
-            .hazeBlur(input = HazeInput.Sources(hazeState), style = style)
-            .background(
-                Brush.verticalGradient(
-                    0f to surface.copy(alpha = 0.055f),
-                    0.62f to surface.copy(alpha = 0.018f),
-                    1f to Color.Transparent
-                )
+    Box {
+        if (backdrop != null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .drawBackdrop(
+                        backdrop = backdrop,
+                        shape = { RectangleShape },
+                        effects = { blur(28f, 28f) },
+                        onDrawSurface = { drawRect(surface.copy(alpha = 0.72f)) }
+                    )
             )
-    )
+        } else {
+            Box(Modifier.matchParentSize().background(surface.copy(alpha = 0.94f)))
+        }
+        content()
+    }
 }
 
 /** Inner-page / standard navigation bar backdrop. */
