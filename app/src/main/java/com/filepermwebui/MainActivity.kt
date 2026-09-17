@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.offset
@@ -48,6 +50,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -71,6 +74,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
@@ -155,6 +159,8 @@ class MainActivity : ComponentActivity() {
         var navigationDirection by rememberSaveable { mutableIntStateOf(1) }
         val topPages = TOP_LEVEL_PAGES
         val pagerState = rememberPagerState(initialPage = topPages.indexOf(page).coerceAtLeast(0), pageCount = { topPages.size })
+        var topNavigationTarget by rememberSaveable { mutableIntStateOf(pagerState.currentPage) }
+        var topNavigationTransaction by rememberSaveable { mutableIntStateOf(0) }
         var revision by remember { mutableIntStateOf(0) }
         var message by taskState.message
         var messageIsError by taskState.messageIsError
@@ -231,18 +237,12 @@ class MainActivity : ComponentActivity() {
         val barBackdrop = rememberBarBackdrop()
         val activeBarBackdrop = if (blurEnabled) barBackdrop else null
         val scope = rememberCoroutineScope()
-        LaunchedEffect(page) {
-            val target = topPages.indexOf(page)
-            if (target >= 0 && pagerState.currentPage != target) {
+        LaunchedEffect(topNavigationTransaction, topNavigationTarget) {
+            if (pagerState.currentPage != topNavigationTarget || pagerState.currentPageOffsetFraction != 0f) {
                 pagerState.animateScrollToPage(
-                    page = target,
+                    page = topNavigationTarget,
                     animationSpec = tween(360, easing = PageTransitionEasing)
                 )
-            }
-        }
-        LaunchedEffect(pagerState) {
-            snapshotFlow { pagerState.settledPage }.collect { settled ->
-                if (page in topPages) page = topPages[settled]
             }
         }
         val events = remember(revision) { logs.read() }
@@ -338,6 +338,12 @@ class MainActivity : ComponentActivity() {
             navigationDirection = next.direction
         }
         fun navigateTo(target: Int) {
+            val topIndex = topPages.indexOf(target)
+            if (topIndex >= 0) {
+                if (topIndex == topNavigationTarget && page in topPages) return
+                topNavigationTarget = topIndex
+                topNavigationTransaction += 1
+            }
             applyNavigation(NavigationState(page, navigationStack, navigationDirection).navigateTo(target))
         }
         fun navigateBack() {
@@ -510,7 +516,10 @@ class MainActivity : ComponentActivity() {
                         contentPadding = PaddingValues(
                             start = 12.dp,
                             end = 12.dp,
-                            top = padding.calculateTopPadding() + 12.dp,
+                            top = padding.calculateTopPadding() +
+                                if (visiblePage in topPages) {
+                                    WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 128.dp
+                                } else 12.dp,
                             bottom = padding.calculateBottomPadding() +
                                 if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp
                         ),
@@ -770,9 +779,7 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
-                        if (topLevelScreen) {
-                            TopLevelGlassBar(activeBarBackdrop, visibleTitle)
-                        } else {
+                        if (!topLevelScreen) {
                             TintedBar(activeBarBackdrop) {
                                 val navigationIcon: @Composable () -> Unit = {
                                     if (visiblePage != ONBOARDING || onboardingDone) {
@@ -794,8 +801,10 @@ class MainActivity : ComponentActivity() {
                         if (topLevelScreen) {
                             if (navigationStyle == "floating") {
                                 SukiFloatingBottomBar(
-                                    selectedIndex = topPages.indexOf(page).coerceAtLeast(0),
-                                    onSelected = { index ->
+                                    currentIndex = pagerState.settledPage,
+                                    targetIndex = topNavigationTarget,
+                                    transactionId = topNavigationTransaction,
+                                    onTargetSelected = { index ->
                                         topPages.getOrNull(index)?.let(::navigateTo)
                                     },
                                     backdrop = activeBarBackdrop
@@ -834,6 +843,35 @@ class MainActivity : ComponentActivity() {
                         }
                         if (animatedShell == shellTarget) renderNotice(padding)
                     }
+                }
+                if (topLevelScreen) {
+                    val displayedIndex = pagerState.currentPage.coerceIn(0, topPages.lastIndex)
+                    val displayedPage = topPages[displayedIndex]
+                    val displayedListState = when (displayedPage) {
+                        OVERVIEW -> overviewListState
+                        LOGS -> logsListState
+                        else -> settingsListState
+                    }
+                    val density = LocalDensity.current
+                    val collapseProgress by remember(displayedListState, density) {
+                        derivedStateOf {
+                            if (displayedListState.firstVisibleItemIndex > 0) 1f
+                            else (displayedListState.firstVisibleItemScrollOffset /
+                                with(density) { 72.dp.toPx() }).coerceIn(0f, 1f)
+                        }
+                    }
+                    val contentUnderTopBar by remember(displayedListState) {
+                        derivedStateOf {
+                            displayedListState.firstVisibleItemIndex > 0 ||
+                                displayedListState.firstVisibleItemScrollOffset > 2
+                        }
+                    }
+                    TopLevelCollapsingBar(
+                        backdrop = activeBarBackdrop,
+                        title = pageTitle(displayedPage),
+                        collapseProgress = collapseProgress,
+                        contentUnderTopBar = contentUnderTopBar
+                    )
                 }
             }
         }
