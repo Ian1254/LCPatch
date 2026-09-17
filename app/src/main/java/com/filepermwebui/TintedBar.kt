@@ -42,6 +42,7 @@ internal fun TopLevelCollapsingBar(
     actions: @Composable () -> Unit = {}
 ) {
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val surface = MiuixTheme.colorScheme.surface
     val progress = collapseProgress.coerceIn(0f, 1f)
     val materialAlpha = if (contentUnderTopBar) (0.42f + progress * 0.16f) else 0f
     Box(
@@ -59,7 +60,7 @@ internal fun TopLevelCollapsingBar(
                         shape = { RectangleShape },
                         effects = { blur(24f, 24f) },
                         onDrawSurface = {
-                            drawRect(MiuixTheme.colorScheme.surface.copy(alpha = materialAlpha))
+                            drawRect(surface.copy(alpha = materialAlpha))
                         }
                     )
             )
@@ -68,7 +69,7 @@ internal fun TopLevelCollapsingBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(statusInset + 64.dp)
-                    .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.94f))
+                    .background(surface.copy(alpha = 0.94f))
             )
         }
 

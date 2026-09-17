@@ -103,7 +103,7 @@ internal fun SukiFloatingBottomBar(
         val destinationLeft = leftFor(safeTarget)
         val destinationRight = rightFor(safeTarget)
         val movingRight = destinationLeft > leftEdge.value
-        val leadingSpec = spring<Float>(0.82f, Spring.StiffnessMediumHigh)
+        val leadingSpec = spring<Float>(0.82f, 800f)
         val trailingSpec = spring<Float>(0.9f, Spring.StiffnessMediumLow)
         coroutineScope {
             launch {
