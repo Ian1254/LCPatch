@@ -106,6 +106,7 @@ internal fun EnvironmentStatusOverviewCard(
     var overlayMounted by remember { mutableStateOf(false) }
     var overlayVisible by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
+    var sourceRevealed by remember { mutableStateOf(false) }
     var sourceBounds by remember { mutableStateOf(Rect.Zero) }
     var frozenSourceBounds by remember { mutableStateOf(Rect.Zero) }
     val hostView = LocalView.current
@@ -121,6 +122,7 @@ internal fun EnvironmentStatusOverviewCard(
         if (overlayMounted) return
         frozenSourceBounds = sourceBounds
         closing = false
+        sourceRevealed = false
         overlayMounted = true
         overlayVisible = true
     }
@@ -140,7 +142,7 @@ internal fun EnvironmentStatusOverviewCard(
             .graphicsLayer {
                 scaleX = cardScale
                 scaleY = cardScale
-                alpha = if (overlayMounted) 0f else 1f
+                alpha = if (!overlayMounted || sourceRevealed) 1f else 0f
             }
             .onGloballyPositioned { coordinates ->
                 val bounds = coordinates.boundsInWindow()
@@ -213,10 +215,12 @@ internal fun EnvironmentStatusOverviewCard(
             onCheckScope = onCheckScope,
             onRequestRoot = onRequestRoot,
             onDismiss = ::closeOverlay,
+            onReturnHandoff = { sourceRevealed = true },
             onExitFinished = {
                 overlayMounted = false
                 overlayVisible = false
                 closing = false
+                sourceRevealed = false
             }
         )
     }
@@ -239,30 +243,39 @@ private fun EnvironmentStatusOverlay(
     onCheckScope: () -> Unit,
     onRequestRoot: () -> Unit,
     onDismiss: () -> Unit,
+    onReturnHandoff: () -> Unit,
     onExitFinished: () -> Unit
 ) {
     val density = LocalDensity.current
     val progress = remember { Animatable(0f) }
     val panelInteraction = remember { MutableInteractionSource() }
     val latestExitFinished by androidx.compose.runtime.rememberUpdatedState(onExitFinished)
+    val latestReturnHandoff by androidx.compose.runtime.rememberUpdatedState(onReturnHandoff)
 
     LaunchedEffect(visible) {
         if (visible) {
             progress.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 390,
-                    easing = EnvironmentMorphEasing
+                animationSpec = spring(
+                    dampingRatio = 0.90f,
+                    stiffness = 420f
                 )
             )
         } else {
+            var handedOff = false
             progress.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = 330,
-                    easing = EnvironmentMorphEasing
+                animationSpec = spring(
+                    dampingRatio = 0.94f,
+                    stiffness = 500f
                 )
-            )
+            ) {
+                if (!handedOff && value <= 0.08f) {
+                    handedOff = true
+                    latestReturnHandoff()
+                }
+            }
+            if (!handedOff) latestReturnHandoff()
             latestExitFinished()
         }
     }
