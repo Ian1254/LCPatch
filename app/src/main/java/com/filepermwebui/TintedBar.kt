@@ -11,11 +11,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -38,78 +34,77 @@ internal fun rememberBarBackdrop(): LayerBackdrop? {
 }
 
 @Composable
-private fun MaskedBackdrop(
-    modifier: Modifier,
-    backdrop: LayerBackdrop,
-    radius: Float,
-    mask: Brush,
-    surfaceTint: Color = Color.Transparent
+internal fun TopLevelCollapsingBar(
+    backdrop: LayerBackdrop?,
+    title: String,
+    collapseProgress: Float,
+    contentUnderTopBar: Boolean,
+    actions: @Composable () -> Unit = {}
 ) {
-    Box(
-        modifier = modifier
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                drawRect(brush = mask, blendMode = BlendMode.DstIn)
-            }
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RectangleShape },
-                    effects = { blur(radius, radius) },
-                    onDrawSurface = {
-                        if (surfaceTint.alpha > 0f) drawRect(surfaceTint)
-                    }
-                )
-        )
-    }
-}
-
-/**
- * Fixed black frosted-glass bar for the three top-level pages.
- * The blur strength and tint stay uniform across the bar; there is no progressive fade.
- */
-@Composable
-internal fun TopLevelGlassBar(backdrop: LayerBackdrop?, title: String) {
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val surface = MiuixTheme.colorScheme.surface
+    val progress = collapseProgress.coerceIn(0f, 1f)
+    val materialAlpha = if (contentUnderTopBar) (0.42f + progress * 0.16f) else 0f
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(statusInset + 64.dp)
+            .height(statusInset + 116.dp)
     ) {
-        if (backdrop != null) {
+        if (backdrop != null && materialAlpha > 0f) {
             Box(
                 modifier = Modifier
-                    .matchParentSize()
+                    .fillMaxWidth()
+                    .height(statusInset + 64.dp)
                     .drawBackdrop(
                         backdrop = backdrop,
                         shape = { RectangleShape },
                         effects = { blur(24f, 24f) },
                         onDrawSurface = {
-                            drawRect(Color.Black.copy(alpha = 0.58f))
+                            drawRect(surface.copy(alpha = materialAlpha))
                         }
                     )
             )
-        } else {
+        } else if (contentUnderTopBar) {
             Box(
                 modifier = Modifier
-                    .matchParentSize()
-                    .background(Color.Black.copy(alpha = 0.90f))
+                    .fillMaxWidth()
+                    .height(statusInset + 64.dp)
+                    .background(surface.copy(alpha = 0.94f))
             )
         }
 
+        // Expanded and collapsed titles are separate presentations on purpose.
         Text(
             text = title,
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+                .padding(start = 20.dp, bottom = 18.dp)
+                .graphicsLayer {
+                    alpha = 1f - progress
+                    translationY = -progress * 18.dp.toPx()
+                },
             color = MiuixTheme.colorScheme.primary,
-            fontSize = 22.sp,
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = title,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = statusInset + 20.dp)
+                .graphicsLayer {
+                    alpha = progress
+                    translationY = (1f - progress) * 8.dp.toPx()
+                },
+            color = MiuixTheme.colorScheme.primary,
+            fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold
         )
+        Box(
+            Modifier.align(Alignment.TopEnd)
+                .padding(top = statusInset + 10.dp, end = 12.dp)
+                .graphicsLayer { alpha = 0.72f + progress * 0.28f }
+        ) { actions() }
     }
 }
 
@@ -117,29 +112,18 @@ internal fun TopLevelGlassBar(backdrop: LayerBackdrop?, title: String) {
 @Composable
 internal fun TintedBar(backdrop: LayerBackdrop?, content: @Composable () -> Unit) {
     val surface = MiuixTheme.colorScheme.surface
-    val fallback = Brush.verticalGradient(
-        0f to surface.copy(alpha = 0.26f),
-        0.55f to surface.copy(alpha = 0.10f),
-        1f to Color.Transparent
-    )
-    val blurMask = Brush.verticalGradient(
-        0f to Color.Black,
-        0.42f to Color.Black.copy(alpha = 0.90f),
-        0.76f to Color.Black.copy(alpha = 0.30f),
-        1f to Color.Transparent
-    )
-
     Box {
         if (backdrop != null) {
-            MaskedBackdrop(
-                modifier = Modifier.matchParentSize(),
-                backdrop = backdrop,
-                radius = 22f,
-                mask = blurMask,
-                surfaceTint = surface.copy(alpha = 0.055f)
+            Box(
+                Modifier.matchParentSize().drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RectangleShape },
+                    effects = { blur(22f, 22f) },
+                    onDrawSurface = { drawRect(surface.copy(alpha = 0.48f)) }
+                )
             )
         } else {
-            Box(Modifier.matchParentSize().background(fallback))
+            Box(Modifier.matchParentSize().background(surface.copy(alpha = 0.94f)))
         }
         content()
     }
