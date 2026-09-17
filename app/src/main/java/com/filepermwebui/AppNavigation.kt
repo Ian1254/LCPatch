@@ -57,7 +57,9 @@ internal fun parentPage(page: Int): Int = when (page) {
 }
 
 internal fun pageTitle(page: Int): String = when (page) {
-    OVERVIEW, SETTINGS, LOGS -> ""
+    OVERVIEW -> "概觀"
+    LOGS -> "日誌"
+    SETTINGS -> "設定"
     ABOUT -> "關於"
     UPDATE -> "應用程式更新"
     DOWNLOAD -> "下載漢化"

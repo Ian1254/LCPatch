@@ -72,9 +72,9 @@ class AppNavigationTest {
     @Test
     fun pageMetadataIsCentralized() {
         assertEquals(listOf(OVERVIEW, LOGS, SETTINGS), TOP_LEVEL_PAGES)
-        assertEquals("", pageTitle(OVERVIEW))
-        assertEquals("", pageTitle(LOGS))
-        assertEquals("", pageTitle(SETTINGS))
+        assertEquals("概觀", pageTitle(OVERVIEW))
+        assertEquals("日誌", pageTitle(LOGS))
+        assertEquals("設定", pageTitle(SETTINGS))
         assertEquals("應用程式更新", pageTitle(UPDATE))
         assertEquals("環境與權限", pageTitle(ONBOARDING))
     }

@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
@@ -16,12 +18,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import dev.chrisbanes.haze.HazeInput
-import dev.chrisbanes.haze.HazeProgressive
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.blur.HazeBlurStyle
-import dev.chrisbanes.haze.blur.hazeBlur
+import androidx.compose.ui.unit.sp
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.blur
@@ -69,31 +69,48 @@ private fun MaskedBackdrop(
 }
 
 /**
- * Blur-only top edge for top-level pages. Several blur bands are blended together so the
- * blur strength itself falls off toward the content instead of drawing one fixed blurred card
- * and merely fading its alpha.
+ * Fixed black frosted-glass bar for the three top-level pages.
+ * The blur strength and tint stay uniform across the bar; there is no progressive fade.
  */
 @Composable
-internal fun TopLevelBlurBar(hazeState: HazeState) {
-    val surface = MiuixTheme.colorScheme.surface
+internal fun TopLevelGlassBar(backdrop: LayerBackdrop?, title: String) {
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val style = HazeBlurStyle {
-        blurRadius(32.dp)
-        progressive(HazeProgressive.verticalGradient(startIntensity = 1f, endIntensity = 0f))
-    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(statusInset + 64.dp)
-            .hazeBlur(input = HazeInput.Sources(hazeState), style = style)
-            .background(
-                Brush.verticalGradient(
-                    0f to surface.copy(alpha = 0.055f),
-                    0.62f to surface.copy(alpha = 0.018f),
-                    1f to Color.Transparent
-                )
+    ) {
+        if (backdrop != null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .drawBackdrop(
+                        backdrop = backdrop,
+                        shape = { RectangleShape },
+                        effects = { blur(24f, 24f) },
+                        onDrawSurface = {
+                            drawRect(Color.Black.copy(alpha = 0.58f))
+                        }
+                    )
             )
-    )
+        } else {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.90f))
+            )
+        }
+
+        Text(
+            text = title,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+            color = MiuixTheme.colorScheme.primary,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
 }
 
 /** Inner-page / standard navigation bar backdrop. */
