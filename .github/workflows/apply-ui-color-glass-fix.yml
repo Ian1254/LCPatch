@@ -1,0 +1,129 @@
+name: Apply UI color and glass fix
+
+on:
+  push:
+    branches:
+      - fix/restore-colors-black-glass-topbar
+    paths:
+      - .github/workflows/apply-ui-color-glass-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply focused source edits
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          main_path = Path("app/src/main/java/com/filepermwebui/MainActivity.kt")
+          main = main_path.read_text()
+
+          for line in (
+              "import top.yukonga.miuix.kmp.theme.darkColorScheme\n",
+              "import top.yukonga.miuix.kmp.theme.lightColorScheme\n",
+              "import dev.chrisbanes.haze.rememberHazeState\n",
+              "import dev.chrisbanes.haze.hazeSource\n",
+          ):
+              if line not in main:
+                  raise SystemExit(f"Expected import missing: {line.strip()}")
+              main = main.replace(line, "", 1)
+
+          controller_pattern = re.compile(
+              r'''            val controller = remember\(themeMode\) \{\n'''
+              r'''                ThemeController\(\n'''
+              r'''                    colorSchemeMode = when \(themeMode\) \{\n'''
+              r'''.*?'''
+              r'''                \)\n'''
+              r'''            \}\n'''
+              r'''            MiuixTheme\(controller = controller\) \{''',
+              re.S,
+          )
+          controller_replacement = '''            val controller = remember(themeMode) {
+              ThemeController(
+                  colorSchemeMode = when (themeMode) {
+                      "light" -> ColorSchemeMode.Light
+                      "dark" -> ColorSchemeMode.Dark
+                      else -> ColorSchemeMode.System
+                  }
+              )
+          }
+          MiuixTheme(controller = controller) {'''
+          main, count = controller_pattern.subn(controller_replacement, main, count=1)
+          if count != 1:
+              raise SystemExit(f"Theme controller replacement count was {count}, expected 1")
+
+          replacements = {
+              "        val topHazeState = rememberHazeState()\n": "",
+              "                            TopLevelBlurBar(topHazeState)\n": "                            TopLevelGlassBar(activeBarBackdrop, visibleTitle)\n",
+              "                            .hazeSource(topHazeState)\n": "",
+          }
+          for old, new in replacements.items():
+              if old not in main:
+                  raise SystemExit(f"Expected MainActivity fragment missing: {old.strip()}")
+              main = main.replace(old, new, 1)
+
+          main_path.write_text(main)
+
+          env_path = Path("app/src/main/java/com/filepermwebui/EnvironmentStatusCard.kt")
+          env = env_path.read_text()
+          import_anchor = "import androidx.compose.foundation.interaction.collectIsPressedAsState\n"
+          if "import androidx.compose.foundation.isSystemInDarkTheme\n" not in env:
+              if import_anchor not in env:
+                  raise SystemExit("EnvironmentStatusCard import anchor missing")
+              env = env.replace(
+                  import_anchor,
+                  import_anchor + "import androidx.compose.foundation.isSystemInDarkTheme\n",
+                  1,
+              )
+
+          old_colors = '''    val healthy = scopeStatus == "已啟用"
+          val hasError = scopeStatus == "尚未授權遊戲"
+          val cardColor = when {
+              hasError -> MiuixTheme.colorScheme.error.copy(alpha = 0.16f)
+              healthy -> MiuixTheme.colorScheme.secondaryContainer
+              else -> MiuixTheme.colorScheme.surfaceContainer
+          }
+          val accent = when {
+              hasError -> MiuixTheme.colorScheme.error
+              healthy -> MiuixTheme.colorScheme.primary
+              else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
+          }
+'''
+          new_colors = '''    val healthy = scopeStatus == "已啟用"
+          val hasError = scopeStatus == "尚未授權遊戲"
+          val dark = isSystemInDarkTheme()
+          val cardColor = when {
+              healthy -> if (dark) Color(0xFF173D27) else Color(0xFFDFFAE4)
+              hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
+              else -> MiuixTheme.colorScheme.secondaryContainer
+          }
+          val accent = when {
+              healthy -> Color(0xFF43D477)
+              hasError -> Color(0xFFFF6B70)
+              else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
+          }
+'''
+          if old_colors not in env:
+              raise SystemExit("EnvironmentStatusCard color block did not match expected beta.15 source")
+          env = env.replace(old_colors, new_colors, 1)
+          env_path.write_text(env)
+
+      - name: Verify patch formatting
+        run: |
+          git diff --check
+          git diff -- app/src/main/java/com/filepermwebui/MainActivity.kt app/src/main/java/com/filepermwebui/EnvironmentStatusCard.kt
+
+      - name: Commit focused source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/filepermwebui/MainActivity.kt app/src/main/java/com/filepermwebui/EnvironmentStatusCard.kt
+          git commit -m "Restore app colors and wire black glass top bar"
+          git push origin HEAD:fix/restore-colors-black-glass-topbar
