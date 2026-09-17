@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -76,14 +77,15 @@ internal fun EnvironmentStatusOverviewCard(
 ) {
     val healthy = scopeStatus == "已啟用"
     val hasError = scopeStatus == "尚未授權遊戲"
+    val dark = isSystemInDarkTheme()
     val cardColor = when {
-        hasError -> MiuixTheme.colorScheme.error.copy(alpha = 0.16f)
-        healthy -> MiuixTheme.colorScheme.secondaryContainer
-        else -> MiuixTheme.colorScheme.surfaceContainer
+        healthy -> if (dark) Color(0xFF173D27) else Color(0xFFDFFAE4)
+        hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
+        else -> MiuixTheme.colorScheme.secondaryContainer
     }
     val accent = when {
-        hasError -> MiuixTheme.colorScheme.error
-        healthy -> MiuixTheme.colorScheme.primary
+        healthy -> Color(0xFF43D477)
+        hasError -> Color(0xFFFF6B70)
         else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
     }
     val statusTitle = when {

@@ -111,11 +111,7 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
-import top.yukonga.miuix.kmp.theme.darkColorScheme
-import top.yukonga.miuix.kmp.theme.lightColorScheme
 import top.yukonga.miuix.kmp.blur.layerBackdrop
-import dev.chrisbanes.haze.rememberHazeState
-import dev.chrisbanes.haze.hazeSource
 
 private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -142,39 +138,7 @@ class MainActivity : ComponentActivity() {
                         "light" -> ColorSchemeMode.Light
                         "dark" -> ColorSchemeMode.Dark
                         else -> ColorSchemeMode.System
-                    },
-                    lightColors = lightColorScheme(
-                        primary = Color(0xFF202124),
-                        onPrimary = Color.White,
-                        primaryVariant = Color(0xFF3C4043),
-                        onPrimaryVariant = Color(0xFFE8EAED),
-                        disabledPrimary = Color(0xFFDADCE0),
-                        disabledOnPrimary = Color(0xFF9AA0A6),
-                        disabledPrimaryButton = Color(0xFFDADCE0),
-                        disabledOnPrimaryButton = Color(0xFF9AA0A6),
-                        disabledPrimarySlider = Color(0xFFBDC1C6),
-                        primaryContainer = Color(0xFF303134),
-                        onPrimaryContainer = Color.White,
-                        tertiaryContainer = Color(0xFFF1F3F4),
-                        onTertiaryContainer = Color(0xFF202124),
-                        sliderKeyPointForeground = Color(0xFF5F6368)
-                    ),
-                    darkColors = darkColorScheme(
-                        primary = Color(0xFFF1F3F4),
-                        onPrimary = Color(0xFF202124),
-                        primaryVariant = Color(0xFFBDC1C6),
-                        onPrimaryVariant = Color(0xFF303134),
-                        disabledPrimary = Color(0xFF3C4043),
-                        disabledOnPrimary = Color(0xFF80868B),
-                        disabledPrimaryButton = Color(0xFF3C4043),
-                        disabledOnPrimaryButton = Color(0xFF80868B),
-                        disabledPrimarySlider = Color(0xFF5F6368),
-                        primaryContainer = Color(0xFFE8EAED),
-                        onPrimaryContainer = Color(0xFF202124),
-                        tertiaryContainer = Color(0xFF303134),
-                        onTertiaryContainer = Color(0xFFF1F3F4),
-                        sliderKeyPointForeground = Color(0xFFBDC1C6)
-                    )
+                    }
                 )
             }
             MiuixTheme(controller = controller) {
@@ -265,7 +229,6 @@ class MainActivity : ComponentActivity() {
         val displayScrollBehavior = MiuixScrollBehavior()
         val conversionScrollBehavior = MiuixScrollBehavior()
         val barBackdrop = rememberBarBackdrop()
-        val topHazeState = rememberHazeState()
         val activeBarBackdrop = if (blurEnabled) barBackdrop else null
         val scope = rememberCoroutineScope()
         LaunchedEffect(page) {
@@ -808,7 +771,7 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
                         if (topLevelScreen) {
-                            TopLevelBlurBar(topHazeState)
+                            TopLevelGlassBar(activeBarBackdrop, visibleTitle)
                         } else {
                             TintedBar(activeBarBackdrop) {
                                 val navigationIcon: @Composable () -> Unit = {
@@ -852,7 +815,6 @@ class MainActivity : ComponentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .hazeSource(topHazeState)
                             .then(
                                 if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier
                             )
