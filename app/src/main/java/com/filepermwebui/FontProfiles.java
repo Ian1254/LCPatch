@@ -15,7 +15,8 @@ public final class FontProfiles {
     }
 
     private static final Profile[] VERIFIED = {
-            new Profile(468L, "1.113.1", "liblcpatch_core.so")
+            new Profile(468L, "1.113.1", "liblcpatch_core.so"),
+            new Profile(469L, "1.114.0", "liblcpatch_core.so")
     };
 
     private FontProfiles() {}
