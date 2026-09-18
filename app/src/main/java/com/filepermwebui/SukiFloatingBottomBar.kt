@@ -79,7 +79,6 @@ import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
-import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -92,7 +91,7 @@ private const val BarWidthDp = 248f
 private const val BarHeightDp = 62f
 private const val SelectorHeightDp = 54f
 private const val EdgeOverscrollItems = 0.075f
-private const val MaxDirectionalStretchDp = 15f
+private const val MaxEdgeStretchDp = 24f
 
 private val PressSpring = spring<Float>(
     dampingRatio = 0.72f,
@@ -142,7 +141,6 @@ internal fun SukiFloatingBottomBar(
     var releaseSettleJob by remember { mutableStateOf<Job?>(null) }
     var pressOnSelector by remember { mutableStateOf(false) }
     var touchX by remember { mutableFloatStateOf((safeCurrent + 0.5f) * ItemWidthDp) }
-    var deformationPx by remember { mutableFloatStateOf(0f) }
 
     val visualPosition = when {
         dragging -> dragPosition
@@ -151,53 +149,13 @@ internal fun SukiFloatingBottomBar(
         else -> safePagePosition
     }
     val latestVisualPosition by rememberUpdatedState(visualPosition)
-    val maxStretchPx = with(density) { MaxDirectionalStretchDp.dp.toPx() }
 
-    // A single frame loop measures the current owner's velocity and evolves
-    // signed shape deformation. It never owns selector center position.
-    LaunchedEffect(maxStretchPx) {
-        var previousFrameNanos = 0L
-        var previousPosition = latestVisualPosition
-        var filteredVelocity = 0f
-        var deformationVelocity = 0f
-
-        while (true) {
-            val frameNanos = withFrameNanos { it }
-            if (previousFrameNanos == 0L) {
-                previousFrameNanos = frameNanos
-                previousPosition = latestVisualPosition
-                continue
-            }
-
-            val elapsed = (frameNanos - previousFrameNanos) / 1_000_000_000f
-            val dt = elapsed.coerceIn(1f / 240f, 1f / 30f)
-            val position = latestVisualPosition
-            val rawVelocity = if (elapsed <= 0f || elapsed > 0.09f) {
-                0f
-            } else {
-                (position - previousPosition) / elapsed
-            }
-            val filterAlpha = 1f - exp((-14f * dt).toDouble()).toFloat()
-            filteredVelocity += (rawVelocity - filteredVelocity) * filterAlpha
-
-            val normalizedVelocity = (filteredVelocity / 5.8f).coerceIn(-1f, 1f)
-            val deformationTarget = normalizedVelocity * maxStretchPx
-            val acceleration =
-                (deformationTarget - deformationPx) * 210f - deformationVelocity * 27f
-            deformationVelocity += acceleration * dt
-            val nextDeformation = deformationPx + deformationVelocity * dt
-            if (
-                abs(nextDeformation) < 0.025f &&
-                abs(deformationVelocity) < 0.025f &&
-                abs(deformationTarget) < 0.025f
-            ) {
-                deformationPx = 0f
-                deformationVelocity = 0f
-            } else {
-                deformationPx = nextDeformation.coerceIn(-maxStretchPx, maxStretchPx)
-            }
-
-            if (releaseHoldActive && !releaseSettling) {
+    // Preserve beta.21's release-hold ownership exactly. This frame loop no
+    // longer drives capsule deformation; it only hands visual ownership back
+    // to Pager when Pager reaches the held drag position.
+    LaunchedEffect(releaseHoldActive, releaseSettling) {
+        while (releaseHoldActive && !releaseSettling) {
+            withFrameNanos {
                 val pager = latestPagePosition
                 val destination = releaseTarget.toFloat()
                 val minTravel = min(releasePagerStart, destination)
@@ -210,9 +168,6 @@ internal fun SukiFloatingBottomBar(
                 }
                 if (holdIsOnPagerPath && reachedHold) releaseHoldActive = false
             }
-
-            previousFrameNanos = frameNanos
-            previousPosition = position
         }
     }
 
@@ -227,6 +182,88 @@ internal fun SukiFloatingBottomBar(
     val paddingPx = with(density) { HorizontalPaddingDp.dp.toPx() }
     val selectorHeightPx = with(density) { SelectorHeightDp.dp.toPx() }
     val selectorPress = if (pressOnSelector) press.value else 0f
+    val maxEdgeStretchPx = with(density) { MaxEdgeStretchDp.dp.toPx() }
+
+    // Navigation geometry is now a true two-edge morph. Pager still owns the
+    // timeline, but the leading and trailing physical edges consume that same
+    // progress with different monotonic curves.
+    val initialMotionLeftPx = paddingPx + safePagePosition * itemWidthPx
+    var motionTransactionId by remember { mutableIntStateOf(transactionId) }
+    var motionTargetIndex by remember { mutableIntStateOf(safeTarget) }
+    var motionStartPosition by remember { mutableFloatStateOf(safePagePosition) }
+    var motionStartLeftPx by remember { mutableFloatStateOf(initialMotionLeftPx) }
+    var motionStartRightPx by remember {
+        mutableFloatStateOf(initialMotionLeftPx + itemWidthPx)
+    }
+
+    val motionTargetPosition = motionTargetIndex.toFloat()
+    val motionTargetLeftPx = paddingPx + motionTargetPosition * itemWidthPx
+    val motionTargetRightPx = motionTargetLeftPx + itemWidthPx
+    val motionDistance = motionTargetPosition - motionStartPosition
+    val motionProgress = if (abs(motionDistance) < 0.0001f) {
+        1f
+    } else {
+        ((safePagePosition - motionStartPosition) / motionDistance).coerceIn(0f, 1f)
+    }
+    val leadingProgress = leadingEdgeProgress(motionProgress)
+    val trailingProgress = trailingEdgeProgress(motionProgress)
+
+    var motionLeftPx = when {
+        motionDistance > 0f ->
+            lerpFloat(motionStartLeftPx, motionTargetLeftPx, trailingProgress)
+        motionDistance < 0f ->
+            lerpFloat(motionStartLeftPx, motionTargetLeftPx, leadingProgress)
+        else -> motionTargetLeftPx
+    }
+    var motionRightPx = when {
+        motionDistance > 0f ->
+            lerpFloat(motionStartRightPx, motionTargetRightPx, leadingProgress)
+        motionDistance < 0f ->
+            lerpFloat(motionStartRightPx, motionTargetRightPx, trailingProgress)
+        else -> motionTargetRightPx
+    }
+
+    // Cap edge separation in physical space. A two-page jump therefore keeps
+    // roughly the same liquid stretch as a one-page jump instead of becoming
+    // an oversized bar.
+    val maxMotionWidthPx = itemWidthPx + maxEdgeStretchPx
+    if (motionRightPx - motionLeftPx > maxMotionWidthPx) {
+        if (motionDistance >= 0f) {
+            motionLeftPx = motionRightPx - maxMotionWidthPx
+        } else {
+            motionRightPx = motionLeftPx + maxMotionWidthPx
+        }
+    }
+
+    // Drag/release ownership is left untouched from beta.21. While a gesture
+    // owns the visual position, use the same fixed-width geometry beta.21 had;
+    // the new edge morph only replaces normal Pager-driven navigation motion.
+    val gestureOwnsGeometry = dragging || releaseSettling || releaseHoldActive
+    val selectorMotionLeftPx = if (gestureOwnsGeometry) {
+        paddingPx + visualPosition * itemWidthPx
+    } else {
+        motionLeftPx
+    }
+    val selectorMotionRightPx = if (gestureOwnsGeometry) {
+        selectorMotionLeftPx + itemWidthPx
+    } else {
+        motionRightPx
+    }
+    val latestSelectorMotionLeftPx by rememberUpdatedState(selectorMotionLeftPx)
+    val latestSelectorMotionRightPx by rememberUpdatedState(selectorMotionRightPx)
+
+    // On rapid retarget, capture the capsule exactly as currently rendered.
+    // The new transaction starts from those two real edges, so there is no
+    // reset-to-normal-width frame before reversing direction.
+    LaunchedEffect(transactionId, safeTarget) {
+        if (motionTransactionId != transactionId || motionTargetIndex != safeTarget) {
+            motionStartPosition = latestPagePosition
+            motionStartLeftPx = latestSelectorMotionLeftPx
+            motionStartRightPx = latestSelectorMotionRightPx
+            motionTargetIndex = safeTarget
+            motionTransactionId = transactionId
+        }
+    }
 
     val containerEffects: BackdropEffectScope.() -> Unit = remember {
         { vibrancy(); blur(8.dp.toPx()); lens(24.dp.toPx(), 20.dp.toPx()) }
@@ -300,18 +337,9 @@ internal fun SukiFloatingBottomBar(
                     }
                 }
         ) {
-            val stretch = abs(deformationPx)
-            val direction = when {
-                deformationPx > 0.001f -> 1f
-                deformationPx < -0.001f -> -1f
-                else -> 0f
-            }
-            val leadingShare = 0.5f + 0.3f * direction
-            val trailingShare = 1f - leadingShare
             val pressExpansion = with(density) { (1.4f * selectorPress).dp.toPx() }
-            val baseLeft = paddingPx + visualPosition * itemWidthPx
-            val selectorLeft = baseLeft - stretch * trailingShare - pressExpansion
-            val selectorRight = baseLeft + itemWidthPx + stretch * leadingShare + pressExpansion
+            val selectorLeft = selectorMotionLeftPx - pressExpansion
+            val selectorRight = selectorMotionRightPx + pressExpansion
             val dynamicHeight = selectorHeightPx + pressExpansion * 1.4f
             val selectorTop = with(density) { BarHeightDp.dp.toPx() } / 2f - dynamicHeight / 2f
 
@@ -472,6 +500,20 @@ internal fun SukiFloatingBottomBar(
         }
     }
 }
+
+private fun leadingEdgeProgress(value: Float): Float {
+    val t = value.coerceIn(0f, 1f)
+    val inverse = 1f - t
+    return 1f - inverse * inverse
+}
+
+private fun trailingEdgeProgress(value: Float): Float {
+    val t = ((value - 0.08f) / 0.92f).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
+private fun lerpFloat(start: Float, end: Float, fraction: Float): Float =
+    start + (end - start) * fraction
 
 private fun rubberBand(value: Float, min: Float, max: Float): Float = when {
     value < min -> min - (min - value).coerceAtMost(1f) * EdgeOverscrollItems /
