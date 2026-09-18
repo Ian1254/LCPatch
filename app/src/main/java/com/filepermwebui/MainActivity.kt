@@ -245,7 +245,7 @@ class MainActivity : ComponentActivity() {
             if (pagerState.currentPage != topNavigationTarget || pagerState.currentPageOffsetFraction != 0f) {
                 pagerState.animateScrollToPage(
                     page = topNavigationTarget,
-                    animationSpec = tween(360, easing = PageTransitionEasing)
+                    animationSpec = tween(440, easing = PageTransitionEasing)
                 )
             }
         }
