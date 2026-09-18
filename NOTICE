@@ -8,6 +8,9 @@ Third-party components:
   https://github.com/jmpews/Dobby
 - Compose Miuix 0.9.3, Apache License 2.0
   https://github.com/compose-miuix-ui/miuix
+- NexioSchedule backdrop and progressive-blur implementation, Apache License 2.0
+  Adapted and modified for LCPatch's navigation chrome.
+  https://github.com/HaoZai000/NexioSchedule
 - opencc4j 1.14.0, Apache License 2.0
   https://github.com/houbb/opencc4j
 - libxposed API and service 102.0.0, Apache License 2.0

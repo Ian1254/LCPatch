@@ -115,7 +115,7 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
-import top.yukonga.miuix.kmp.blur.layerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
 
 private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -518,7 +518,7 @@ class MainActivity : ComponentActivity() {
                             end = 12.dp,
                             top = padding.calculateTopPadding() +
                                 if (visiblePage in topPages) {
-                                    WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 128.dp
+                                    WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp
                                 } else 12.dp,
                             bottom = padding.calculateBottomPadding() +
                                 if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp
@@ -845,32 +845,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (topLevelScreen) {
-                    val displayedIndex = pagerState.currentPage.coerceIn(0, topPages.lastIndex)
-                    val displayedPage = topPages[displayedIndex]
-                    val displayedListState = when (displayedPage) {
-                        OVERVIEW -> overviewListState
-                        LOGS -> logsListState
-                        else -> settingsListState
-                    }
-                    val density = LocalDensity.current
-                    val collapseProgress by remember(displayedListState, density) {
+                    val pagePosition by remember(pagerState) {
                         derivedStateOf {
-                            if (displayedListState.firstVisibleItemIndex > 0) 1f
-                            else (displayedListState.firstVisibleItemScrollOffset /
-                                with(density) { 72.dp.toPx() }).coerceIn(0f, 1f)
+                            pagerState.currentPage + pagerState.currentPageOffsetFraction
                         }
                     }
-                    val contentUnderTopBar by remember(displayedListState) {
-                        derivedStateOf {
-                            displayedListState.firstVisibleItemIndex > 0 ||
-                                displayedListState.firstVisibleItemScrollOffset > 2
-                        }
-                    }
-                    TopLevelCollapsingBar(
+                    TopLevelProgressiveBar(
                         backdrop = activeBarBackdrop,
-                        title = pageTitle(displayedPage),
-                        collapseProgress = collapseProgress,
-                        contentUnderTopBar = contentUnderTopBar
+                        pageTitles = topPages.map(::pageTitle),
+                        pagePosition = pagePosition
                     )
                 }
             }
