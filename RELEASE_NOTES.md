@@ -1,26 +1,24 @@
-# LCPatch 1.2.1-beta.21
+# LCPatch 1.2.1-beta.22
 
-本測試版完成 PR #53 的動畫同步重構，並補上底欄拖曳接管範圍修正。
+本測試版修正 beta.21 底欄拖曳時 selector 提前離開當前頁、導致頁面與底欄割裂的問題。
 
 ## 浮動底欄
 
-- 正常導航改由 Pager 的 pagePosition 驅動 selector 基礎位置，底欄與頁面不再各跑一套獨立導航動畫。
-- Selector 改為依實際導航速度計算方向性左右邊界形變，移除固定寬度 + scaleX / pivot 切換的模擬方式。
-- 速度經 frame timing 與低通濾波後再驅動 deformation，降低方向反轉與收尾時的細碎抖動。
-- Icon / label 改依 visualPosition 連續過渡，不再於 target 更新時立即跳成選中狀態。
-- 普通點按只在放開後提交導航；按下階段只保留 press feedback。
-- 保留 beta.19 的快速 retarget、rubber-band、release hold 與 gesture ownership。
-- 補充修正：只有從目前 selector 膠囊起手並超過 touchSlop 才能進入 drag takeover，避免從底欄其他區域橫拖誤接管 selector。
-- 保留 beta.20 的 backdrop ownership；selector 不折射 icon / label。
+- 拖曳手勢不再直接接管 selector 的可視位置。
+- 按住／拖曳期間只計算候選 target；selector 保持在目前 Pager 位置。
+- 手指放開後才提交 navigation，之後由 Pager pagePosition 同時驅動頁面與 selector。
+- 因此不再出現「底欄先被拖到下一格、頁面放開後才追上」的斷裂感。
+- 保留 beta.21 的方向性 left/right edge deformation；形變只在 Pager 真正開始移動後出現。
+- Drag takeover 仍只允許從目前 selector 起手，且重新加入水平手勢判定，避免垂直滑動或輕微手抖誤觸發。
+- Drag target 計算保留完整起始位移，不會因跨過 touchSlop 的第一段距離被吃掉。
+- 保留 beta.19 的快速 retarget / rubber-band 目標計算，以及 beta.20 的 backdrop ownership。
 
 ## 已啟用環境卡片
 
-- Source summary 與 destination detail content 改為重疊 crossfade，移除中段幾乎空白的綠色容器時段。
-- Morph panel 改以實際像素 left / top / right / bottom 四邊插值，再由四邊推導尺寸，避免 offset 與 size 各自取整造成的最後一幀 snap。
-- 關閉中的 overlay 可從目前 morph progress 反向重新展開，不需要先完成舊動畫。
-- 保留 beta.20 的 source / overlay visual ownership handoff。
+- 沿用 beta.21 的 shared-container crossfade、pixel-edge morph 與反向 reopen 修正，未更改其動畫系統。
 
 ## 驗證
 
-- Release workflow 會在 version.properties 合併進 main 後執行共用 Android validation、簽章與 prerelease 發布。
-- 仍建議以實機錄影確認 HyperOS 參考動畫的主觀運動感、快速反向 retarget 與卡片逐幀 handoff。
+- PR CI 執行 Android 共用 validation。
+- 合併後 Release workflow 再次執行 validation、簽章並發布 prerelease。
+- 仍建議以實機錄影比較 HyperOS 時鐘的 selector deformation 收尾節奏。
