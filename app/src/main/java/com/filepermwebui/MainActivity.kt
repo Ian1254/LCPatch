@@ -159,6 +159,11 @@ class MainActivity : ComponentActivity() {
         var navigationDirection by rememberSaveable { mutableIntStateOf(1) }
         val topPages = TOP_LEVEL_PAGES
         val pagerState = rememberPagerState(initialPage = topPages.indexOf(page).coerceAtLeast(0), pageCount = { topPages.size })
+        val pagePosition by remember(pagerState) {
+            derivedStateOf {
+                pagerState.currentPage + pagerState.currentPageOffsetFraction
+            }
+        }
         var topNavigationTarget by rememberSaveable { mutableIntStateOf(pagerState.currentPage) }
         var topNavigationTransaction by rememberSaveable { mutableIntStateOf(0) }
         var revision by remember { mutableIntStateOf(0) }
@@ -810,6 +815,7 @@ class MainActivity : ComponentActivity() {
                                     currentIndex = pagerState.settledPage,
                                     targetIndex = topNavigationTarget,
                                     transactionId = topNavigationTransaction,
+                                    pagePosition = pagePosition,
                                     onTargetSelected = { index ->
                                         topPages.getOrNull(index)?.let(::navigateTo)
                                     },
@@ -851,11 +857,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (topLevelScreen) {
-                    val pagePosition by remember(pagerState) {
-                        derivedStateOf {
-                            pagerState.currentPage + pagerState.currentPageOffsetFraction
-                        }
-                    }
                     TopLevelProgressiveBar(
                         backdrop = activeBarBackdrop,
                         pageTitles = topPages.map(::pageTitle),
