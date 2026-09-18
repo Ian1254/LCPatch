@@ -70,7 +70,6 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -81,8 +80,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.floor
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val ItemCount = 3
@@ -99,12 +96,6 @@ private val PressSpring = spring<Float>(
     stiffness = 650f,
     visibilityThreshold = 0.001f
 )
-private val GestureSettleSpring = spring<Float>(
-    dampingRatio = 0.86f,
-    stiffness = 680f,
-    visibilityThreshold = 0.001f
-)
-
 @Composable
 internal fun SukiFloatingBottomBar(
     currentIndex: Int,
@@ -125,39 +116,26 @@ internal fun SukiFloatingBottomBar(
     val latestPagePosition by rememberUpdatedState(safePagePosition)
     val latestTarget by rememberUpdatedState(safeTarget)
     val press = remember { Animatable(0f, 0.001f) }
-    val releaseSettle = remember { Animatable(safePagePosition, 0.001f) }
-
     // Preserve beta.20's glass ownership: page -> container -> selector -> glyphs.
     val containerBackdrop = rememberLayerBackdrop()
     val combinedBackdrop = backdrop?.let { rememberCombinedBackdrop(it, containerBackdrop) }
 
     var dragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(safePagePosition) }
-    var releaseHoldActive by remember { mutableStateOf(false) }
-    var releaseSettling by remember { mutableStateOf(false) }
-    var releaseHoldPosition by remember { mutableFloatStateOf(safePagePosition) }
-    var releasePagerStart by remember { mutableFloatStateOf(safePagePosition) }
-    var releaseTarget by remember { mutableIntStateOf(safeTarget) }
-    var gestureGeneration by remember { mutableIntStateOf(0) }
-    var releaseSettleJob by remember { mutableStateOf<Job?>(null) }
     var pressOnSelector by remember { mutableStateOf(false) }
     var touchX by remember { mutableFloatStateOf((safeCurrent + 0.5f) * ItemWidthDp) }
     var deformationPx by remember { mutableFloatStateOf(0f) }
 
-    val visualPosition = when {
-        dragging -> dragPosition
-        releaseSettling -> releaseSettle.value
-        releaseHoldActive -> releaseHoldPosition
-        else -> safePagePosition
-    }
-    val latestVisualPosition by rememberUpdatedState(visualPosition)
+    // Release-driven navigation: gestures may choose a target, but the selector
+    // stays owned by Pager position until the gesture is released.
+    val visualPosition = safePagePosition
     val maxStretchPx = with(density) { MaxDirectionalStretchDp.dp.toPx() }
 
     // A single frame loop measures the current owner's velocity and evolves
     // signed shape deformation. It never owns selector center position.
     LaunchedEffect(maxStretchPx) {
         var previousFrameNanos = 0L
-        var previousPosition = latestVisualPosition
+        var previousPosition = latestPagePosition
         var filteredVelocity = 0f
         var deformationVelocity = 0f
 
@@ -165,13 +143,13 @@ internal fun SukiFloatingBottomBar(
             val frameNanos = withFrameNanos { it }
             if (previousFrameNanos == 0L) {
                 previousFrameNanos = frameNanos
-                previousPosition = latestVisualPosition
+                previousPosition = latestPagePosition
                 continue
             }
 
             val elapsed = (frameNanos - previousFrameNanos) / 1_000_000_000f
             val dt = elapsed.coerceIn(1f / 240f, 1f / 30f)
-            val position = latestVisualPosition
+            val position = latestPagePosition
             val rawVelocity = if (elapsed <= 0f || elapsed > 0.09f) {
                 0f
             } else {
@@ -195,20 +173,6 @@ internal fun SukiFloatingBottomBar(
                 deformationVelocity = 0f
             } else {
                 deformationPx = nextDeformation.coerceIn(-maxStretchPx, maxStretchPx)
-            }
-
-            if (releaseHoldActive && !releaseSettling) {
-                val pager = latestPagePosition
-                val destination = releaseTarget.toFloat()
-                val minTravel = min(releasePagerStart, destination)
-                val maxTravel = max(releasePagerStart, destination)
-                val holdIsOnPagerPath = releaseHoldPosition in minTravel..maxTravel
-                val reachedHold = when {
-                    destination > releasePagerStart -> pager >= releaseHoldPosition
-                    destination < releasePagerStart -> pager <= releaseHoldPosition
-                    else -> false
-                }
-                if (holdIsOnPagerPath && reachedHold) releaseHoldActive = false
             }
 
             previousFrameNanos = frameNanos
@@ -377,23 +341,18 @@ internal fun SukiFloatingBottomBar(
                 ) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        gestureGeneration += 1
-                        val generation = gestureGeneration
-                        releaseSettleJob?.cancel()
-                        releaseSettleJob = null
-                        releaseHoldActive = false
-                        releaseSettling = false
                         dragging = false
                         touchX = with(density) { down.position.x.toDp().value }
 
                         val downIndex = floor(
                             (down.position.x - paddingPx) / itemWidthPx
                         ).toInt().coerceIn(0, ItemCount - 1)
-                        val selectorCenter = paddingPx + (latestVisualPosition + 0.5f) * itemWidthPx
+                        val selectorCenter = paddingPx + (latestPagePosition + 0.5f) * itemWidthPx
                         val startedOnSelector =
                             abs(down.position.x - selectorCenter) <= itemWidthPx * 0.55f
                         pressOnSelector = startedOnSelector
                         var lastX = down.position.x
+                        val downY = down.position.y
                         var cancelled = false
 
                         scope.launch { press.animateTo(1f, PressSpring) }
@@ -407,13 +366,15 @@ internal fun SukiFloatingBottomBar(
                             }
                             touchX = with(density) { change.position.x.toDp().value }
                             val totalDx = change.position.x - down.position.x
+                            val totalDy = change.position.y - downY
                             if (
                                 startedOnSelector &&
                                 !dragging &&
-                                abs(totalDx) > viewConfiguration.touchSlop
+                                abs(totalDx) > viewConfiguration.touchSlop &&
+                                abs(totalDx) > abs(totalDy)
                             ) {
                                 dragging = true
-                                dragPosition = latestVisualPosition
+                                dragPosition = latestPagePosition
                                 lastX = change.position.x
                             }
                             if (dragging) {
@@ -438,33 +399,10 @@ internal fun SukiFloatingBottomBar(
                         }.coerceIn(0, ItemCount - 1)
                         dragging = false
 
-                        if (wasDragging && !cancelled) {
-                            releaseHoldPosition = heldPosition
-                            releasePagerStart = latestPagePosition
-                            releaseTarget = target
-                            releaseHoldActive = true
-
-                            val destination = target.toFloat()
-                            val holdOnPath = heldPosition in
-                                min(releasePagerStart, destination)..max(releasePagerStart, destination)
-                            if (!holdOnPath || abs(destination - releasePagerStart) < 0.001f) {
-                                releaseSettleJob = scope.launch {
-                                    releaseSettle.snapTo(heldPosition)
-                                    if (gestureGeneration != generation) return@launch
-                                    releaseSettling = true
-                                    releaseSettle.animateTo(destination, GestureSettleSpring)
-                                    if (gestureGeneration == generation) {
-                                        releaseSettling = false
-                                        releaseHoldActive = false
-                                    }
-                                }
-                            }
-                        }
-
                         currentTarget(target)
                         scope.launch {
                             press.animateTo(0f, PressSpring)
-                            if (gestureGeneration == generation) pressOnSelector = false
+                            pressOnSelector = false
                         }
                     }
                 }
