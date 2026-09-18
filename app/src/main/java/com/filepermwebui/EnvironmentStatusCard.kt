@@ -44,11 +44,13 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Button
@@ -58,6 +60,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import kotlin.math.roundToInt
 
 private val EnvironmentMorphEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
@@ -103,6 +106,10 @@ internal class EnvironmentStatusOverlayState internal constructor() {
 
     internal fun dismiss() {
         if (request != null) closing = true
+    }
+
+    internal fun reopen() {
+        if (request != null && closing) closing = false
     }
 
     internal fun takeVisualOwnership() {
@@ -331,19 +338,13 @@ internal fun EnvironmentStatusOverlayHost(
         if (!overlayVisible) return@BoxWithConstraints
 
         val sourceBounds = latestRequest.sourceBounds
-        val sourceLeft = with(density) { (sourceBounds.left - hostBounds.left).toDp() }
-        val sourceTop = with(density) { (sourceBounds.top - hostBounds.top).toDp() }
+        val sourceLeftPx = sourceBounds.left - hostBounds.left
+        val sourceTopPx = sourceBounds.top - hostBounds.top
+        val sourceRightPx = sourceBounds.right - hostBounds.left
+        val sourceBottomPx = sourceBounds.bottom - hostBounds.top
         val sourceWidth = with(density) { sourceBounds.width.toDp() }
         val sourceHeight = with(density) { sourceBounds.height.toDp() }
         val fraction = progress.value.coerceIn(0f, 1f)
-        val sourceRight = sourceLeft + sourceWidth
-        val sourceBottom = sourceTop + sourceHeight
-        val panelLeft = lerpDp(sourceLeft, 0.dp, fraction)
-        val panelTop = lerpDp(sourceTop, 0.dp, fraction)
-        val panelRight = lerpDp(sourceRight, maxWidth, fraction)
-        val panelBottom = lerpDp(sourceBottom, maxHeight, fraction)
-        val panelWidth = (panelRight - panelLeft).coerceAtLeast(0.dp)
-        val panelHeight = (panelBottom - panelTop).coerceAtLeast(0.dp)
         val corner = lerpDp(26.dp, 0.dp, fraction)
         val panelInteraction = remember { MutableInteractionSource() }
         val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -354,146 +355,181 @@ internal fun EnvironmentStatusOverlayHost(
         val iconSize = lerpDp(68.dp, 46.dp, fraction)
         val iconX = lerpDp(sourceWidth - 82.dp, maxWidth - 70.dp, fraction)
         val iconY = lerpDp(14.dp, expandedTitleTop, fraction)
-        val summaryAlpha = 1f - intervalProgress(fraction, 0.16f, 0.52f)
-        val detailsAlpha = intervalProgress(fraction, 0.58f, 0.78f)
-        val actionsAlpha = intervalProgress(fraction, 0.74f, 0.92f)
+        // Source-only and destination-only content deliberately overlap. The
+        // previous 0.52..0.58 dead zone left a large, almost empty green panel.
+        val summaryAlpha = 1f - smoothIntervalProgress(fraction, 0.22f, 0.66f)
+        val detailsAlpha = smoothIntervalProgress(fraction, 0.34f, 0.64f)
+        val actionsAlpha = smoothIntervalProgress(fraction, 0.60f, 0.86f)
         val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
         val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
 
-        Box(
-            modifier = Modifier
-                .offset(x = panelLeft, y = panelTop)
-                .width(panelWidth)
-                .height(panelHeight)
-                .clip(RoundedCornerShape(corner))
-                .background(latestRequest.cardColor)
-                .clickable(
-                    interactionSource = panelInteraction,
-                    indication = null,
-                    onClick = { }
-                )
-        ) {
-            Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
-                Text(
-                    latestRequest.statusTitle,
-                    fontSize = (22f + 7f * fraction).sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    latestRequest.statusSubtitle,
-                    fontSize = (15f + fraction).sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-            }
-
-            Icon(
-                painter = painterResource(
-                    if (latestRequest.healthy) R.drawable.ic_check_circle_outline
-                    else R.drawable.ic_error_outline
-                ),
-                contentDescription = null,
-                modifier = Modifier.offset(x = iconX, y = iconY).size(iconSize),
-                tint = latestRequest.accent
-            )
-
-            Row(
-                modifier = Modifier
-                    .offset(x = 16.dp, y = sourceHeight - 39.dp)
-                    .width((sourceWidth - 32.dp).coerceAtLeast(0.dp))
-                    .graphicsLayer { alpha = summaryAlpha },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    latestRequest.statusSummary,
-                    modifier = Modifier.weight(1f).padding(end = 12.dp),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    "詳情 ›",
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(
-                        start = 24.dp,
-                        end = 24.dp,
-                        top = expandedTitleTop + 112.dp,
-                        bottom = navigationInset + 18.dp
-                    )
-                    .graphicsLayer {
-                        alpha = detailsAlpha
-                        translationY = with(density) { ((1f - detailsAlpha) * 18f).dp.toPx() }
+        Layout(
+            modifier = Modifier.fillMaxSize(),
+            content = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(corner))
+                        .background(latestRequest.cardColor)
+                        .clickable(
+                            interactionSource = panelInteraction,
+                            indication = null,
+                            onClick = state::reopen
+                        )
+                ) {
+                    Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
+                        Text(
+                            latestRequest.statusTitle,
+                            fontSize = (22f + 7f * fraction).sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            latestRequest.statusSubtitle,
+                            fontSize = (15f + fraction).sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
                     }
-            ) {
-                Text(
-                    "環境與權限",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-                Spacer(Modifier.height(10.dp))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(detailSurface, RoundedCornerShape(22.dp))
-                        .padding(horizontal = 18.dp, vertical = 10.dp)
-                ) {
-                    EnvironmentDetail("模組作用域", latestRequest.scopeStatus)
-                    EnvironmentDetail("Root 權限", latestRequest.rootStatus)
-                    EnvironmentDetail(
-                        "Limbus Company",
-                        if (latestRequest.gameInstalled) "已安裝 · " + latestRequest.gameVersion else "未安裝"
+
+                    Icon(
+                        painter = painterResource(
+                            if (latestRequest.healthy) R.drawable.ic_check_circle_outline
+                            else R.drawable.ic_error_outline
+                        ),
+                        contentDescription = null,
+                        modifier = Modifier.offset(x = iconX, y = iconY).size(iconSize),
+                        tint = latestRequest.accent
                     )
-                }
 
-                Spacer(Modifier.height(24.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer {
-                            alpha = actionsAlpha
-                            translationY = with(density) { ((1f - actionsAlpha) * 14f).dp.toPx() }
-                        }
-                ) {
-                    Button(
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
-                        enabled = actionsAlpha >= 0.98f,
-                        onClick = latestRequest.onCheckScope
+                    Row(
+                        modifier = Modifier
+                            .offset(x = 16.dp, y = sourceHeight - 39.dp)
+                            .width((sourceWidth - 32.dp).coerceAtLeast(0.dp))
+                            .graphicsLayer { alpha = summaryAlpha },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("重新檢查模組作用域")
+                        Text(
+                            latestRequest.statusSummary,
+                            modifier = Modifier.weight(1f).padding(end = 12.dp),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            "詳情 ›",
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
-                    Spacer(Modifier.height(10.dp))
-                    TextButton(
+
+                    Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(actionSurface),
-                        text = if (latestRequest.rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
-                        enabled = actionsAlpha >= 0.98f && latestRequest.rootStatus != "正在請求",
-                        onClick = latestRequest.onRequestRoot
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    TextButton(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(actionSurface),
-                        text = "完成",
-                        enabled = actionsAlpha >= 0.98f,
-                        onClick = state::dismiss
-                    )
+                            .fillMaxSize()
+                            .padding(
+                                start = 24.dp,
+                                end = 24.dp,
+                                top = expandedTitleTop + 112.dp,
+                                bottom = navigationInset + 18.dp
+                            )
+                            .graphicsLayer {
+                                alpha = detailsAlpha
+                                translationY = with(density) {
+                                    ((1f - detailsAlpha) * 18f).dp.toPx()
+                                }
+                            }
+                    ) {
+                        Text(
+                            "環境與權限",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(detailSurface, RoundedCornerShape(22.dp))
+                                .padding(horizontal = 18.dp, vertical = 10.dp)
+                        ) {
+                            EnvironmentDetail("模組作用域", latestRequest.scopeStatus)
+                            EnvironmentDetail("Root 權限", latestRequest.rootStatus)
+                            EnvironmentDetail(
+                                "Limbus Company",
+                                if (latestRequest.gameInstalled) {
+                                    "已安裝 · " + latestRequest.gameVersion
+                                } else {
+                                    "未安裝"
+                                }
+                            )
+                        }
+
+                        Spacer(Modifier.height(24.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    alpha = actionsAlpha
+                                    translationY = with(density) {
+                                        ((1f - actionsAlpha) * 14f).dp.toPx()
+                                    }
+                                }
+                        ) {
+                            Button(
+                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                enabled = actionsAlpha >= 0.98f,
+                                onClick = latestRequest.onCheckScope
+                            ) {
+                                Text("重新檢查模組作用域")
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            TextButton(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(54.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(actionSurface),
+                                text = if (latestRequest.rootStatus == "正在請求") {
+                                    "正在檢查 Root…"
+                                } else {
+                                    "檢查 Root 權限"
+                                },
+                                enabled = actionsAlpha >= 0.98f &&
+                                    latestRequest.rootStatus != "正在請求",
+                                onClick = latestRequest.onRequestRoot
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            TextButton(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(54.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(actionSurface),
+                                text = "完成",
+                                enabled = actionsAlpha >= 0.98f,
+                                onClick = state::dismiss
+                            )
+                        }
+                    }
                 }
+            }
+        ) { measurables, constraints ->
+            // Interpolate and round the four physical edges first. Width and
+            // height are derived from those rounded edges, so progress 0/1 is
+            // pixel-identical to the measured source/host instead of rounding
+            // offset and size independently through Dp.
+            val left = lerpFloat(sourceLeftPx, 0f, fraction).roundToInt()
+            val top = lerpFloat(sourceTopPx, 0f, fraction).roundToInt()
+            val right = lerpFloat(sourceRightPx, constraints.maxWidth.toFloat(), fraction)
+                .roundToInt().coerceAtLeast(left + 1)
+            val bottom = lerpFloat(sourceBottomPx, constraints.maxHeight.toFloat(), fraction)
+                .roundToInt().coerceAtLeast(top + 1)
+            val placeable = measurables.single().measure(
+                Constraints.fixed(right - left, bottom - top)
+            )
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                placeable.place(left, top)
             }
         }
     }
@@ -514,6 +550,14 @@ private fun EnvironmentDetail(label: String, value: String) {
 
 private fun intervalProgress(value: Float, start: Float, end: Float): Float =
     ((value - start) / (end - start)).coerceIn(0f, 1f)
+
+private fun smoothIntervalProgress(value: Float, start: Float, end: Float): Float {
+    val t = intervalProgress(value, start, end)
+    return t * t * (3f - 2f * t)
+}
+
+private fun lerpFloat(start: Float, end: Float, fraction: Float): Float =
+    start + (end - start) * fraction
 
 private fun lerpDp(start: Dp, end: Dp, fraction: Float): Dp =
     start + (end - start) * fraction
