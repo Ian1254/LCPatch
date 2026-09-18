@@ -188,10 +188,7 @@ private class DrawBackdropElement(
         node.shapeProvider = shapeProvider
         node.effects = effects
         node.layerBlock = layerBlock
-        if (node.exportedBackdrop != exportedBackdrop) {
-            node.exportedBackdrop?.layerCoordinates = null
-            node.exportedBackdrop = exportedBackdrop
-        }
+        node.updateExportedBackdrop(exportedBackdrop)
         node.downsampleScale = downsampleScale
         node.onDrawBehind = onDrawBehind
         node.onDrawBackdrop = onDrawBackdrop
@@ -285,6 +282,12 @@ private class DrawBackdropNode(
     private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
 
     private var padding by mutableFloatStateOf(0f)
+
+    fun updateExportedBackdrop(newBackdrop: LayerBackdrop?) {
+        if (exportedBackdrop === newBackdrop) return
+        exportedBackdrop?.releaseCoordinates(this)
+        exportedBackdrop = newBackdrop
+    }
 
     private val recordBackdropBlock: (DrawScope.() -> Unit) = {
         val canvas = drawContext.canvas
@@ -424,7 +427,7 @@ private class DrawBackdropNode(
                     layoutCoordinates = null
                 }
             }
-            exportedBackdrop?.layerCoordinates = coordinates
+            exportedBackdrop?.claimCoordinates(this, coordinates)
         }
     }
 
@@ -469,6 +472,6 @@ private class DrawBackdropNode(
 
         effectScope.reset()
         layoutCoordinates = null
-        exportedBackdrop?.layerCoordinates = null
+        exportedBackdrop?.releaseCoordinates(this)
     }
 }

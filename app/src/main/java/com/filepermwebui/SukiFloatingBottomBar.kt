@@ -35,7 +35,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -52,7 +51,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -61,7 +59,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.BackdropEffectScope
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
@@ -118,8 +115,11 @@ internal fun SukiFloatingBottomBar(
     val currentTarget by rememberUpdatedState(onTargetSelected)
     val selector = remember { Animatable(safeCurrent.toFloat(), 0.001f) }
     val press = remember { Animatable(0f, 0.001f) }
-    val tabsBackdrop = rememberLayerBackdrop()
-    val combinedBackdrop = backdrop?.let { rememberCombinedBackdrop(it, tabsBackdrop) }
+    // Export only the container glass (drawBackdrop excludes child content).
+    // The selector can therefore refract page + container glass without ever
+    // sampling NavigationRow glyphs or itself.
+    val containerBackdrop = rememberLayerBackdrop()
+    val combinedBackdrop = backdrop?.let { rememberCombinedBackdrop(it, containerBackdrop) }
     var gestureActive by remember { mutableStateOf(false) }
     var locallyCommittedTarget by remember { mutableIntStateOf(-1) }
     var touchX by remember { mutableFloatStateOf((safeCurrent + 0.5f) * ItemWidthDp) }
@@ -183,6 +183,7 @@ internal fun SukiFloatingBottomBar(
                 backdrop = backdrop,
                 shape = { CircleShape },
                 effects = containerEffects,
+                exportedBackdrop = containerBackdrop,
                 highlight = { Highlight.Default.copy(alpha = 0.25f + 0.35f * press.value) },
                 onDrawSurface = containerSurface
             )
@@ -218,31 +219,6 @@ internal fun SukiFloatingBottomBar(
                     }
                 }
         ) {
-            NavigationRow(
-                selectedIndex = safeTarget,
-                textColor = textColor,
-                mutedColor = mutedColor,
-                modifier = Modifier.fillMaxSize().padding(horizontal = HorizontalPaddingDp.dp)
-            )
-
-            // Invisible capture row. It is recorded as a second backdrop, never directly drawn.
-            NavigationRow(
-                selectedIndex = safeTarget,
-                textColor = textColor,
-                mutedColor = mutedColor,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = HorizontalPaddingDp.dp)
-                    .clearAndSetSemantics {}
-                    .graphicsLayer {
-                        val s = 1f + 0.12f * press.value
-                        scaleX = s
-                        scaleY = s
-                    }
-                    .alpha(0f)
-                    .layerBackdrop(tabsBackdrop)
-            )
-
             val velocityStretch = (abs(selector.velocity) / 22f).coerceIn(0f, 0.065f)
             val pressScale = 1f + 0.035f * press.value
             val selectorModifier = Modifier
@@ -284,6 +260,15 @@ internal fun SukiFloatingBottomBar(
                         )
                         .border(0.55.dp, edgeColor, CircleShape)
                 }
+            )
+
+            // Foreground glyphs are drawn after the refractive selector so Lens and
+            // chromatic aberration never distort icon or label readability.
+            NavigationRow(
+                selectedIndex = safeTarget,
+                textColor = textColor,
+                mutedColor = mutedColor,
+                modifier = Modifier.fillMaxSize().padding(horizontal = HorizontalPaddingDp.dp)
             )
 
             // One gesture owner for press, click-to-travel, drag takeover, release and snap.

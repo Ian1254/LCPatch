@@ -1,6 +1,6 @@
 package com.lcpatch
 
-import android.view.WindowManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -30,32 +30,27 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -66,8 +61,106 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val EnvironmentMorphEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
+internal data class EnvironmentOverlayRequest(
+    val sourceBounds: Rect,
+    val healthy: Boolean,
+    val cardColor: Color,
+    val accent: Color,
+    val statusTitle: String,
+    val statusSubtitle: String,
+    val statusSummary: String,
+    val scopeStatus: String,
+    val rootStatus: String,
+    val gameInstalled: Boolean,
+    val gameVersion: String,
+    val onCheckScope: () -> Unit,
+    val onRequestRoot: () -> Unit
+)
+
+/**
+ * Owns the source/overlay handoff. Mounting and visibility are separate states:
+ * a mounted overlay cannot hide the source until its root has real coordinates.
+ */
+@Stable
+internal class EnvironmentStatusOverlayState internal constructor() {
+    internal var request by mutableStateOf<EnvironmentOverlayRequest?>(null)
+        private set
+    internal var sourceHidden by mutableStateOf(false)
+        private set
+    internal var closing by mutableStateOf(false)
+        private set
+
+    private var requestId = 0
+    internal val currentRequestId: Int get() = requestId
+
+    private fun show(request: EnvironmentOverlayRequest) {
+        if (this.request != null || request.sourceBounds.width <= 0f || request.sourceBounds.height <= 0f) return
+        requestId++
+        closing = false
+        sourceHidden = false
+        this.request = request
+    }
+
+    internal fun dismiss() {
+        if (request != null) closing = true
+    }
+
+    internal fun takeVisualOwnership() {
+        sourceHidden = true
+    }
+
+    internal fun returnVisualOwnership() {
+        sourceHidden = false
+    }
+
+    internal fun finishDismiss() {
+        sourceHidden = false
+        closing = false
+        request = null
+    }
+
+    internal fun open(
+        sourceBounds: Rect,
+        healthy: Boolean,
+        cardColor: Color,
+        accent: Color,
+        statusTitle: String,
+        statusSubtitle: String,
+        statusSummary: String,
+        scopeStatus: String,
+        rootStatus: String,
+        gameInstalled: Boolean,
+        gameVersion: String,
+        onCheckScope: () -> Unit,
+        onRequestRoot: () -> Unit
+    ) {
+        show(
+            EnvironmentOverlayRequest(
+                sourceBounds = sourceBounds,
+                healthy = healthy,
+                cardColor = cardColor,
+                accent = accent,
+                statusTitle = statusTitle,
+                statusSubtitle = statusSubtitle,
+                statusSummary = statusSummary,
+                scopeStatus = scopeStatus,
+                rootStatus = rootStatus,
+                gameInstalled = gameInstalled,
+                gameVersion = gameVersion,
+                onCheckScope = onCheckScope,
+                onRequestRoot = onRequestRoot
+            )
+        )
+    }
+}
+
+@Composable
+internal fun rememberEnvironmentStatusOverlayState(): EnvironmentStatusOverlayState =
+    remember { EnvironmentStatusOverlayState() }
+
 @Composable
 internal fun EnvironmentStatusOverviewCard(
+    overlayState: EnvironmentStatusOverlayState,
     scopeStatus: String,
     rootStatus: String,
     gameInstalled: Boolean,
@@ -94,7 +187,7 @@ internal fun EnvironmentStatusOverviewCard(
         else -> "尚未連接"
     }
     val statusSubtitle = when {
-        healthy -> "LCPatch ${BuildConfig.VERSION_NAME}"
+        healthy -> "LCPatch " + BuildConfig.VERSION_NAME
         hasError -> "請授予 Limbus Company 作用域"
         else -> "請確認模組與作用域狀態"
     }
@@ -104,36 +197,14 @@ internal fun EnvironmentStatusOverviewCard(
         "模組狀態 · $scopeStatus"
     }
 
-    var overlayMounted by remember { mutableStateOf(false) }
-    var overlayVisible by remember { mutableStateOf(false) }
-    var closing by remember { mutableStateOf(false) }
     var sourceBounds by remember { mutableStateOf(Rect.Zero) }
-    var frozenSourceBounds by remember { mutableStateOf(Rect.Zero) }
-    val hostView = LocalView.current
     val cardInteraction = remember { MutableInteractionSource() }
     val cardPressed by cardInteraction.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
-        targetValue = if (cardPressed && !overlayMounted) 0.982f else 1f,
+        targetValue = if (cardPressed && overlayState.request == null) 0.982f else 1f,
         animationSpec = spring(dampingRatio = 0.80f, stiffness = 760f),
         label = "environment-card-press"
     )
-
-    fun openOverlay() {
-        if (overlayMounted) return
-        frozenSourceBounds = sourceBounds
-        closing = false
-        overlayMounted = true
-        overlayVisible = true
-    }
-
-    fun closeOverlay() {
-        if (!overlayMounted || closing) return
-        // Freeze one final source rectangle at the start of closing. The target cannot drift
-        // while the overlay is morphing back into it.
-        frozenSourceBounds = sourceBounds
-        closing = true
-        overlayVisible = false
-    }
 
     Card(
         modifier = Modifier
@@ -141,25 +212,34 @@ internal fun EnvironmentStatusOverviewCard(
             .graphicsLayer {
                 scaleX = cardScale
                 scaleY = cardScale
-                alpha = if (overlayMounted) 0f else 1f
+                alpha = if (overlayState.sourceHidden) 0f else 1f
             }
             .onGloballyPositioned { coordinates ->
-                val bounds = coordinates.boundsInWindow()
-                val origin = IntArray(2)
-                hostView.rootView.getLocationOnScreen(origin)
-                sourceBounds = Rect(
-                    left = bounds.left + origin[0].toFloat(),
-                    top = bounds.top + origin[1].toFloat(),
-                    right = bounds.right + origin[0].toFloat(),
-                    bottom = bounds.bottom + origin[1].toFloat()
-                )
+                if (coordinates.isAttached && !overlayState.sourceHidden) {
+                    sourceBounds = coordinates.boundsInWindow()
+                }
             }
             .clip(RoundedCornerShape(26.dp))
             .clickable(
                 interactionSource = cardInteraction,
-                indication = null,
-                onClick = ::openOverlay
-            ),
+                indication = null
+            ) {
+                overlayState.open(
+                    sourceBounds = sourceBounds,
+                    healthy = healthy,
+                    cardColor = cardColor,
+                    accent = accent,
+                    statusTitle = statusTitle,
+                    statusSubtitle = statusSubtitle,
+                    statusSummary = statusSummary,
+                    scopeStatus = scopeStatus,
+                    rootStatus = rootStatus,
+                    gameInstalled = gameInstalled,
+                    gameVersion = gameVersion,
+                    onCheckScope = onCheckScope,
+                    onRequestRoot = onRequestRoot
+                )
+            },
         colors = CardDefaults.defaultColors(color = cardColor)
     ) {
         Box(modifier = Modifier.fillMaxWidth().height(142.dp)) {
@@ -196,279 +276,223 @@ internal fun EnvironmentStatusOverviewCard(
             }
         }
     }
-
-    if (overlayMounted) {
-        EnvironmentStatusOverlay(
-            visible = overlayVisible,
-            healthy = healthy,
-            cardColor = cardColor,
-            accent = accent,
-            sourceBounds = frozenSourceBounds,
-            statusTitle = statusTitle,
-            statusSubtitle = statusSubtitle,
-            statusSummary = statusSummary,
-            scopeStatus = scopeStatus,
-            rootStatus = rootStatus,
-            gameInstalled = gameInstalled,
-            gameVersion = gameVersion,
-            onCheckScope = onCheckScope,
-            onRequestRoot = onRequestRoot,
-            onDismiss = ::closeOverlay,
-            onExitFinished = {
-                overlayMounted = false
-                overlayVisible = false
-                closing = false
-            }
-        )
-    }
 }
 
 @Composable
-private fun EnvironmentStatusOverlay(
-    visible: Boolean,
-    healthy: Boolean,
-    cardColor: Color,
-    accent: Color,
-    sourceBounds: Rect,
-    statusTitle: String,
-    statusSubtitle: String,
-    statusSummary: String,
-    scopeStatus: String,
-    rootStatus: String,
-    gameInstalled: Boolean,
-    gameVersion: String,
-    onCheckScope: () -> Unit,
-    onRequestRoot: () -> Unit,
-    onDismiss: () -> Unit,
-    onExitFinished: () -> Unit
+internal fun EnvironmentStatusOverlayHost(
+    state: EnvironmentStatusOverlayState,
+    modifier: Modifier = Modifier
 ) {
+    val request = state.request ?: return
+    val requestId = state.currentRequestId
     val density = LocalDensity.current
-    val progress = remember { Animatable(0f) }
-    val panelInteraction = remember { MutableInteractionSource() }
-    val latestExitFinished by androidx.compose.runtime.rememberUpdatedState(onExitFinished)
+    val progress = remember(requestId) { Animatable(0f) }
+    val latestRequest by rememberUpdatedState(request)
+    var hostBounds by remember(requestId) { mutableStateOf(Rect.Zero) }
+    var overlayVisible by remember(requestId) { mutableStateOf(false) }
+    val rootReady = hostBounds.width > 0f && hostBounds.height > 0f
 
-    LaunchedEffect(visible) {
-        if (visible) {
-            progress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 390,
-                    easing = EnvironmentMorphEasing
-                )
-            )
-        } else {
+    BackHandler(enabled = true, onBack = state::dismiss)
+
+    androidx.compose.runtime.LaunchedEffect(requestId, rootReady, state.closing) {
+        if (!rootReady) return@LaunchedEffect
+        if (state.closing) {
             progress.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = 330,
-                    easing = EnvironmentMorphEasing
-                )
+                animationSpec = tween(330, easing = EnvironmentMorphEasing)
             )
+            state.returnVisualOwnership()
+            overlayVisible = false
             withFrameNanos { }
+            state.finishDismiss()
+        } else {
+            overlayVisible = true
+            state.takeVisualOwnership()
             withFrameNanos { }
-            latestExitFinished()
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(390, easing = EnvironmentMorphEasing)
+            )
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coordinates ->
+                if (coordinates.isAttached) hostBounds = coordinates.boundsInWindow()
+            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = state::dismiss
+            )
     ) {
-        val dialogView = LocalView.current
-        val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
-        var dialogOrigin by remember(dialogView) { mutableStateOf(Offset.Zero) }
-        SideEffect {
-            dialogWindow?.setDimAmount(0f)
-            dialogWindow?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-            val origin = IntArray(2)
-            dialogView.rootView.getLocationOnScreen(origin)
-            dialogOrigin = Offset(origin[0].toFloat(), origin[1].toFloat())
-        }
+        if (!overlayVisible) return@BoxWithConstraints
 
-        BoxWithConstraints(
+        val sourceBounds = latestRequest.sourceBounds
+        val sourceLeft = with(density) { (sourceBounds.left - hostBounds.left).toDp() }
+        val sourceTop = with(density) { (sourceBounds.top - hostBounds.top).toDp() }
+        val sourceWidth = with(density) { sourceBounds.width.toDp() }
+        val sourceHeight = with(density) { sourceBounds.height.toDp() }
+        val fraction = progress.value.coerceIn(0f, 1f)
+        val sourceRight = sourceLeft + sourceWidth
+        val sourceBottom = sourceTop + sourceHeight
+        val panelLeft = lerpDp(sourceLeft, 0.dp, fraction)
+        val panelTop = lerpDp(sourceTop, 0.dp, fraction)
+        val panelRight = lerpDp(sourceRight, maxWidth, fraction)
+        val panelBottom = lerpDp(sourceBottom, maxHeight, fraction)
+        val panelWidth = (panelRight - panelLeft).coerceAtLeast(0.dp)
+        val panelHeight = (panelBottom - panelTop).coerceAtLeast(0.dp)
+        val corner = lerpDp(26.dp, 0.dp, fraction)
+        val panelInteraction = remember { MutableInteractionSource() }
+        val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val expandedTitleTop = statusInset + 22.dp
+        val titleStart = lerpDp(16.dp, 24.dp, fraction)
+        val titleTop = lerpDp(16.dp, expandedTitleTop, fraction)
+        val iconSize = lerpDp(68.dp, 46.dp, fraction)
+        val iconX = lerpDp(sourceWidth - 82.dp, maxWidth - 70.dp, fraction)
+        val iconY = lerpDp(14.dp, expandedTitleTop, fraction)
+        val summaryAlpha = 1f - intervalProgress(fraction, 0.16f, 0.52f)
+        val detailsAlpha = intervalProgress(fraction, 0.58f, 0.78f)
+        val actionsAlpha = intervalProgress(fraction, 0.74f, 0.92f)
+        val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
+        val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
+
+        Box(
             modifier = Modifier
-                .fillMaxSize()
+                .offset(x = panelLeft, y = panelTop)
+                .width(panelWidth)
+                .height(panelHeight)
+                .clip(RoundedCornerShape(corner))
+                .background(latestRequest.cardColor)
                 .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
+                    interactionSource = panelInteraction,
                     indication = null,
-                    onClick = onDismiss
+                    onClick = { }
                 )
         ) {
-            val hasMeasuredSource = sourceBounds.width > 0f && sourceBounds.height > 0f
-            val sourceLeft = if (hasMeasuredSource) {
-                with(density) { (sourceBounds.left - dialogOrigin.x).toDp() }
-            } else 12.dp
-            val sourceTop = if (hasMeasuredSource) {
-                with(density) { (sourceBounds.top - dialogOrigin.y).toDp() }
-            } else 76.dp
-            val sourceWidth = if (hasMeasuredSource) with(density) { sourceBounds.width.toDp() } else maxWidth - 24.dp
-            val sourceHeight = if (hasMeasuredSource) with(density) { sourceBounds.height.toDp() } else 142.dp
+            Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
+                Text(
+                    latestRequest.statusTitle,
+                    fontSize = (22f + 7f * fraction).sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    latestRequest.statusSubtitle,
+                    fontSize = (15f + fraction).sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
 
-            val fraction = progress.value.coerceIn(0f, 1f)
-            val sourceRight = sourceLeft + sourceWidth
-            val sourceBottom = sourceTop + sourceHeight
-            val panelLeft = lerpDp(sourceLeft, 0.dp, fraction)
-            val panelTop = lerpDp(sourceTop, 0.dp, fraction)
-            val panelRight = lerpDp(sourceRight, maxWidth, fraction)
-            val panelBottom = lerpDp(sourceBottom, maxHeight, fraction)
-            val panelWidth = (panelRight - panelLeft).coerceAtLeast(0.dp)
-            val panelHeight = (panelBottom - panelTop).coerceAtLeast(0.dp)
-            val corner = lerpDp(26.dp, 0.dp, fraction)
+            Icon(
+                painter = painterResource(
+                    if (latestRequest.healthy) R.drawable.ic_check_circle_outline
+                    else R.drawable.ic_error_outline
+                ),
+                contentDescription = null,
+                modifier = Modifier.offset(x = iconX, y = iconY).size(iconSize),
+                tint = latestRequest.accent
+            )
 
-            Box(
+            Row(
                 modifier = Modifier
-                    .offset(x = panelLeft, y = panelTop)
-                    .width(panelWidth)
-                    .height(panelHeight)
-                    .clip(RoundedCornerShape(corner))
-                    .background(cardColor)
-                    .clickable(
-                        interactionSource = panelInteraction,
-                        indication = null,
-                        onClick = { }
-                    )
+                    .offset(x = 16.dp, y = sourceHeight - 39.dp)
+                    .width((sourceWidth - 32.dp).coerceAtLeast(0.dp))
+                    .graphicsLayer { alpha = summaryAlpha },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-                    val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                    val expandedTitleTop = statusInset + 22.dp
-                    val titleStart = lerpDp(16.dp, 24.dp, fraction)
-                    val titleTop = lerpDp(16.dp, expandedTitleTop, fraction)
-                    val iconSize = lerpDp(68.dp, 46.dp, fraction)
-                    val collapsedIconX = sourceWidth - 68.dp - 14.dp
-                    val collapsedIconY = 14.dp
-                    val expandedIconX = maxWidth - 24.dp - 46.dp
-                    val expandedIconY = expandedTitleTop
-                    val iconX = lerpDp(collapsedIconX, expandedIconX, fraction)
-                    val iconY = lerpDp(collapsedIconY, expandedIconY, fraction)
-                    val summaryAlpha = (1f - fraction / 0.30f).coerceIn(0f, 1f)
-                    val detailsAlpha = ((fraction - 0.25f) / 0.46f).coerceIn(0f, 1f)
-                    val actionsAlpha = ((fraction - 0.45f) / 0.36f).coerceIn(0f, 1f)
-                    val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
-                    val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
+                Text(
+                    latestRequest.statusSummary,
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    "詳情 ›",
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
 
-                    Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
-                        Text(
-                            statusTitle,
-                            fontSize = (22f + 7f * fraction).sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            statusSubtitle,
-                            fontSize = (15f + fraction).sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
-
-                    Icon(
-                        painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
-                        contentDescription = null,
-                        modifier = Modifier.offset(x = iconX, y = iconY).size(iconSize),
-                        tint = accent
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = 24.dp,
+                        end = 24.dp,
+                        top = expandedTitleTop + 112.dp,
+                        bottom = navigationInset + 18.dp
                     )
-
-                    Row(
-                        modifier = Modifier
-                            .offset(x = 16.dp, y = sourceHeight - 39.dp)
-                            .width((sourceWidth - 32.dp).coerceAtLeast(0.dp))
-                            .graphicsLayer { alpha = summaryAlpha },
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            statusSummary,
-                            modifier = Modifier.weight(1f).padding(end = 12.dp),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            "詳情 ›",
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    .graphicsLayer {
+                        alpha = detailsAlpha
+                        translationY = with(density) { ((1f - detailsAlpha) * 18f).dp.toPx() }
                     }
+            ) {
+                Text(
+                    "環境與權限",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+                Spacer(Modifier.height(10.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(detailSurface, RoundedCornerShape(22.dp))
+                        .padding(horizontal = 18.dp, vertical = 10.dp)
+                ) {
+                    EnvironmentDetail("模組作用域", latestRequest.scopeStatus)
+                    EnvironmentDetail("Root 權限", latestRequest.rootStatus)
+                    EnvironmentDetail(
+                        "Limbus Company",
+                        if (latestRequest.gameInstalled) "已安裝 · " + latestRequest.gameVersion else "未安裝"
+                    )
+                }
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(
-                                start = 24.dp,
-                                end = 24.dp,
-                                top = expandedTitleTop + 112.dp,
-                                bottom = navigationInset + 18.dp
-                            )
-                            .graphicsLayer {
-                                alpha = detailsAlpha
-                                translationY = with(density) { ((1f - detailsAlpha) * 18f).dp.toPx() }
-                            }
+                Spacer(Modifier.height(24.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            alpha = actionsAlpha
+                            translationY = with(density) { ((1f - actionsAlpha) * 14f).dp.toPx() }
+                        }
+                ) {
+                    Button(
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        enabled = actionsAlpha >= 0.98f,
+                        onClick = latestRequest.onCheckScope
                     ) {
-                        Text(
-                            "環境與權限",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(detailSurface, RoundedCornerShape(22.dp))
-                                .padding(horizontal = 18.dp, vertical = 10.dp)
-                        ) {
-                            EnvironmentDetail("模組作用域", scopeStatus)
-                            EnvironmentDetail("Root 權限", rootStatus)
-                            EnvironmentDetail(
-                                "Limbus Company",
-                                if (gameInstalled) "已安裝 · $gameVersion" else "未安裝"
-                            )
-                        }
-
-                        Spacer(Modifier.height(24.dp))
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .graphicsLayer {
-                                    alpha = actionsAlpha
-                                    translationY = with(density) { ((1f - actionsAlpha) * 14f).dp.toPx() }
-                                }
-                        ) {
-                            Button(
-                                modifier = Modifier.fillMaxWidth().height(54.dp),
-                                onClick = onCheckScope
-                            ) {
-                                Text("重新檢查模組作用域")
-                            }
-                            Spacer(Modifier.height(10.dp))
-                            TextButton(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(54.dp)
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(actionSurface),
-                                text = if (rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
-                                enabled = rootStatus != "正在請求",
-                                onClick = onRequestRoot
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            TextButton(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(54.dp)
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(actionSurface),
-                                text = "完成",
-                                onClick = onDismiss
-                            )
-                        }
+                        Text("重新檢查模組作用域")
                     }
+                    Spacer(Modifier.height(10.dp))
+                    TextButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(actionSurface),
+                        text = if (latestRequest.rootStatus == "正在請求") "正在檢查 Root…" else "檢查 Root 權限",
+                        enabled = actionsAlpha >= 0.98f && latestRequest.rootStatus != "正在請求",
+                        onClick = latestRequest.onRequestRoot
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    TextButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(actionSurface),
+                        text = "完成",
+                        enabled = actionsAlpha >= 0.98f,
+                        onClick = state::dismiss
+                    )
                 }
             }
         }
@@ -484,12 +508,12 @@ private fun EnvironmentDetail(label: String, value: String) {
             fontSize = 13.sp
         )
         Spacer(Modifier.height(2.dp))
-        Text(
-            value,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium
-        )
+        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Medium)
     }
 }
 
-private fun lerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction
+private fun intervalProgress(value: Float, start: Float, end: Float): Float =
+    ((value - start) / (end - start)).coerceIn(0f, 1f)
+
+private fun lerpDp(start: Dp, end: Dp, fraction: Float): Dp =
+    start + (end - start) * fraction

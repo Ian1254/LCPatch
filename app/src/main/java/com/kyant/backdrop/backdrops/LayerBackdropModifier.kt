@@ -32,7 +32,7 @@ private class LayerBackdropElement(
 
     override fun update(node: LayerBackdropNode) {
         if (node.backdrop != backdrop) {
-            node.backdrop.layerCoordinates = null
+            node.backdrop.releaseCoordinates(node)
             node.backdrop = backdrop
         }
         node.recordKey = recordKey
@@ -93,11 +93,11 @@ private class LayerBackdropNode(
 
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
         if (coordinates.isAttached) {
-            backdrop.layerCoordinates = coordinates
+            backdrop.claimCoordinates(this, coordinates)
         }
     }
 
     override fun onDetach() {
-        backdrop.layerCoordinates = null
+        backdrop.releaseCoordinates(this)
     }
 }
