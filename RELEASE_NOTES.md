@@ -1,32 +1,26 @@
-# LCPatch 1.2.1-beta.20
+# LCPatch 1.2.1-beta.21
 
-本測試版修正頂欄高對比色彩暈染與跨頁殘影、提升浮動底欄文字可讀性，並重構「已啟用」環境卡片的展開／收回交接。
-
-## 頂欄
-
-- 移除 beta.19 的頂端 blur suppression，狀態列最上方恢復完整漸進模糊。
-- 重新設計 32 點取樣分布與空間權重，讓中心／中圈樣本占比提高，降低外圈色彩形成 halo。
-- 加入輕度 range weighting，抑制高對比綠色卡片跨 kernel 大量污染黑色背景，同時保留正常模糊。
-- Denoise 改為更小 footprint 與中心高權重，只平滑 stochastic noise，不再形成第二次明顯 blur。
-- AnimatedContent 的 incoming／outgoing branch 各自持有 LayerBackdrop，避免不同頁面共寫同一 GraphicsLayer。
-- LayerBackdrop coordinates 增加 owner identity，舊 node detach 不會清除新 node 的座標。
+本測試版完成 PR #53 的動畫同步重構，並補上底欄拖曳接管範圍修正。
 
 ## 浮動底欄
 
-- Selector 仍保留 combined backdrop、Lens 折射、色散、高光、內外陰影、spring、速度拉伸與 rubber-band。
-- Container glass 以不包含子內容的 exported backdrop 提供給 Selector；NavigationRow 改在 Selector 後繪製。
-- Icon 與 label 不再進入 Lens／chromatic aberration 取樣，選中項目保持清晰。
-- 完整保留 beta.19 的 click commit 與 touchSlop drag 接管修正。
+- 正常導航改由 Pager 的 pagePosition 驅動 selector 基礎位置，底欄與頁面不再各跑一套獨立導航動畫。
+- Selector 改為依實際導航速度計算方向性左右邊界形變，移除固定寬度 + scaleX / pivot 切換的模擬方式。
+- 速度經 frame timing 與低通濾波後再驅動 deformation，降低方向反轉與收尾時的細碎抖動。
+- Icon / label 改依 visualPosition 連續過渡，不再於 target 更新時立即跳成選中狀態。
+- 普通點按只在放開後提交導航；按下階段只保留 press feedback。
+- 保留 beta.19 的快速 retarget、rubber-band、release hold 與 gesture ownership。
+- 補充修正：只有從目前 selector 膠囊起手並超過 touchSlop 才能進入 drag takeover，避免從底欄其他區域橫拖誤接管 selector。
+- 保留 beta.20 的 backdrop ownership；selector 不折射 icon / label。
 
-## 環境狀態卡片
+## 已啟用環境卡片
 
-- 移除跨 Window Dialog，改為 MainActivity 同一 Compose root 的 overlay。
-- Overlay 完成真實 layout 並停在來源 bounds 後，才與來源卡片原子交接，避免 mount blank frame。
-- 收回至 progress=0 後先交還來源卡片，再於下一 frame unmount overlay。
-- Details 改在 58% 後淡入，actions 改在 74% 後淡入；收回時按相反順序消失。
-- Title／icon 的 expanded endpoint 固定以最終 root bounds 計算，不再跟著動態 panel 尺寸漂移。
+- Source summary 與 destination detail content 改為重疊 crossfade，移除中段幾乎空白的綠色容器時段。
+- Morph panel 改以實際像素 left / top / right / bottom 四邊插值，再由四邊推導尺寸，避免 offset 與 size 各自取整造成的最後一幀 snap。
+- 關閉中的 overlay 可從目前 morph progress 反向重新展開，不需要先完成舊動畫。
+- 保留 beta.20 的 source / overlay visual ownership handoff。
 
 ## 驗證
 
-- Android CI 執行原生核心建置、單元測試、lintVitalRelease 與 Release APK 組裝。
-- Shader 的最終 halo 強度、慢速捲動穩定性與逐幀卡片 handoff 仍需實機確認。
+- Release workflow 會在 version.properties 合併進 main 後執行共用 Android validation、簽章與 prerelease 發布。
+- 仍建議以實機錄影確認 HyperOS 參考動畫的主觀運動感、快速反向 retarget 與卡片逐幀 handoff。
