@@ -187,6 +187,7 @@ class MainActivity : ComponentActivity() {
         var rootStatus by rememberSaveable { mutableStateOf("尚未授權") }
         var navigationStyle by remember { mutableStateOf(appPrefs.getString("navigation_style", "floating") ?: "floating") }
         var blurEnabled by remember { mutableStateOf(appPrefs.getBoolean("blur_enabled", true)) }
+        val environmentOverlayState = rememberEnvironmentStatusOverlayState()
         var updateChannel by remember { mutableStateOf(appPrefs.getString("update_channel", "stable") ?: "stable") }
         val overviewListState = rememberLazyListState()
         val settingsListState = rememberLazyListState()
@@ -234,8 +235,6 @@ class MainActivity : ComponentActivity() {
         val downloadedScrollBehavior = MiuixScrollBehavior()
         val displayScrollBehavior = MiuixScrollBehavior()
         val conversionScrollBehavior = MiuixScrollBehavior()
-        val barBackdrop = rememberBarBackdrop()
-        val activeBarBackdrop = if (blurEnabled) barBackdrop else null
         val scope = rememberCoroutineScope()
         LaunchedEffect(topNavigationTransaction, topNavigationTarget) {
             if (pagerState.currentPage != topNavigationTarget || pagerState.currentPageOffsetFraction != 0f) {
@@ -527,6 +526,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         when (visiblePage) {
                             OVERVIEW -> overview(
+                                overlayState = environmentOverlayState,
                                 game = game,
                                 events = events,
                                 activeName = activeName,
@@ -749,16 +749,22 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        AnimatedContent(
-            targetState = shellTarget,
-            modifier = Modifier.fillMaxSize(),
-            transitionSpec = {
-                val direction = navigationDirection
-                slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
-                    slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
-            },
-            label = "screen-transition"
-        ) { animatedShell ->
+        Box(Modifier.fillMaxSize()) {
+            AnimatedContent(
+                targetState = shellTarget,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val direction = navigationDirection
+                    slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
+                        slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
+                },
+                label = "screen-transition"
+            ) { animatedShell ->
+            // AnimatedContent keeps outgoing and incoming branches alive together.
+            // Each branch must own its recording layer so they never write into
+            // the same GraphicsLayer during a transition.
+            val branchBarBackdrop = rememberBarBackdrop()
+            val activeBarBackdrop = if (blurEnabled) branchBarBackdrop else null
             val topLevelScreen = animatedShell == TOP_LEVEL_CONTAINER
             val visiblePage = if (topLevelScreen) page else animatedShell
             val visibleTitle = pageTitle(visiblePage)
@@ -857,10 +863,17 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            }
+
+            EnvironmentStatusOverlayHost(
+                state = environmentOverlayState,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 
     private fun LazyListScope.overview(
+        overlayState: EnvironmentStatusOverlayState,
         game: GameInfo, events: List<LogEvent>, activeName: String, activeScript: String,
         scopeStatus: String, rootStatus: String,
         onCheckScope: () -> Unit, onRequestRoot: () -> Unit,
@@ -870,6 +883,7 @@ class MainActivity : ComponentActivity() {
     ) {
         item {
             EnvironmentStatusOverviewCard(
+                overlayState = overlayState,
                 scopeStatus = scopeStatus,
                 rootStatus = rootStatus,
                 gameInstalled = game.installed,

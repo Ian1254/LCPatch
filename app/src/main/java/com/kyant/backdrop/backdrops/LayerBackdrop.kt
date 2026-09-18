@@ -40,6 +40,19 @@ class LayerBackdrop internal constructor(
     override val isCoordinatesDependent: Boolean = true
 
     internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null)
+    private var coordinatesOwner: Any? = null
+
+    internal fun claimCoordinates(owner: Any, coordinates: LayoutCoordinates) {
+        coordinatesOwner = owner
+        layerCoordinates = coordinates
+    }
+
+    internal fun releaseCoordinates(owner: Any) {
+        if (coordinatesOwner === owner) {
+            coordinatesOwner = null
+            layerCoordinates = null
+        }
+    }
 
     private var inverseLayerScope: InverseLayerScope? = null
 

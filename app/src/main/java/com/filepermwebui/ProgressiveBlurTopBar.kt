@@ -169,15 +169,20 @@ half4 progressiveBlur(float2 coord, float radius) {
     float h = hash12(coord);
     float2 dir = float2(cos(h * 6.2831853), sin(h * 6.2831853));
     float2 g = float2(cos(2.39996323), sin(2.39996323));
-    half4 sum = half4(0.0);
-    float wsum = 0.0;
+    half4 center = content.eval(coord);
+    // Keep a stable centre contribution, then distribute deterministic golden-angle
+    // samples with a Gaussian-like falloff. The previous uniform-disk distribution
+    // devoted too much aggregate weight to the outer ring and produced colour bloom.
+    half4 sum = center * 1.5;
+    float wsum = 1.5;
     for (int i = 0; i < 32; i++) {
         float fi = float(i);
         float ff = (fi + 0.5) / 32.0;
-        float r = radius * sqrt(ff);
-        r *= 0.90 + 0.20 * fract(h * 93.9898 + fi * 0.7548776662);
+        float radial = pow(ff, 0.82);
+        float r = radius * radial;
+        r *= 0.96 + 0.08 * fract(h * 93.9898 + fi * 0.7548776662);
         float2 o = dir * r;
-        float w = exp(-ff / 0.85);
+        float spatialWeight = exp(-2.2 * radial * radial);
         float2 sc = coord + o;
         // X is full-width content: never sample the transparent side padding.
         // Y may sample the lower padding (real page content below the bar), but
@@ -194,8 +199,13 @@ half4 progressiveBlur(float2 coord, float radius) {
         );
         half4 c = content.eval(sc);
         if (c.a > 0.02) {
-            sum += c * w;
-            wsum += w;
+            float3 delta = float3(c.rgb - center.rgb);
+            // A deliberately mild bilateral term: high-contrast colours still
+            // participate in the blur, but cannot dominate from the kernel edge.
+            float rangeWeight = 0.55 + 0.45 * exp(-dot(delta, delta) * 1.7);
+            float weight = spatialWeight * rangeWeight;
+            sum += c * weight;
+            wsum += weight;
         }
         dir = float2(dir.x * g.x - dir.y * g.y, dir.x * g.y + dir.y * g.x);
     }
@@ -213,11 +223,7 @@ half4 main(float2 coord) {
         return content.eval(coord);
     }
     float t = clamp(local.y / max(contentSize.y, 1.0), 0.0, 1.0);
-    float bottomFalloff = 1.0 - smoothstep(0.0, 1.0, t);
-    // Keep the status bar blurred without applying the full kernel directly at
-    // the physical screen edge. The guard reaches full strength smoothly.
-    float topGuard = mix(0.66, 1.0, softerstep(0.0, 0.16, t));
-    float u = bottomFalloff * topGuard;
+    float u = 1.0 - smoothstep(0.0, 1.0, t);
     float radius = maxRadius * u;
     half4 color = progressiveBlur(coord, radius);
     float edge = softerstep(edgeFadeStart, 1.0, t);
@@ -237,8 +243,6 @@ uniform float2 contentSize;
 uniform float2 bufferSize;
 uniform float maxRadius;
 
-$SOFTER_STEP
-
 half4 main(float2 coord) {
     float2 local = coord - contentOrigin;
     if (local.x < 0.0 || local.y < 0.0 ||
@@ -246,14 +250,14 @@ half4 main(float2 coord) {
         return content.eval(coord);
     }
     float t = clamp(local.y / max(contentSize.y, 1.0), 0.0, 1.0);
-    float bottomFalloff = 1.0 - smoothstep(0.0, 1.0, t);
-    float topGuard = mix(0.66, 1.0, softerstep(0.0, 0.16, t));
-    float r = maxRadius * bottomFalloff * topGuard * 0.18;
+    // Denoise only the stochastic grain. Its footprint stays well inside the
+    // primary blur and the centre has the same total weight as all neighbours.
+    float r = maxRadius * (1.0 - smoothstep(0.0, 1.0, t)) * 0.075;
     if (r < 0.4) {
         return content.eval(coord);
     }
-    half4 sum = content.eval(coord);
-    float wsum = 1.0;
+    half4 sum = content.eval(coord) * 4.0;
+    float wsum = 4.0;
     float2 dir = float2(1.0, 0.0);
     float2 g = float2(cos(0.7853981634), sin(0.7853981634));
     for (int i = 0; i < 8; i++) {
@@ -270,8 +274,8 @@ half4 main(float2 coord) {
         );
         half4 c = content.eval(sc);
         if (c.a > 0.02) {
-            sum += c;
-            wsum += 1.0;
+            sum += c * 0.5;
+            wsum += 0.5;
         }
         dir = float2(dir.x * g.x - dir.y * g.y, dir.x * g.y + dir.y * g.x);
     }
