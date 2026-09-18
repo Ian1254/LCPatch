@@ -501,15 +501,23 @@ internal fun SukiFloatingBottomBar(
     }
 }
 
+private const val EdgeProgressOffset = 0.12f
+
+private fun edgeStretchProfile(value: Float): Float {
+    val t = value.coerceIn(0f, 1f)
+    return 4f * t * (1f - t)
+}
+
 private fun leadingEdgeProgress(value: Float): Float {
     val t = value.coerceIn(0f, 1f)
-    val inverse = 1f - t
-    return 1f - inverse * inverse
+    val offset = EdgeProgressOffset * edgeStretchProfile(t)
+    return (t + offset).coerceIn(0f, 1f)
 }
 
 private fun trailingEdgeProgress(value: Float): Float {
-    val t = ((value - 0.08f) / 0.92f).coerceIn(0f, 1f)
-    return t * t * (3f - 2f * t)
+    val t = value.coerceIn(0f, 1f)
+    val offset = EdgeProgressOffset * edgeStretchProfile(t)
+    return (t - offset).coerceIn(0f, 1f)
 }
 
 private fun lerpFloat(start: Float, end: Float, fraction: Float): Float =
