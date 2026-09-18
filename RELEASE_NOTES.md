@@ -1,34 +1,21 @@
-# LCPatch 1.2.1-beta.18
+# LCPatch 1.2.1-beta.19
 
-本測試版重構頂欄與底部導航的渲染架構，實作基於真實頁面內容取樣的漸進模糊與液態玻璃效果。
+本測試版修正 beta.18 漸進模糊的頂端邊界取樣，以及快速點按浮動底欄時偶爾不切頁的問題。
 
-## 頂部欄
+## 修正
 
-- 頁面內容改為共享 Backdrop Source，模糊背景與標題／操作按鈕分層繪製。
-- Android 13 以上使用全解析度 AGSL 多點採樣，模糊半徑依 Y 座標連續下降，底部以 softer fade 自然融入頁面。
-- 第二階段輕量去噪降低慢速捲動時的取樣顆粒與閃爍。
-- 不支援 RuntimeShader 的裝置保留漸層表面色降級，不會因 Shader 缺失崩潰。
-- 頂層頁面改為固定小標題，標題位置與透明度直接取用 Pager progress，與頁面動畫同時開始及結束。
-- 移除由頂欄同時管理模糊、標題 collapse 與頁面導航的舊結構。
+- 頂欄 blur 與 denoise shader 改為分軸限制取樣：X 軸限制在真實內容範圍，Y 軸禁止讀取螢幕頂端外的透明 padding，同時保留向下取樣頁面內容的能力。
+- 最頂端使用平滑強度保護曲線，仍保留狀態列背景模糊與 12dp 最大模糊半徑，減少高亮卡片顏色向上暈染。
+- 底欄普通點按改為提交實際按下的 Tab，不再依賴 selector 動畫當下是否已超過一半。
+- 按在 selector 上不再立即視為拖曳，水平位移超過 touch slop 後才交由拖曳狀態接管。
+- 拖曳接管時取消尚未完成的 click-to-travel mutation，避免快速點按、拖曳和吸附動畫競爭。
 
-## 底部導航
+## 保留
 
-- 導航列改為共享頁面 Backdrop 的玻璃容器，加入 vibrancy、8dp blur、輕度 lens 與低對比邊緣高光。
-- 新增不可見 Tab Capture Layer；Selector 同時取樣頁面與 Tab 圖示，形成真正的透鏡折射，不再只是放大前景 Icon。
-- Selector 使用連續浮點位置，可停留在兩個 Tab 之間並跟隨拖曳。
-- 點擊、按壓、拖曳接管、放開吸附統一由單一 pointer gesture state machine 管理。
-- 點擊其他 Tab 時 Selector 立即移動並維持按壓材質；超過 touch slop 後可直接轉入拖曳。
-- 速度形變、按壓高光、inner shadow、edge highlight 與輕微色散皆由同一組 selector 狀態驅動。
-- 左右邊界加入受限 rubber-band，放開後以 spring 回到有效 Tab。
-- 移除原先左右邊界 Animatable、preview stretch 與選中動畫互相重播的結構。
-
-## 效能與授權
-
-- RuntimeShader、RenderEffect、Backdrop、GraphicsLayer 與效果 lambda 均使用可重用實例；每幀只更新動畫值與 shader uniform。
-- Backdrop Layer 仍於內容變動時錄製當前幀，避免慢速滑動取樣舊畫面。
-- NexioSchedule／Kyant backdrop 衍生程式碼依 Apache-2.0 授權使用，歸屬已加入 NOTICE。
+- 保留 beta.18 的共享 Backdrop、隱藏 Tab Capture、Lens 折射、輕微色散、高光、內外陰影、速度拉伸與 rubber-band。
+- 保留 MainActivity 到 Pager 的原有導航鏈，以及 NexioSchedule／Kyant backdrop 的 Apache-2.0 歸屬說明。
 
 ## 驗證
 
-- 已通過 Android CI：單元測試、lintVitalRelease、原生元件建置與 Release APK 組裝。
-- 頂欄閃爍、折射強度、快速連點、快速反向拖曳與深淺色可讀性仍需實機確認。
+- Android CI 會執行單元測試、lintVitalRelease、原生元件建置與 Release APK 組裝。
+- 頂端模糊視覺、快速連點與快速反向拖曳仍需在實機上確認。

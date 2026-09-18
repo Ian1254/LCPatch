@@ -178,7 +178,20 @@ half4 progressiveBlur(float2 coord, float radius) {
         r *= 0.90 + 0.20 * fract(h * 93.9898 + fi * 0.7548776662);
         float2 o = dir * r;
         float w = exp(-ff / 0.85);
-        float2 sc = clamp(coord + o, float2(0.0), max(bufferSize - 1.0, float2(0.0)));
+        float2 sc = coord + o;
+        // X is full-width content: never sample the transparent side padding.
+        // Y may sample the lower padding (real page content below the bar), but
+        // must not sample above the physical top edge where the buffer is transparent.
+        sc.x = clamp(
+            sc.x,
+            contentOrigin.x,
+            max(contentOrigin.x + contentSize.x - 1.0, contentOrigin.x)
+        );
+        sc.y = clamp(
+            sc.y,
+            contentOrigin.y,
+            max(bufferSize.y - 1.0, contentOrigin.y)
+        );
         half4 c = content.eval(sc);
         if (c.a > 0.02) {
             sum += c * w;
@@ -200,7 +213,11 @@ half4 main(float2 coord) {
         return content.eval(coord);
     }
     float t = clamp(local.y / max(contentSize.y, 1.0), 0.0, 1.0);
-    float u = 1.0 - smoothstep(0.0, 1.0, t);
+    float bottomFalloff = 1.0 - smoothstep(0.0, 1.0, t);
+    // Keep the status bar blurred without applying the full kernel directly at
+    // the physical screen edge. The guard reaches full strength smoothly.
+    float topGuard = mix(0.66, 1.0, softerstep(0.0, 0.16, t));
+    float u = bottomFalloff * topGuard;
     float radius = maxRadius * u;
     half4 color = progressiveBlur(coord, radius);
     float edge = softerstep(edgeFadeStart, 1.0, t);
@@ -220,6 +237,8 @@ uniform float2 contentSize;
 uniform float2 bufferSize;
 uniform float maxRadius;
 
+$SOFTER_STEP
+
 half4 main(float2 coord) {
     float2 local = coord - contentOrigin;
     if (local.x < 0.0 || local.y < 0.0 ||
@@ -227,7 +246,9 @@ half4 main(float2 coord) {
         return content.eval(coord);
     }
     float t = clamp(local.y / max(contentSize.y, 1.0), 0.0, 1.0);
-    float r = maxRadius * (1.0 - smoothstep(0.0, 1.0, t)) * 0.18;
+    float bottomFalloff = 1.0 - smoothstep(0.0, 1.0, t);
+    float topGuard = mix(0.66, 1.0, softerstep(0.0, 0.16, t));
+    float r = maxRadius * bottomFalloff * topGuard * 0.18;
     if (r < 0.4) {
         return content.eval(coord);
     }
@@ -236,7 +257,17 @@ half4 main(float2 coord) {
     float2 dir = float2(1.0, 0.0);
     float2 g = float2(cos(0.7853981634), sin(0.7853981634));
     for (int i = 0; i < 8; i++) {
-        float2 sc = clamp(coord + dir * r, float2(0.0), max(bufferSize - 1.0, float2(0.0)));
+        float2 sc = coord + dir * r;
+        sc.x = clamp(
+            sc.x,
+            contentOrigin.x,
+            max(contentOrigin.x + contentSize.x - 1.0, contentOrigin.x)
+        );
+        sc.y = clamp(
+            sc.y,
+            contentOrigin.y,
+            max(bufferSize.y - 1.0, contentOrigin.y)
+        );
         half4 c = content.eval(sc);
         if (c.a > 0.02) {
             sum += c;

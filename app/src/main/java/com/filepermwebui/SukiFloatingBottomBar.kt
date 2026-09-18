@@ -297,13 +297,20 @@ internal fun SukiFloatingBottomBar(
                             (down.position.x - paddingPx) / itemWidthPx
                         ).toInt().coerceIn(0, ItemCount - 1)
                         val selectorCenter = paddingPx + (selector.value + 0.5f) * itemWidthPx
-                        var dragging = abs(down.position.x - selectorCenter) <= itemWidthPx * 0.55f
+                        val startedOnSelector =
+                            abs(down.position.x - selectorCenter) <= itemWidthPx * 0.55f
+                        var dragging = false
+                        var dragPosition = selector.value
                         var lastX = down.position.x
                         var cancelled = false
+                        var selectorTravelJob: kotlinx.coroutines.Job? = null
+                        var dragMutationJob: kotlinx.coroutines.Job? = null
 
                         scope.launch { press.animateTo(1f, PressSpring) }
-                        if (!dragging) {
-                            scope.launch { selector.animateTo(downIndex.toFloat(), SelectorSpring) }
+                        if (!startedOnSelector) {
+                            selectorTravelJob = scope.launch {
+                                selector.animateTo(downIndex.toFloat(), SelectorSpring)
+                            }
                         }
 
                         while (true) {
@@ -317,25 +324,38 @@ internal fun SukiFloatingBottomBar(
                             val totalDx = change.position.x - down.position.x
                             if (!dragging && abs(totalDx) > viewConfiguration.touchSlop) {
                                 dragging = true
-                                scope.launch { selector.stop() }
+                                selectorTravelJob?.cancel()
+                                dragMutationJob?.cancel()
+                                dragPosition = selector.value
                                 lastX = change.position.x
                             }
                             if (dragging) {
                                 val dx = change.position.x - lastX
                                 lastX = change.position.x
-                                val raw = selector.value + dx / itemWidthPx
-                                scope.launch {
-                                    selector.snapTo(
-                                        rubberBand(raw, 0f, (ItemCount - 1).toFloat())
-                                    )
+                                dragPosition = rubberBand(
+                                    dragPosition + dx / itemWidthPx,
+                                    0f,
+                                    (ItemCount - 1).toFloat()
+                                )
+                                dragMutationJob?.cancel()
+                                val position = dragPosition
+                                dragMutationJob = scope.launch {
+                                    // A new Animatable mutation takes ownership from any
+                                    // click-to-travel animation before following the pointer.
+                                    selector.snapTo(position)
                                 }
                                 change.consume()
                             }
                             if (!change.pressed) break
                         }
 
-                        val target = if (cancelled) safeTarget else selector.value.roundToInt()
-                            .coerceIn(0, ItemCount - 1)
+                        selectorTravelJob?.cancel()
+                        dragMutationJob?.cancel()
+                        val target = when {
+                            cancelled -> safeTarget
+                            dragging -> dragPosition.roundToInt()
+                            else -> downIndex
+                        }.coerceIn(0, ItemCount - 1)
                         gestureActive = false
                         locallyCommittedTarget = target
                         currentTarget(target)
