@@ -109,8 +109,9 @@ jobs:
           PRESERVED_TAG="v1.2.1-beta.15"
           PRESERVED_BETA18_TAG="v1.2.1-beta.18"
           PRESERVED_BETA19_TAG="v1.2.1-beta.19"
+          PRESERVED_BETA21_TAG="v1.2.1-beta.21"
           gh release list --limit 100 --json tagName,isPrerelease \
-            --jq ".[] | select(.isPrerelease == true and .tagName != \"$RELEASE_TAG\" and .tagName != \"$PRESERVED_TAG\" and .tagName != \"$PRESERVED_BETA18_TAG\" and .tagName != \"$PRESERVED_BETA19_TAG\") | .tagName" |
+            --jq ".[] | select(.isPrerelease == true and .tagName != \"$RELEASE_TAG\" and .tagName != \"$PRESERVED_TAG\" and .tagName != \"$PRESERVED_BETA18_TAG\" and .tagName != \"$PRESERVED_BETA19_TAG\" and .tagName != \"$PRESERVED_BETA21_TAG\") | .tagName" |
           while IFS= read -r OLD_TAG; do
             test -n "$OLD_TAG" || continue
             echo "Removing old prerelease $OLD_TAG"
