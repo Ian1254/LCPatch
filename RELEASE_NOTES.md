@@ -1,23 +1,27 @@
-# LCPatch 1.2.1-beta.22
+# LCPatch 1.2.1-beta.23
 
-本測試版重構浮動底欄小膠囊的導航形變，讓運動更接近 HyperOS 時鐘的 leading / trailing edge 行為。
+本測試版調慢頂層頁面切換，並重新平衡底欄小膠囊的 leading / trailing edge 速度分布。
+
+## 頁面切換
+
+- Top-level Pager transition 從 360ms 調整為 440ms。
+- 保留既有 PageTransitionEasing，不改變頁面導航架構與 ownership。
+- 讓概觀／日誌／設定之間的切換不再過於急促。
 
 ## 浮動底欄
 
-- 移除 beta.21 以 Pager 速度經低通濾波再驅動 deformation 的第二條形變時間軸。
-- Selector 改為真正的左右物理邊界 morph：向右時右側 leading edge 先走、左側 trailing edge 後追；向左時方向相反。
-- Leading / trailing edge 共用 Pager navigation progress，但使用不同的單調進度曲線，不再先決定 center 再額外放寬。
-- Pager 到達目標時，左右邊界也同時回到正常寬度，避免位置先到、膠囊最後再縮一下的收尾違和。
-- 最大額外邊界分離限制為實際像素距離，避免跨兩頁導航把 selector 拉成過長膠囊。
-- 快速 retarget 時從當下實際 rendered left / right edge 接續，不先 reset 成正常寬度再反向。
-- 保留 beta.21 的 Pager navigation、drag / release-hold ownership、press feedback、NavigationRow 過渡，以及 beta.20 的 backdrop ownership。
+- Selector 的 leading / trailing edge 不再使用前半段過度前衝的曲線。
+- 改成以 Pager progress 為中心做對稱偏移：leading 稍微領先、trailing 稍微落後。
+- 使用中段最強、起點與終點回到 0 的 stretch profile，避免前緣在動畫前半段就幾乎跑完。
+- Selector 中心速度維持與 Pager 一致，仍保留 beta.22 的 true edge morph。
+- 保留既有快速 retarget、drag / release-hold、press feedback、NavigationRow 過渡與 backdrop ownership。
 
 ## 其他
 
-- 「已啟用」環境卡片 morph 沿用 beta.21，未修改。
-- 發布流程額外保留 v1.2.1-beta.21，不會在 beta.22 發布後刪除上一版。
+- 「已啟用」環境卡片 morph 未修改。
+- 發布流程保留 v1.2.1-beta.22，不會在 beta.23 發布後刪除上一版。
 
 ## 驗證
 
-- PR Android CI 已驗證新 selector edge morph 可通過共用 Android validation。
-- Release workflow 會再次執行 validation、簽章並發布 prerelease。
+- PR Android CI 會先執行共用 Android validation。
+- 合併後 Release workflow 會再次執行 validation、簽章並發布 prerelease。
