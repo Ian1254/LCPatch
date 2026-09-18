@@ -100,15 +100,16 @@ jobs:
             --target "$GITHUB_SHA" \
             "${PRERELEASE_ARGS[@]}"
 
-      - name: Keep latest prerelease and beta.15 fallback
+      - name: Keep latest prerelease and preserved fallback releases
         if: env.SKIP_RELEASE != 'true' && contains(env.VERSION, '-')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PRESERVED_TAG="v1.2.1-beta.15"
+          PRESERVED_BETA18_TAG="v1.2.1-beta.18"
           gh release list --limit 100 --json tagName,isPrerelease \
-            --jq ".[] | select(.isPrerelease == true and .tagName != \"$RELEASE_TAG\" and .tagName != \"$PRESERVED_TAG\") | .tagName" |
+            --jq ".[] | select(.isPrerelease == true and .tagName != \"$RELEASE_TAG\" and .tagName != \"$PRESERVED_TAG\" and .tagName != \"$PRESERVED_BETA18_TAG\") | .tagName" |
           while IFS= read -r OLD_TAG; do
             test -n "$OLD_TAG" || continue
             echo "Removing old prerelease $OLD_TAG"
