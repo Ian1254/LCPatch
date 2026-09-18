@@ -71,7 +71,6 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -302,35 +301,37 @@ internal fun SukiFloatingBottomBar(
                         var lastX = down.position.x
                         var cancelled = false
 
-                        coroutineScope {
-                            launch { press.animateTo(1f, PressSpring) }
-                            if (!dragging) {
-                                launch { selector.animateTo(downIndex.toFloat(), SelectorSpring) }
-                            }
+                        scope.launch { press.animateTo(1f, PressSpring) }
+                        if (!dragging) {
+                            scope.launch { selector.animateTo(downIndex.toFloat(), SelectorSpring) }
+                        }
 
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Main)
-                                val change = event.changes.firstOrNull { it.id == down.id }
-                                if (change == null) {
-                                    cancelled = true
-                                    break
-                                }
-                                touchX = with(density) { change.position.x.toDp().value }
-                                val totalDx = change.position.x - down.position.x
-                                if (!dragging && abs(totalDx) > viewConfiguration.touchSlop) {
-                                    dragging = true
-                                    selector.stop()
-                                    lastX = change.position.x
-                                }
-                                if (dragging) {
-                                    val dx = change.position.x - lastX
-                                    lastX = change.position.x
-                                    val raw = selector.value + dx / itemWidthPx
-                                    selector.snapTo(rubberBand(raw, 0f, (ItemCount - 1).toFloat()))
-                                    change.consume()
-                                }
-                                if (!change.pressed) break
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null) {
+                                cancelled = true
+                                break
                             }
+                            touchX = with(density) { change.position.x.toDp().value }
+                            val totalDx = change.position.x - down.position.x
+                            if (!dragging && abs(totalDx) > viewConfiguration.touchSlop) {
+                                dragging = true
+                                scope.launch { selector.stop() }
+                                lastX = change.position.x
+                            }
+                            if (dragging) {
+                                val dx = change.position.x - lastX
+                                lastX = change.position.x
+                                val raw = selector.value + dx / itemWidthPx
+                                scope.launch {
+                                    selector.snapTo(
+                                        rubberBand(raw, 0f, (ItemCount - 1).toFloat())
+                                    )
+                                }
+                                change.consume()
+                            }
+                            if (!change.pressed) break
                         }
 
                         val target = if (cancelled) safeTarget else selector.value.roundToInt()
@@ -338,10 +339,8 @@ internal fun SukiFloatingBottomBar(
                         gestureActive = false
                         locallyCommittedTarget = target
                         currentTarget(target)
-                        coroutineScope {
-                            launch { selector.animateTo(target.toFloat(), SelectorSpring) }
-                            launch { press.animateTo(0f, PressSpring) }
-                        }
+                        scope.launch { selector.animateTo(target.toFloat(), SelectorSpring) }
+                        scope.launch { press.animateTo(0f, PressSpring) }
                     }
                 }
             )
