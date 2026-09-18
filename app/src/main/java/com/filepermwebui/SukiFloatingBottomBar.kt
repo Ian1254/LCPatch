@@ -407,7 +407,11 @@ internal fun SukiFloatingBottomBar(
                             }
                             touchX = with(density) { change.position.x.toDp().value }
                             val totalDx = change.position.x - down.position.x
-                            if (!dragging && abs(totalDx) > viewConfiguration.touchSlop) {
+                            if (
+                                startedOnSelector &&
+                                !dragging &&
+                                abs(totalDx) > viewConfiguration.touchSlop
+                            ) {
                                 dragging = true
                                 dragPosition = latestVisualPosition
                                 lastX = change.position.x
