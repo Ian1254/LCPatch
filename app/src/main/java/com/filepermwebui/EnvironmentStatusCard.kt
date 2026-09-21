@@ -92,6 +92,8 @@ internal class EnvironmentStatusOverlayState internal constructor() {
         private set
     internal var closing by mutableStateOf(false)
         private set
+    internal var liveSourceBounds by mutableStateOf(Rect.Zero)
+        private set
 
     private var requestId = 0
     internal val currentRequestId: Int get() = requestId
@@ -101,6 +103,7 @@ internal class EnvironmentStatusOverlayState internal constructor() {
         requestId++
         closing = false
         sourceHidden = false
+        liveSourceBounds = request.sourceBounds
         this.request = request
     }
 
@@ -124,6 +127,10 @@ internal class EnvironmentStatusOverlayState internal constructor() {
         sourceHidden = false
         closing = false
         request = null
+    }
+
+    internal fun updateSourceBounds(bounds: Rect) {
+        if (bounds.width > 0f && bounds.height > 0f) liveSourceBounds = bounds
     }
 
     internal fun open(
@@ -207,8 +214,8 @@ internal fun EnvironmentStatusOverviewCard(
     var sourceBounds by remember { mutableStateOf(Rect.Zero) }
     val cardInteraction = remember { MutableInteractionSource() }
     val cardPressed by cardInteraction.collectIsPressedAsState()
-    val cardScale by animateFloatAsState(
-        targetValue = if (cardPressed && overlayState.request == null) 0.982f else 1f,
+    val cardAlpha by animateFloatAsState(
+        targetValue = if (cardPressed && overlayState.request == null) 0.96f else 1f,
         animationSpec = spring(dampingRatio = 0.80f, stiffness = 760f),
         label = "environment-card-press"
     )
@@ -217,13 +224,12 @@ internal fun EnvironmentStatusOverviewCard(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer {
-                scaleX = cardScale
-                scaleY = cardScale
-                alpha = if (overlayState.sourceHidden) 0f else 1f
+                alpha = if (overlayState.sourceHidden) 0f else cardAlpha
             }
             .onGloballyPositioned { coordinates ->
-                if (coordinates.isAttached && !overlayState.sourceHidden) {
+                if (coordinates.isAttached) {
                     sourceBounds = coordinates.boundsInWindow()
+                    overlayState.updateSourceBounds(sourceBounds)
                 }
             }
             .clip(RoundedCornerShape(26.dp))
@@ -249,38 +255,61 @@ internal fun EnvironmentStatusOverviewCard(
             },
         colors = CardDefaults.defaultColors(color = cardColor)
     ) {
-        Box(modifier = Modifier.fillMaxWidth().height(142.dp)) {
-            Column(modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 16.dp)) {
-                Text(statusTitle, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(3.dp))
-                Text(statusSubtitle, fontSize = 15.sp)
-            }
+        EnvironmentStatusCollapsedContent(
+            healthy = healthy,
+            accent = accent,
+            statusTitle = statusTitle,
+            statusSubtitle = statusSubtitle,
+            statusSummary = statusSummary,
+            modifier = Modifier.fillMaxWidth().height(142.dp)
+        )
+    }
+}
 
-            Icon(
-                painter = painterResource(if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline),
-                contentDescription = null,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(68.dp),
-                tint = accent
+@Composable
+private fun EnvironmentStatusCollapsedContent(
+    healthy: Boolean,
+    accent: Color,
+    statusTitle: String,
+    statusSubtitle: String,
+    statusSummary: String,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        Column(
+            modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 16.dp)
+        ) {
+            Text(statusTitle, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(3.dp))
+            Text(statusSubtitle, fontSize = 15.sp)
+        }
+
+        Icon(
+            painter = painterResource(
+                if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline
+            ),
+            contentDescription = null,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(68.dp),
+            tint = accent
+        )
+
+        Row(
+            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                statusSummary,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
             )
-
-            Row(
-                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    statusSummary,
-                    modifier = Modifier.weight(1f).padding(end = 12.dp),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    "詳情 ›",
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
+            Text(
+                "詳情 ›",
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
@@ -304,21 +333,37 @@ internal fun EnvironmentStatusOverlayHost(
     androidx.compose.runtime.LaunchedEffect(requestId, rootReady, state.closing) {
         if (!rootReady) return@LaunchedEffect
         if (state.closing) {
+            val duration = (330f * progress.value.coerceIn(0f, 1f))
+                .roundToInt().coerceAtLeast(1)
             progress.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(330, easing = EnvironmentMorphEasing)
+                animationSpec = tween(duration, easing = EnvironmentMorphEasing)
             )
+            // Restore the real source first. Keep the pixel-identical overlay
+            // endpoint mounted for a full overlap frame before unmounting it.
             state.returnVisualOwnership()
+            withFrameNanos { }
             overlayVisible = false
             withFrameNanos { }
             state.finishDismiss()
         } else {
-            overlayVisible = true
-            state.takeVisualOwnership()
-            withFrameNanos { }
+            if (!overlayVisible) {
+                progress.snapTo(0f)
+                overlayVisible = true
+                // One frame mounts/layouts progress=0; the second guarantees
+                // that endpoint has been presented before ownership changes.
+                withFrameNanos { }
+                withFrameNanos { }
+            }
+            if (!state.sourceHidden) {
+                state.takeVisualOwnership()
+                withFrameNanos { }
+            }
+            val duration = (390f * (1f - progress.value.coerceIn(0f, 1f)))
+                .roundToInt().coerceAtLeast(1)
             progress.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(390, easing = EnvironmentMorphEasing)
+                animationSpec = tween(duration, easing = EnvironmentMorphEasing)
             )
         }
     }
@@ -337,31 +382,22 @@ internal fun EnvironmentStatusOverlayHost(
     ) {
         if (!overlayVisible) return@BoxWithConstraints
 
-        val sourceBounds = latestRequest.sourceBounds
+        val sourceBounds = state.liveSourceBounds.takeIf {
+            it.width > 0f && it.height > 0f
+        } ?: latestRequest.sourceBounds
         val sourceLeftPx = sourceBounds.left - hostBounds.left
         val sourceTopPx = sourceBounds.top - hostBounds.top
         val sourceRightPx = sourceBounds.right - hostBounds.left
         val sourceBottomPx = sourceBounds.bottom - hostBounds.top
-        val sourceWidth = with(density) { sourceBounds.width.toDp() }
-        val sourceHeight = with(density) { sourceBounds.height.toDp() }
         val fraction = progress.value.coerceIn(0f, 1f)
         val corner = lerpDp(26.dp, 0.dp, fraction)
         val panelInteraction = remember { MutableInteractionSource() }
         val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val expandedTitleTop = statusInset + 22.dp
-        val titleStart = lerpDp(16.dp, 24.dp, fraction)
-        val titleTop = lerpDp(16.dp, expandedTitleTop, fraction)
-        val iconSize = lerpDp(68.dp, 46.dp, fraction)
-        val iconX = lerpDp(sourceWidth - 82.dp, maxWidth - 70.dp, fraction)
-        val iconY = lerpDp(14.dp, expandedTitleTop, fraction)
-        // Source-only and destination-only content deliberately overlap. The
-        // previous 0.52..0.58 dead zone left a large, almost empty green panel.
-        val summaryAlpha = 1f - smoothIntervalProgress(fraction, 0.22f, 0.66f)
-        val detailsAlpha = smoothIntervalProgress(fraction, 0.34f, 0.64f)
-        val actionsAlpha = smoothIntervalProgress(fraction, 0.60f, 0.86f)
-        val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
-        val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
+        // The two complete endpoint layers deliberately overlap. progress=0
+        // is the exact shared collapsed composable used by the real Card.
+        val collapsedAlpha = 1f - smoothIntervalProgress(fraction, 0.22f, 0.62f)
+        val expandedAlpha = smoothIntervalProgress(fraction, 0.34f, 0.68f)
 
         Layout(
             modifier = Modifier.fillMaxSize(),
@@ -377,141 +413,32 @@ internal fun EnvironmentStatusOverlayHost(
                             onClick = state::reopen
                         )
                 ) {
-                    Column(modifier = Modifier.offset(x = titleStart, y = titleTop)) {
-                        Text(
-                            latestRequest.statusTitle,
-                            fontSize = (22f + 7f * fraction).sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            latestRequest.statusSubtitle,
-                            fontSize = (15f + fraction).sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
-
-                    Icon(
-                        painter = painterResource(
-                            if (latestRequest.healthy) R.drawable.ic_check_circle_outline
-                            else R.drawable.ic_error_outline
-                        ),
-                        contentDescription = null,
-                        modifier = Modifier.offset(x = iconX, y = iconY).size(iconSize),
-                        tint = latestRequest.accent
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .offset(x = 16.dp, y = sourceHeight - 39.dp)
-                            .width((sourceWidth - 32.dp).coerceAtLeast(0.dp))
-                            .graphicsLayer { alpha = summaryAlpha },
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            latestRequest.statusSummary,
-                            modifier = Modifier.weight(1f).padding(end = 12.dp),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            "詳情 ›",
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    Column(
+                    EnvironmentStatusCollapsedContent(
+                        healthy = latestRequest.healthy,
+                        accent = latestRequest.accent,
+                        statusTitle = latestRequest.statusTitle,
+                        statusSubtitle = latestRequest.statusSubtitle,
+                        statusSummary = latestRequest.statusSummary,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(
-                                start = 24.dp,
-                                end = 24.dp,
-                                top = expandedTitleTop + 112.dp,
-                                bottom = navigationInset + 18.dp
-                            )
+                            .graphicsLayer { alpha = collapsedAlpha }
+                    )
+                    EnvironmentStatusExpandedContent(
+                        request = latestRequest,
+                        statusInset = statusInset,
+                        navigationInset = navigationInset,
+                        contentAlpha = expandedAlpha,
+                        actionsEnabled = fraction >= 0.98f,
+                        onDismiss = state::dismiss,
+                        modifier = Modifier
+                            .fillMaxSize()
                             .graphicsLayer {
-                                alpha = detailsAlpha
+                                alpha = expandedAlpha
                                 translationY = with(density) {
-                                    ((1f - detailsAlpha) * 18f).dp.toPx()
+                                    ((1f - expandedAlpha) * 12f).dp.toPx()
                                 }
                             }
-                    ) {
-                        Text(
-                            "環境與權限",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(detailSurface, RoundedCornerShape(22.dp))
-                                .padding(horizontal = 18.dp, vertical = 10.dp)
-                        ) {
-                            EnvironmentDetail("模組作用域", latestRequest.scopeStatus)
-                            EnvironmentDetail("Root 權限", latestRequest.rootStatus)
-                            EnvironmentDetail(
-                                "Limbus Company",
-                                if (latestRequest.gameInstalled) {
-                                    "已安裝 · " + latestRequest.gameVersion
-                                } else {
-                                    "未安裝"
-                                }
-                            )
-                        }
-
-                        Spacer(Modifier.height(24.dp))
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .graphicsLayer {
-                                    alpha = actionsAlpha
-                                    translationY = with(density) {
-                                        ((1f - actionsAlpha) * 14f).dp.toPx()
-                                    }
-                                }
-                        ) {
-                            Button(
-                                modifier = Modifier.fillMaxWidth().height(54.dp),
-                                enabled = actionsAlpha >= 0.98f,
-                                onClick = latestRequest.onCheckScope
-                            ) {
-                                Text("重新檢查模組作用域")
-                            }
-                            Spacer(Modifier.height(10.dp))
-                            TextButton(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(54.dp)
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(actionSurface),
-                                text = if (latestRequest.rootStatus == "正在請求") {
-                                    "正在檢查 Root…"
-                                } else {
-                                    "檢查 Root 權限"
-                                },
-                                enabled = actionsAlpha >= 0.98f &&
-                                    latestRequest.rootStatus != "正在請求",
-                                onClick = latestRequest.onRequestRoot
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            TextButton(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(54.dp)
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(actionSurface),
-                                text = "完成",
-                                enabled = actionsAlpha >= 0.98f,
-                                onClick = state::dismiss
-                            )
-                        }
-                    }
+                    )
                 }
             }
         ) { measurables, constraints ->
@@ -530,6 +457,117 @@ internal fun EnvironmentStatusOverlayHost(
             )
             layout(constraints.maxWidth, constraints.maxHeight) {
                 placeable.place(left, top)
+            }
+        }
+    }
+}
+
+@Composable
+private fun EnvironmentStatusExpandedContent(
+    request: EnvironmentOverlayRequest,
+    statusInset: Dp,
+    navigationInset: Dp,
+    contentAlpha: Float,
+    actionsEnabled: Boolean,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val titleTop = statusInset + 22.dp
+    val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
+    val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
+    val actionsAlpha = smoothIntervalProgress(contentAlpha, 0.42f, 0.88f)
+
+    Box(modifier = modifier) {
+        Column(modifier = Modifier.align(Alignment.TopStart).padding(start = 24.dp, top = titleTop)) {
+            Text(request.statusTitle, fontSize = 29.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                request.statusSubtitle,
+                fontSize = 16.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+        }
+
+        Icon(
+            painter = painterResource(
+                if (request.healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline
+            ),
+            contentDescription = null,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = titleTop, end = 24.dp).size(46.dp),
+            tint = request.accent
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = 24.dp,
+                    end = 24.dp,
+                    top = titleTop + 112.dp,
+                    bottom = navigationInset + 18.dp
+                )
+        ) {
+            Text(
+                "環境與權限",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            Spacer(Modifier.height(10.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(detailSurface, RoundedCornerShape(22.dp))
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                EnvironmentDetail("模組作用域", request.scopeStatus)
+                EnvironmentDetail("Root 權限", request.rootStatus)
+                EnvironmentDetail(
+                    "Limbus Company",
+                    if (request.gameInstalled) "已安裝 · " + request.gameVersion else "未安裝"
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { alpha = actionsAlpha }
+            ) {
+                Button(
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    enabled = actionsEnabled,
+                    onClick = request.onCheckScope
+                ) {
+                    Text("重新檢查模組作用域")
+                }
+                Spacer(Modifier.height(10.dp))
+                TextButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(actionSurface),
+                    text = if (request.rootStatus == "正在請求") {
+                        "正在檢查 Root…"
+                    } else {
+                        "檢查 Root 權限"
+                    },
+                    enabled = actionsEnabled && request.rootStatus != "正在請求",
+                    onClick = request.onRequestRoot
+                )
+                Spacer(Modifier.height(10.dp))
+                TextButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(actionSurface),
+                    text = "完成",
+                    enabled = actionsEnabled,
+                    onClick = onDismiss
+                )
             }
         }
     }
