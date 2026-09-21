@@ -344,7 +344,14 @@ class MainActivity : ComponentActivity() {
         fun navigateTo(target: Int) {
             val topIndex = topPages.indexOf(target)
             if (topIndex >= 0) {
-                if (topIndex == topNavigationTarget && page in topPages) return
+                val pagerSettledAtTarget =
+                    pagerState.settledPage == topIndex &&
+                        pagerState.currentPageOffsetFraction == 0f
+                if (
+                    topIndex == topNavigationTarget &&
+                    page in topPages &&
+                    pagerSettledAtTarget
+                ) return
                 topNavigationTarget = topIndex
                 topNavigationTransaction += 1
             }
