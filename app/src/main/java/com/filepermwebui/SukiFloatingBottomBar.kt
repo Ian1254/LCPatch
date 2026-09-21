@@ -218,7 +218,8 @@ internal fun SukiFloatingBottomBar(
 
     // Gesture and same-page settle keep fixed-width geometry. Cross-page
     // release immediately hands the rendered edges to the Pager-driven motion
-    // segment, so there is no stationary catch-up phase.
+    // segment, so there is no stationary catch-up phase. NavigationRow reads
+    // the same segment-mapped visualPosition as the selector container.
     val gestureOwnsGeometry = gestureActive || dragging || releaseSettling
     val selectorMotionLeftPx = when {
         dragging -> paddingPx + dragPosition * itemWidthPx
