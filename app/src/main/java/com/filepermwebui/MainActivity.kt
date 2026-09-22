@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
@@ -83,6 +84,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -167,8 +169,7 @@ class MainActivity : ComponentActivity() {
         var topNavigationTarget by rememberSaveable { mutableIntStateOf(pagerState.currentPage) }
         var topNavigationTransaction by rememberSaveable { mutableIntStateOf(0) }
         var revision by remember { mutableIntStateOf(0) }
-        var message by taskState.message
-        var messageIsError by taskState.messageIsError
+        var notice by taskState.notice
         var latestRelease by taskState.latestRelease
         var checkingUpdate by taskState.checkingUpdate
         var updateProgress by taskState.updateProgress
@@ -181,6 +182,8 @@ class MainActivity : ComponentActivity() {
         var applying by taskState.applying
         var processingPackPath by taskState.processingPackPath
         var applyingPackPath by taskState.applyingPackPath
+        var installingEntryKey by taskState.installingEntryKey
+        var changingTargetLanguage by taskState.changingTargetLanguage
         var downloadedPacks by remember { mutableStateOf<List<DownloadedTranslation>>(emptyList()) }
         var activeName by remember { mutableStateOf(translations.activeName()) }
         var activeScript by remember { mutableStateOf(translations.activeScript()) }
@@ -255,9 +258,9 @@ class MainActivity : ComponentActivity() {
             if (uri != null) {
                 try {
                     logs.setSelectedFolder(uri)
-                    message = "已更新診斷文件儲存位置"
+                    taskState.success("診斷文件位置已更新")
                 } catch (error: Throwable) {
-                    message = "無法保存資料夾授權：${error.message}"
+                    taskState.error("無法保存資料夾授權：${error.message}")
                 }
                 revision++
             }
@@ -265,15 +268,15 @@ class MainActivity : ComponentActivity() {
         val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) scope.launch {
                 runCatching { withContext(Dispatchers.IO) { translations.setCustomFont(uri, contentName(uri)) } }
-                    .onSuccess { fontName = translations.fontName(); message = "已選擇字體：$fontName" }
-                    .onFailure { message = "字體匯入失敗：${it.message}" }
+                    .onSuccess { fontName = translations.fontName(); taskState.success("字體已更新") }
+                    .onFailure { taskState.error("字體匯入失敗：${it.message}") }
             }
         }
         val customPackPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) scope.launch {
                 runCatching { translations.importCustom(uri, contentName(uri)) }
-                    .onSuccess { downloadedPacks = translations.downloaded(); message = "已匯入 ${it.name}" }
-                    .onFailure { message = "漢化匯入失敗：${it.message}" }
+                    .onSuccess { downloadedPacks = translations.downloaded(); taskState.success("已匯入 ${it.name}") }
+                    .onFailure { taskState.error("漢化匯入失敗：${it.message}") }
             }
         }
         DisposableEffect(Unit) {
@@ -301,10 +304,10 @@ class MainActivity : ComponentActivity() {
             if (page == DOWNLOAD && catalog.isEmpty() && !catalogLoading) refreshCatalog()
             if (page == DOWNLOADED || page == CONVERSION) downloadedPacks = translations.downloaded()
         }
-        LaunchedEffect(message, messageIsError) {
-            if (message != null && !messageIsError) {
-                delay(6000)
-                message = null
+        LaunchedEffect(notice) {
+            if (notice != null && notice?.kind != UiNoticeKind.Error) {
+                delay(2800)
+                taskState.dismissNotice()
             }
         }
         suspend fun refreshScopeStatus() {
@@ -319,7 +322,7 @@ class MainActivity : ComponentActivity() {
         fun checkScopeStatus() {
             scope.launch {
                 refreshScopeStatus()
-                message = "模組狀態已更新"
+                taskState.info("模組狀態已更新")
             }
         }
         fun checkRootStatus() {
@@ -328,7 +331,8 @@ class MainActivity : ComponentActivity() {
             scope.launch {
                 val granted = withContext(Dispatchers.IO) { requestRoot() }
                 rootStatus = if (granted) "已授權" else "未取得授權"
-                message = if (granted) "Root 權限已授予" else "未取得 Root 權限，套用漢化時將無法寫入遊戲資料"
+                if (granted) taskState.success("Root 權限已授予")
+                else taskState.error("未取得 Root 權限，套用漢化時將無法寫入遊戲資料")
             }
         }
         LaunchedEffect(Unit) { refreshCatalog() }
@@ -370,6 +374,7 @@ class MainActivity : ComponentActivity() {
             targetLanguage = language
             translations.setTargetLanguage(language)
             applying = true
+            changingTargetLanguage = true
             applyProgress = ApplyProgress("正在切換覆蓋語言", 0, 1)
             taskState.launchTask {
                 runCatching {
@@ -384,15 +389,16 @@ class MainActivity : ComponentActivity() {
                     activePack != null
                 }.onSuccess {
                     activeScript = translations.activeScript()
-                    message = if (!it) {
-                        "已將覆蓋語言設為 ${language.label}，套用漢化時生效"
+                    taskState.success(if (!it) {
+                        "覆蓋語言已設為 ${language.label}"
                     } else {
-                        "已改為覆蓋 ${language.label}，請重新啟動遊戲"
-                    }
+                        "已更新，重啟遊戲後生效"
+                    })
                 }.onFailure {
-                    message = "切換覆蓋語言失敗：${it.message}"
+                    taskState.error("切換覆蓋語言失敗：${it.message}")
                 }
                 applying = false
+                changingTargetLanguage = false
                 applyProgress = null
             }
         }
@@ -458,6 +464,7 @@ class MainActivity : ComponentActivity() {
         installTranslation = { entry ->
             if (transfer?.finished != false && !applying) {
                 taskState.clearError()
+                installingEntryKey = entry.url
                 transfer = TransferProgress(entry.name, 0, -1, 0)
                 taskState.launchTask {
                     try {
@@ -477,7 +484,7 @@ class MainActivity : ComponentActivity() {
                         activeScript = translations.activeScript()
                         downloadedPacks = translations.downloaded()
                         transfer = null
-                        taskState.success("已下載並套用 " + activeName + "，請重新啟動遊戲")
+                        taskState.success("已套用，重啟遊戲後生效")
                     } catch (error: Throwable) {
                         transfer = null
                         taskState.error(
@@ -492,6 +499,7 @@ class MainActivity : ComponentActivity() {
                     } finally {
                         applying = false
                         applyProgress = null
+                        installingEntryKey = null
                     }
                 }
             }
@@ -551,8 +559,8 @@ class MainActivity : ComponentActivity() {
                                 onTranslationEnabled = { enabled ->
                                     scope.launch {
                                         runCatching { translations.setTranslationEnabled(enabled) }
-                                            .onSuccess { translationEnabled = enabled; message = "漢化已${if (enabled) "啟用" else "停用"}，請重新啟動遊戲" }
-                                            .onFailure { message = "切換失敗：${it.message}" }
+                                            .onSuccess { translationEnabled = enabled; taskState.success("設定已更新，重啟遊戲後生效") }
+                                            .onFailure { taskState.error("切換失敗：${it.message}") }
                                     }
                                 },
                                 targetLanguage = targetLanguage,
@@ -563,6 +571,7 @@ class MainActivity : ComponentActivity() {
                             SETTINGS -> settings(
                                 applyProgress = applyProgress,
                                 applying = applying,
+                                changingTargetLanguage = changingTargetLanguage,
                                 onFolder = { folderPicker.launch(logs.selectedFolder()) },
                                 onAbout = { navigateTo(ABOUT) },
                                 onUpdate = { navigateTo(UPDATE) },
@@ -572,21 +581,21 @@ class MainActivity : ComponentActivity() {
                                 fontName = fontName,
                                 onLanguage = ::changeTargetLanguage,
                                 onFont = { fontPicker.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream")) },
-                                onClearFont = { translations.clearCustomFont(); fontName = translations.fontName(); message = "已改回漢化包內字體" },
+                                onClearFont = { translations.clearCustomFont(); fontName = translations.fontName(); taskState.success("已改回漢化包內字體") },
                                 onImport = { customPackPicker.launch(arrayOf("application/zip", "application/octet-stream")) },
-                                onReset = { logs.resetSelectedFolder(); revision++; message = "已改回預設暫存位置" }
+                                onReset = { logs.resetSelectedFolder(); revision++; taskState.success("已改回預設暫存位置") }
                             )
                             LOGS -> logPage(
                                 events,
                                 save = {
-                                    try { message = "診斷文件已儲存：${logs.saveDiagnostic(events).lastPathSegment}" }
-                                    catch (error: Throwable) { message = "儲存失敗：${error.message}" }
+                                    try { logs.saveDiagnostic(events); taskState.success("診斷文件已儲存") }
+                                    catch (error: Throwable) { taskState.error("儲存失敗：${error.message}") }
                                 },
                                 share = {
                                     try { startActivity(logs.shareIntent(events)) }
-                                    catch (error: Throwable) { message = "分享失敗：${error.message}" }
+                                    catch (error: Throwable) { taskState.error("分享失敗：${error.message}") }
                                 },
-                                clear = { logs.clear(); revision++; message = "日誌已清除" }
+                                clear = { logs.clear(); revision++; taskState.success("日誌已清除") }
                             )
                             ABOUT -> aboutPage(game)
                             UPDATE -> updatePage(
@@ -629,6 +638,7 @@ class MainActivity : ComponentActivity() {
                                 transfer,
                                 applyProgress,
                                 applying,
+                                installingEntryKey,
                                 refresh = ::refreshCatalog,
                                 install = installTranslation
                             )
@@ -645,7 +655,7 @@ class MainActivity : ComponentActivity() {
                                         processingPackPath = pack.path
                                         taskState.launchTask {
                                             runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
-                                                .onSuccess { result ->
+                                                .onSuccess {
                                                     val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
                                                     downloadedPacks = translations.downloaded().map {
                                                         if (it.path == pack.path) it.copy(script = newScript) else it
@@ -656,17 +666,17 @@ class MainActivity : ComponentActivity() {
                                                         }
                                                         activeScript = translations.activeScript()
                                                     }
-                                                    message = "${pack.name} ${conversion.label}完成：已掃描 ${result.scannedFiles} 個，內容有變更 ${result.changedFiles} 個${if (pack.name == activeName) "，已重新套用；請重新啟動遊戲" else ""}"
+                                                    taskState.success(if (pack.name == activeName) "轉換完成，重啟遊戲後生效" else "轉換完成")
                                                 }
                                                 .onFailure {
                                                     android.util.Log.e("LCPatch", "Text conversion failed", it)
-                                                    message = "轉換失敗：${it.message}"
+                                                    taskState.error("轉換失敗：${it.message}")
                                                 }
                                             applying = false
                                             applyProgress = null
                                             processingPackPath = null
                                         }
-                                    } else message = "請等待目前的漢化處理完成"
+                                    } else taskState.info("請等待目前的漢化處理完成")
                                 }
                             ) { pack ->
                                 if (!applying) {
@@ -674,8 +684,8 @@ class MainActivity : ComponentActivity() {
                                     applyingPackPath = pack.path
                                     taskState.launchTask {
                                         runCatching { translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
-                                            .onSuccess { activeName = it; activeScript = translations.activeScript(); message = "已套用 $it，請重新啟動遊戲" }
-                                            .onFailure { message = "套用失敗：${it.message}" }
+                                            .onSuccess { activeName = it; activeScript = translations.activeScript(); taskState.success("已套用，重啟遊戲後生效") }
+                                            .onFailure { taskState.error("套用失敗：${it.message}") }
                                         applying = false
                                         applyingPackPath = null
                                         applyProgress = null
@@ -688,7 +698,7 @@ class MainActivity : ComponentActivity() {
                                     processingPackPath = pack.path
                                     taskState.launchTask {
                                         runCatching { translations.convertDownloaded(pack, conversion) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
-                                            .onSuccess { result ->
+                                            .onSuccess {
                                                 val newScript = if (conversion.id == "traditional") "繁體" else "簡體"
                                                 downloadedPacks = translations.downloaded().map {
                                                     if (it.path == pack.path) it.copy(script = newScript) else it
@@ -699,17 +709,17 @@ class MainActivity : ComponentActivity() {
                                                     }
                                                     activeScript = translations.activeScript()
                                                 }
-                                                message = "${pack.name} ${conversion.label}完成：已掃描 ${result.scannedFiles} 個，內容有變更 ${result.changedFiles} 個${if (pack.name == activeName) "，已重新套用；請重新啟動遊戲" else ""}"
+                                                taskState.success(if (pack.name == activeName) "轉換完成，重啟遊戲後生效" else "轉換完成")
                                             }
                                             .onFailure {
                                                 android.util.Log.e("LCPatch", "Text conversion failed", it)
-                                                message = "轉換失敗：${it.message}"
+                                                taskState.error("轉換失敗：${it.message}")
                                             }
                                         applying = false
                                         applyProgress = null
                                         processingPackPath = null
                                     }
-                                } else message = "請等待目前的漢化處理完成"
+                                } else taskState.info("請等待目前的漢化處理完成")
                             }
                         }
                     }
@@ -719,19 +729,23 @@ class MainActivity : ComponentActivity() {
 
         val renderNotice: @Composable (PaddingValues) -> Unit = { padding ->
             Box(Modifier.fillMaxSize()) {
-                message?.let { notice ->
-                    Card(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(start = 18.dp, end = 18.dp, bottom = padding.calculateBottomPadding() + 14.dp),
-                        insideMargin = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-                        colors = CardDefaults.defaultColors(
-                            color = if (messageIsError) MiuixTheme.colorScheme.error.copy(alpha = 0.14f)
-                            else MiuixTheme.colorScheme.surfaceContainer
+                notice?.let { currentNotice ->
+                    val noticeModifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(
+                            start = 18.dp,
+                            end = 18.dp,
+                            bottom = padding.calculateBottomPadding() + 22.dp
                         )
-                    ) {
-                        Text(notice, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        if (messageIsError) {
+                    if (currentNotice.kind == UiNoticeKind.Error) {
+                        Card(
+                            modifier = noticeModifier,
+                            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                            colors = CardDefaults.defaultColors(
+                                color = MiuixTheme.colorScheme.error.copy(alpha = 0.14f)
+                            )
+                        ) {
+                            Text(currentNotice.message, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                             Spacer(Modifier.height(10.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -755,6 +769,19 @@ class MainActivity : ComponentActivity() {
                                     onClick = taskState::dismissNotice
                                 )
                             }
+                        }
+                    } else {
+                        Box(
+                            modifier = noticeModifier
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(MiuixTheme.colorScheme.surfaceContainer)
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                currentNotice.message,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
@@ -958,35 +985,28 @@ class MainActivity : ComponentActivity() {
     private fun LazyListScope.settings(
         onFolder: () -> Unit, onAbout: () -> Unit, onUpdate: () -> Unit,
         onDisplay: () -> Unit, onConversion: () -> Unit, targetLanguage: OverrideLanguage,
-        applyProgress: ApplyProgress?, applying: Boolean,
+        applyProgress: ApplyProgress?, applying: Boolean, changingTargetLanguage: Boolean,
         fontName: String, onLanguage: (OverrideLanguage) -> Unit,
         onFont: () -> Unit, onClearFont: () -> Unit, onImport: () -> Unit, onReset: () -> Unit
     ) {
-        applyProgress?.let { value ->
-            item {
-                Card(insideMargin = PaddingValues(18.dp), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                    Text(value.stage, style = MiuixTheme.textStyles.title2)
-                    Spacer(Modifier.height(10.dp))
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = value.fraction)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        if (value.total > 0) "${value.current} / ${value.total} 個文件" else "正在準備…",
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                }
-            }
-        }
         item { SectionLabel("漢化") }
         item {
             Card {
                 OverlayDropdownPreference(
-                    title = "覆蓋語言文件",
+                    title = if (changingTargetLanguage) "正在切換覆蓋語言…" else "覆蓋語言文件",
                     modifier = PreferenceItemModifier,
                     enabled = !applying,
                     items = TranslationRepository.LANGUAGES.map { it.label },
                     selectedIndex = TranslationRepository.LANGUAGES.indexOf(targetLanguage).coerceAtLeast(0),
                     onSelectedIndexChange = { index -> TranslationRepository.LANGUAGES.getOrNull(index)?.let(onLanguage) }
                 )
+                if (changingTargetLanguage) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                        progress = applyProgress?.fraction
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 ArrowPreference(modifier = PreferenceItemModifier, title = "繁簡轉換", summary = "轉換已下載漢化目錄內的 JSON 文件", onClick = onConversion)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "匯入自訂漢化文件", summary = "從本機加入 ZIP 漢化包", onClick = onImport)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "更換字體", summary = fontName, onClick = onFont)
@@ -1133,19 +1153,6 @@ class MainActivity : ComponentActivity() {
                     color = if (newer || updateReady) MiuixTheme.colorScheme.primary
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
-                updateProgress?.let { progress ->
-                    val fraction = if (progress.total > 0) {
-                        (progress.bytes.toFloat() / progress.total).coerceIn(0f, 1f)
-                    } else null
-                    Spacer(Modifier.height(10.dp))
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = fraction)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        formatBytes(progress.bytes) +
-                            if (progress.total > 0) " / " + formatBytes(progress.total) else "",
-                        fontSize = 13.sp
-                    )
-                }
                 if (newer && !release?.notes.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))
                     Text(
@@ -1159,11 +1166,20 @@ class MainActivity : ComponentActivity() {
                     updateReady -> Button(modifier = Modifier.fillMaxWidth(), onClick = installUpdate) {
                         Text("安裝更新")
                     }
-                    newer -> Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = updateProgress == null,
-                        onClick = downloadUpdate
-                    ) { Text(if (updateProgress == null) "下載更新" else "正在下載…") }
+                    newer -> {
+                        val fraction = updateProgress?.let { progress ->
+                            progress.total.takeIf { it > 0 }?.let {
+                                (progress.bytes.toFloat() / it).coerceIn(0f, 1f)
+                            }
+                        }
+                        ProgressActionButton(
+                            text = if (updateProgress == null) "下載更新"
+                                else progressDownloadLabel(fraction),
+                            progress = fraction,
+                            busy = updateProgress != null,
+                            onClick = downloadUpdate
+                        )
+                    }
                     else -> TextButton(
                         modifier = Modifier.fillMaxWidth(),
                         text = if (checkingUpdate) "正在檢查…" else "檢查更新",
@@ -1213,6 +1229,54 @@ class MainActivity : ComponentActivity() {
             Text(label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary); Text(value)
         }
         Spacer(Modifier.height(6.dp))
+    }
+
+    @Composable
+    private fun ProgressActionButton(
+        text: String,
+        progress: Float? = null,
+        busy: Boolean = false,
+        enabled: Boolean = true,
+        onClick: () -> Unit
+    ) {
+        val shape = RoundedCornerShape(16.dp)
+        val primary = MiuixTheme.colorScheme.primary
+        val fraction = progress?.coerceIn(0f, 1f)
+        val trackColor = when {
+            busy -> primary.copy(alpha = 0.16f)
+            enabled -> primary
+            else -> MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.72f)
+        }
+        val textColor = when {
+            !enabled && !busy -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+            primary.luminance() > 0.56f -> Color(0xFF151518)
+            else -> Color.White
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp)
+                .clip(shape)
+                .background(trackColor)
+                .clickable(enabled = enabled && !busy, onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            if (busy && fraction != null && fraction > 0f) {
+                Box(
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .fillMaxWidth(fraction)
+                        .background(primary)
+                )
+            }
+            Text(
+                text = text,
+                color = textColor,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 
     @Composable private fun InfoCard(title: String, body: String, translucent: Boolean = false) {
@@ -1314,7 +1378,8 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.downloadPage(
         entries: List<TranslationEntry>, loading: Boolean, error: String?, transfer: TransferProgress?,
-        applyProgress: ApplyProgress?, applying: Boolean, refresh: () -> Unit, install: (TranslationEntry) -> Unit
+        applyProgress: ApplyProgress?, applying: Boolean, installingEntryKey: String?,
+        refresh: () -> Unit, install: (TranslationEntry) -> Unit
     ) {
         item {
             Card(insideMargin = PaddingValues(18.dp)) {
@@ -1324,35 +1389,36 @@ class MainActivity : ComponentActivity() {
                 if (!loading) { Spacer(Modifier.height(8.dp)); TextButton(modifier = Modifier.fillMaxWidth(), text = "重新整理", onClick = refresh) }
             }
         }
-        transfer?.let { value ->
-            item {
-                Card(insideMargin = PaddingValues(18.dp)) {
-                    val fraction = if (value.total > 0) (value.bytes.toFloat() / value.total).coerceIn(0f, 1f) else null
-                    Text(if (applying) "正在套用 ${value.name}" else if (value.finished) "下載完成，準備套用" else "正在下載 ${value.name}", style = MiuixTheme.textStyles.title2)
-                    Spacer(Modifier.height(10.dp))
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = fraction)
-                    Spacer(Modifier.height(8.dp))
-                    Text(if (value.finished) formatBytes(value.bytes) else "${if (fraction != null) "${(fraction * 100).toInt()}% · " else ""}${formatBytes(value.bytes)}${if (value.total > 0) " / ${formatBytes(value.total)}" else ""} · ${formatBytes(value.bytesPerSecond)}/s", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-        }
-        applyProgress?.let { value ->
-            item {
-                Card(insideMargin = PaddingValues(18.dp), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                    Text(value.stage, style = MiuixTheme.textStyles.title2)
-                    Spacer(Modifier.height(10.dp))
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = value.fraction)
-                    Spacer(Modifier.height(8.dp))
-                    Text(if (value.total > 0) "${value.current} / ${value.total} 個文件" else "正在準備…", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-        }
         items(entries) { entry ->
             Card(insideMargin = PaddingValues(18.dp)) {
                 Text(entry.name, style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.height(4.dp)); Text("${entry.author} · ${entry.section}", color = MiuixTheme.colorScheme.primary)
                 Spacer(Modifier.height(6.dp)); Text(entry.description, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(12.dp)); Button(modifier = Modifier.fillMaxWidth(), enabled = transfer?.finished != false && !applying, onClick = { install(entry) }) { Text("下載並套用") }
+                Spacer(Modifier.height(12.dp))
+                val ownsTask = installingEntryKey == entry.url
+                val downloadFraction = transfer?.takeIf { ownsTask }?.let { value ->
+                    value.total.takeIf { it > 0 }?.let {
+                        (value.bytes.toFloat() / it).coerceIn(0f, 1f)
+                    }
+                }
+                val postDownload = ownsTask && (transfer?.finished == true || applyProgress != null || applying)
+                val buttonProgress = when {
+                    postDownload -> 1f
+                    ownsTask -> downloadFraction
+                    else -> null
+                }
+                val buttonText = when {
+                    !ownsTask -> "下載並套用"
+                    postDownload -> progressStageLabel(applyProgress?.stage)
+                    else -> progressDownloadLabel(downloadFraction)
+                }
+                ProgressActionButton(
+                    text = buttonText,
+                    progress = buttonProgress,
+                    busy = ownsTask,
+                    enabled = installingEntryKey == null && transfer?.finished != false && !applying,
+                    onClick = { install(entry) }
+                )
             }
         }
     }
@@ -1363,15 +1429,6 @@ class MainActivity : ComponentActivity() {
         convert: (DownloadedTranslation, TextConversion) -> Unit,
         apply: (DownloadedTranslation) -> Unit
     ) {
-        applyProgress?.takeIf { processingPackPath == null }?.let { value ->
-            item {
-                Card(insideMargin = PaddingValues(18.dp), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                    Text(value.stage, style = MiuixTheme.textStyles.title2)
-                    Spacer(Modifier.height(10.dp)); LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = value.fraction)
-                    Spacer(Modifier.height(8.dp)); Text(if (value.total > 0) "${value.current} / ${value.total} 個文件" else "正在準備…", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-        }
         if (entries.isEmpty()) {
             item { InfoCard("尚無已下載漢化", "請先從「下載漢化」取得漢化包。下載完成後會預設立即套用，也會保留在此供日後切換。") }
         } else {
@@ -1397,7 +1454,14 @@ class MainActivity : ComponentActivity() {
                         processingPackPath == entry.path -> "正在轉換…"
                         else -> "套用此漢化"
                     }
-                    Button(modifier = Modifier.fillMaxWidth(), enabled = !active && !applying, onClick = { apply(entry) }) { Text(buttonText) }
+                    val applyBusy = applyingPackPath == entry.path
+                    ProgressActionButton(
+                        text = buttonText,
+                        progress = applyProgress?.fraction?.takeIf { applyBusy },
+                        busy = applyBusy,
+                        enabled = !active && !applying,
+                        onClick = { apply(entry) }
+                    )
                     Spacer(Modifier.height(6.dp))
                     OverlayDropdownPreference(
                         modifier = PreferenceItemModifier,
@@ -1439,20 +1503,6 @@ class MainActivity : ComponentActivity() {
         processingPackPath: String?,
         convert: (DownloadedTranslation, TextConversion) -> Unit
     ) {
-        progress?.takeIf { processingPackPath == null }?.let { value ->
-            item {
-                Card(insideMargin = PaddingValues(18.dp), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                    Text(value.stage, style = MiuixTheme.textStyles.title2)
-                    Spacer(Modifier.height(10.dp))
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = value.fraction)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        if (value.total > 0) "${value.current} / ${value.total} 個文件" else "正在掃描漢化目錄…",
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                }
-            }
-        }
         if (entries.isEmpty()) {
             item { InfoCard("尚無可轉換的漢化", "請先下載或匯入漢化。下載完成後，漢化會先解壓到 /sdcard/LCPatch/漢化 的獨立目錄。") }
         } else {
@@ -1512,6 +1562,16 @@ class MainActivity : ComponentActivity() {
 }
 
 private data class GameInfo(val installed: Boolean, val version: String, val versionCode: Long)
+private fun progressDownloadLabel(progress: Float?): String =
+    progress?.let { "正在下載 ${(it.coerceIn(0f, 1f) * 100).roundToInt()}%" } ?: "正在下載…"
+
+private fun progressStageLabel(stage: String?): String = when {
+    stage == null -> "正在準備…"
+    "套用" in stage -> "正在套用…"
+    "準備" in stage || "解壓" in stage || "掃描" in stage -> "正在準備…"
+    else -> "正在處理…"
+}
+
 private fun formatBytes(value: Long): String = when {
     value < 1024 -> "$value B"
     value < 1024 * 1024 -> "%.1f KB".format(value / 1024.0)
