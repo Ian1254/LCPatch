@@ -3,7 +3,6 @@ package com.lcpatch
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -35,12 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -59,16 +53,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.BackdropEffectScope
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.InnerShadow
-import com.kyant.backdrop.shadow.Shadow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
@@ -132,10 +118,6 @@ internal fun SukiFloatingBottomBar(
     val press = remember { Animatable(0f, 0.001f) }
     val releaseSettle = remember { Animatable(safePagePosition, 0.001f) }
 
-    // Preserve beta.20's glass ownership: page -> container -> selector -> glyphs.
-    val containerBackdrop = rememberLayerBackdrop()
-    val combinedBackdrop = backdrop?.let { rememberCombinedBackdrop(it, containerBackdrop) }
-
     var dragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(safePagePosition) }
     var releaseSettling by remember { mutableStateOf(false) }
@@ -145,13 +127,11 @@ internal fun SukiFloatingBottomBar(
     var gestureStartLeftPx by remember { mutableFloatStateOf(0f) }
     var gestureStartRightPx by remember { mutableFloatStateOf(0f) }
     var pressOnSelector by remember { mutableStateOf(false) }
-    var touchX by remember { mutableFloatStateOf((safeCurrent + 0.5f) * ItemWidthDp) }
-
-    val containerColor = if (dark) Color(0xFF141417).copy(alpha = 0.34f)
-        else Color.White.copy(alpha = 0.34f)
-    val fallbackColor = if (dark) Color(0xE6222226) else Color(0xEAF5F5F7)
-    val edgeColor = if (dark) Color.White.copy(alpha = 0.24f)
-        else Color.White.copy(alpha = 0.72f)
+    val containerColor = if (dark) Color(0xFF141417).copy(alpha = 0.54f)
+        else Color.White.copy(alpha = 0.58f)
+    val fallbackColor = if (dark) Color(0xEA222226) else Color(0xEEF5F5F7)
+    val selectorColor = if (dark) Color.White.copy(alpha = 0.12f)
+        else Color.Black.copy(alpha = 0.08f)
     val textColor = if (dark) Color.White else Color(0xFF151518)
     val mutedColor = textColor.copy(alpha = 0.58f)
     val itemWidthPx = with(density) { ItemWidthDp.dp.toPx() }
@@ -268,44 +248,16 @@ internal fun SukiFloatingBottomBar(
         }
     }
 
-    val containerEffects: BackdropEffectScope.() -> Unit = remember {
-        { vibrancy(); blur(8.dp.toPx()); lens(24.dp.toPx(), 20.dp.toPx()) }
-    }
-    val containerSurface: DrawScope.() -> Unit = remember(containerColor) {
-        { drawRect(containerColor) }
-    }
-    val selectorEffects: BackdropEffectScope.() -> Unit = remember {
-        {
-            val p = if (pressOnSelector) press.value else 0f
-            lens(
-                refractionHeight = 10.dp.toPx() + 8.dp.toPx() * p,
-                refractionAmount = 10.dp.toPx() + 10.dp.toPx() * p,
-                chromaticAberration = false
-            )
-        }
-    }
-    val selectorSurface: DrawScope.() -> Unit = remember(dark) {
-        {
-            val p = if (pressOnSelector) press.value else 0f
-            drawRect(
-                if (dark) Color.White.copy(alpha = 0.08f - 0.03f * p)
-                else Color.Black.copy(alpha = 0.055f - 0.025f * p)
-            )
-        }
-    }
-
     Box(
         Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        val glassModifier = if (backdrop != null) {
+        val surfaceModifier = if (backdrop != null) {
             Modifier.drawBackdrop(
                 backdrop = backdrop,
                 shape = { CircleShape },
-                effects = containerEffects,
-                exportedBackdrop = containerBackdrop,
-                highlight = { Highlight.Default.copy(alpha = 0.25f + 0.35f * press.value) },
-                onDrawSurface = containerSurface
+                effects = { blur(8.dp.toPx()) },
+                onDrawSurface = { drawRect(containerColor) }
             )
         } else {
             Modifier.background(fallbackColor, CircleShape)
@@ -315,30 +267,8 @@ internal fun SukiFloatingBottomBar(
             Modifier
                 .width(BarWidthDp.dp)
                 .height(BarHeightDp.dp)
-                .then(glassModifier)
-                .border(0.55.dp, edgeColor, CircleShape)
+                .then(surfaceModifier)
                 .clip(CircleShape)
-                .drawWithContent {
-                    drawContent()
-                    val p = press.value
-                    if (p > 0f) {
-                        val center = Offset(touchX.dp.toPx(), size.height / 2f)
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = 0.14f * p),
-                                    Color.White.copy(alpha = 0.045f * p),
-                                    Color.Transparent
-                                ),
-                                center = center,
-                                radius = size.width * 0.56f
-                            ),
-                            center = center,
-                            radius = size.width * 0.56f,
-                            blendMode = BlendMode.Plus
-                        )
-                    }
-                }
         ) {
             val pressExpansion = with(density) { (1.4f * selectorPress).dp.toPx() }
             val selectorLeft = selectorMotionLeftPx - pressExpansion
@@ -350,31 +280,9 @@ internal fun SukiFloatingBottomBar(
                 modifier = Modifier.fillMaxSize(),
                 content = {
                     Box(
-                        if (combinedBackdrop != null) {
-                            Modifier.fillMaxSize().drawBackdrop(
-                                backdrop = combinedBackdrop,
-                                shape = { CircleShape },
-                                downsampleScale = 1f,
-                                effects = selectorEffects,
-                                highlight = { Highlight.Default.copy(alpha = 0.18f + 0.72f * selectorPress) },
-                                shadow = { Shadow(alpha = 0.12f + 0.28f * selectorPress) },
-                                innerShadow = {
-                                    InnerShadow(
-                                        radius = 6.dp + 3.dp * selectorPress,
-                                        alpha = 0.18f + 0.42f * selectorPress
-                                    )
-                                },
-                                onDrawSurface = selectorSurface
-                            )
-                        } else {
-                            Modifier
-                                .fillMaxSize()
-                                .background(
-                                    if (dark) Color(0x663F3F45) else Color(0x66FFFFFF),
-                                    CircleShape
-                                )
-                                .border(0.55.dp, edgeColor, CircleShape)
-                        }
+                        Modifier
+                            .fillMaxSize()
+                            .background(selectorColor, CircleShape)
                     )
                 }
             ) { measurables, constraints ->
@@ -419,8 +327,6 @@ internal fun SukiFloatingBottomBar(
                         releaseSettleJob = null
                         releaseSettling = false
                         dragging = false
-                        touchX = with(density) { down.position.x.toDp().value }
-
                         val downIndex = floor(
                             (down.position.x - paddingPx) / itemWidthPx
                         ).toInt().coerceIn(0, ItemCount - 1)
@@ -440,7 +346,6 @@ internal fun SukiFloatingBottomBar(
                                 cancelled = true
                                 break
                             }
-                            touchX = with(density) { change.position.x.toDp().value }
                             val totalDx = change.position.x - down.position.x
                             if (
                                 startedOnSelector &&

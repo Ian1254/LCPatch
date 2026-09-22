@@ -8,6 +8,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
 
+enum class UiNoticeKind { Info, Success, Error }
+
+data class UiNotice(
+    val message: String,
+    val kind: UiNoticeKind
+)
+
 /** Keeps long-running translation UI state alive across Activity recreation. */
 class MainTaskViewModel : ViewModel() {
     val transfer = mutableStateOf<TransferProgress?>(null)
@@ -15,8 +22,9 @@ class MainTaskViewModel : ViewModel() {
     val applying = mutableStateOf(false)
     val processingPackPath = mutableStateOf<String?>(null)
     val applyingPackPath = mutableStateOf<String?>(null)
-    val message = mutableStateOf<String?>(null)
-    val messageIsError = mutableStateOf(false)
+    val installingEntryKey = mutableStateOf<String?>(null)
+    val changingTargetLanguage = mutableStateOf(false)
+    val notice = mutableStateOf<UiNotice?>(null)
     val latestRelease = mutableStateOf<AppRelease?>(null)
     val checkingUpdate = mutableStateOf(false)
     val updateProgress = mutableStateOf<TransferProgress?>(null)
@@ -28,32 +36,34 @@ class MainTaskViewModel : ViewModel() {
     fun launchTask(block: suspend CoroutineScope.() -> Unit): Job =
         viewModelScope.launch(block = block)
 
+    fun info(value: String) {
+        retryAction = null
+        notice.value = UiNotice(value, UiNoticeKind.Info)
+    }
+
     fun success(value: String) {
         retryAction = null
-        messageIsError.value = false
-        message.value = value
+        notice.value = UiNotice(value, UiNoticeKind.Success)
     }
 
     fun error(value: String, retry: (() -> Unit)? = null) {
         retryAction = retry
-        messageIsError.value = true
-        message.value = value
+        notice.value = UiNotice(value, UiNoticeKind.Error)
     }
 
     fun retry() {
         val action = retryAction ?: return
-        message.value = null
+        notice.value = null
         action()
     }
 
     fun dismissNotice() {
-        message.value = null
+        notice.value = null
         retryAction = null
-        messageIsError.value = false
     }
 
     fun clearError() {
         retryAction = null
-        messageIsError.value = false
+        if (notice.value?.kind == UiNoticeKind.Error) notice.value = null
     }
 }
