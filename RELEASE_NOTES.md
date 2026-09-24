@@ -1,27 +1,9 @@
-# LCPatch 1.2.2-beta.1
+# LCPatch 1.2.2-beta.2
 
-本測試版精修底部浮動導航、操作進度與提示通知；不修改漢化核心、Native hook、PUA／OpenCC 或已啟用環境卡片動畫。
+本測試版加入 Limbus Company 1.115.0 的 Unity 字型 hook 驗證設定，並為未知 Unity build 加入嚴格的動態驗證。未改動 Localize 讀取重導、漢化下載與套用、PUA、OpenCC 或 UI。
 
-## 浮動底欄
+- 已知 build 以 GNU Build ID、可執行區段、固定 offset 和 entry／accessor 指令特徵共同驗證；保留舊版 profile。
+- 未知 build 必須找到唯一 accessor、唯一合法 caller、唯一函式入口，並再次核對入口結構，才能安裝字型 hook。僅允許入口 ADRP 的頁面位址 immediate 隨連結位址改變。
+- 任一驗證不符即停用字型 hook，並於 `core.unity.unsupported` 記錄原因；成功後可從 `core.unity.verified` 或 `core.unity.dynamic_verified`、`core.font.hooked`、`core.font.swap` 追查。
 
-- 移除 lens、refraction、vibrancy、selector backdrop 與玻璃高光，改為低存在感的模糊底欄及普通半透明 selector。
-- 保留既有 Pager motion、leading／trailing edge、stretch cap、release settle、rapid retarget 與快速反向 continuity。
-- selector 與 icon／label 繼續共用相同 visual position，不更改導航 ownership。
-
-## 操作進度
-
-- App 更新、漢化下載並套用、已下載漢化套用改為按鈕本體顯示進度，尺寸與文字位置保持固定。
-- 下載完成後進度維持 100%，準備、處理與套用階段只切換文字，不再出現 100% 跳回 0%。
-- 使用 URL 或 pack path 綁定任務 owner，避免列表內其他按鈕一起顯示進度。
-- Preference／Dropdown 發起的處理保留在對應 row 內顯示輕量進度。
-
-## 提示通知
-
-- 成功與資訊提示改為較小的 floating notice，顯示約 2.8 秒並稍微上移。
-- 統一 Info、Success、Error 狀態，避免失敗流程被當作普通提示自動關閉。
-- Error notice 保留重試、查看日誌與關閉操作。
-
-## 發布驗證
-
-- 發布 PR 會先執行共用 Android validation。
-- 合併後的 Release workflow 會重新執行 validation、產生並簽章 APK、檢查簽章與 16 KB 對齊，然後發布 Beta Release。
+已以 1.115.0 ARM64 APK 核對 Build ID、兩個指令特徵與唯一 caller／入口；字型實際交換仍須實機確認。未知版本只有在實作特徵維持一致時才可能自動相容，並不保證所有未來版本。

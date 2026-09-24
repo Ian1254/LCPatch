@@ -29,17 +29,12 @@ constexpr char kNativeLog[] = "/storage/emulated/0/Android/data/com.ProjectMoon.
 constexpr char kUnityName[] = "libunity.so";
 constexpr char kIl2CppName[] = "libil2cpp.so";
 constexpr uintptr_t kBuildIdNote = 0x308;
-constexpr uintptr_t kFontEntry = 0xB92F30;
-constexpr uintptr_t kAccessor = 0xB73E90;
 constexpr size_t kMaxFontBytes = 64U * 1024U * 1024U;
 constexpr size_t kMaxSegments = 16;
-constexpr size_t kMaxAccessors = 256;
-constexpr size_t kMaxCandidates = 32;
 
-constexpr std::array<uint8_t, 24> kExpectedBuildIdNote = {
+constexpr std::array<uint8_t, 16> kBuildIdNoteHeader = {
     0x04, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
     0x03, 0x00, 0x00, 0x00, 0x47, 0x4e, 0x55, 0x00,
-    0xff, 0x68, 0x15, 0x3c, 0xd3, 0x15, 0x01, 0xd4,
 };
 constexpr std::array<uint8_t, 32> kExpectedEntry = {
     0xff, 0x43, 0x02, 0xd1, 0xfe, 0x2b, 0x00, 0xf9,
@@ -50,6 +45,21 @@ constexpr std::array<uint8_t, 32> kExpectedEntry = {
 constexpr std::array<uint8_t, 12> kExpectedAccessor = {
     0x08, 0x1c, 0x40, 0xf9, 0x00, 0x01, 0x02, 0x91,
     0xc0, 0x03, 0x5f, 0xd6,
+};
+struct UnityProfile {
+    const char *name;
+    std::array<uint8_t, 8> buildId;
+    uintptr_t entry;
+    uintptr_t accessor;
+    std::array<uint8_t, 32> entrySignature;
+    std::array<uint8_t, 12> accessorSignature;
+};
+// GNU note descriptor bytes are stored in displayed Build ID order (not an integer).
+constexpr UnityProfile kUnityProfiles[] = {
+    {"limbus-1.113.1", {0xff, 0x68, 0x15, 0x3c, 0xd3, 0x15, 0x01, 0xd4},
+     0xB92F30, 0xB73E90, kExpectedEntry, kExpectedAccessor},
+    {"limbus-1.115.0", {0x77, 0x19, 0x0d, 0x04, 0xcd, 0x31, 0x4f, 0x47},
+     0xB93770, 0xB746D0, kExpectedEntry, kExpectedAccessor},
 };
 constexpr std::array<size_t, 4> kKnownOriginalFontSizes = {
     0x557F8U, 0xB2B80U, 0x2B173AU, 0x48345EU,
@@ -345,22 +355,41 @@ bool patchFileImports(const UnitySearch &image, const char *moduleName) {
     return total > 0;
 }
 
-bool verifiedUnity(const UnitySearch &image) {
-    if (!image.base ||
-        !rangeContains(image.readable, image.readableCount, image.base, 6) ||
-        !rangeContains(image.readable, image.readableCount, image.base + kBuildIdNote, kExpectedBuildIdNote.size()) ||
-        !rangeContains(image.executable, image.count, image.base + kFontEntry, kExpectedEntry.size()) ||
-        !rangeContains(image.executable, image.count, image.base + kAccessor, kExpectedAccessor.size())) return false;
+bool validElfAndNote(const UnitySearch &image) {
+    if (!image.base || !rangeContains(image.readable, image.readableCount, image.base, 6) ||
+        !rangeContains(image.readable, image.readableCount, image.base + kBuildIdNote, 24)) return false;
     const auto *elf = reinterpret_cast<const uint8_t *>(image.base);
-    if (elf[0] != 0x7f || elf[1] != 'E' || elf[2] != 'L' || elf[3] != 'F' || elf[4] != 2 || elf[5] != 1) return false;
-    return memoryMatches(image.base, kBuildIdNote, kExpectedBuildIdNote) &&
-           memoryMatches(image.base, kFontEntry, kExpectedEntry) &&
-           memoryMatches(image.base, kAccessor, kExpectedAccessor);
+    return elf[0] == 0x7f && elf[1] == 'E' && elf[2] == 'L' && elf[3] == 'F' &&
+           elf[4] == 2 && elf[5] == 1 && memoryMatches(image.base, kBuildIdNote, kBuildIdNoteHeader);
 }
 
-bool containsAddress(const uintptr_t *values, size_t count, uintptr_t value) {
-    for (size_t i = 0; i < count; ++i) if (values[i] == value) return true;
-    return false;
+const UnityProfile *matchingProfile(const UnitySearch &image) {
+    if (!validElfAndNote(image)) return nullptr;
+    for (const auto &profile : kUnityProfiles) {
+        if (memoryMatches(image.base, kBuildIdNote + kBuildIdNoteHeader.size(), profile.buildId))
+            return &profile;
+    }
+    return nullptr;
+}
+
+bool verifiedUnity(const UnitySearch &image, const UnityProfile &profile) {
+    return rangeContains(image.executable, image.count, image.base + profile.entry, profile.entrySignature.size()) &&
+           rangeContains(image.executable, image.count, image.base + profile.accessor, profile.accessorSignature.size()) &&
+           memoryMatches(image.base, profile.entry, profile.entrySignature) &&
+           memoryMatches(image.base, profile.accessor, profile.accessorSignature);
+}
+
+// The only relocation-sensitive instruction in the known 32-byte entry fingerprint
+// is ADRP x24 at +20. Keep its opcode and destination register; mask its page immediate.
+bool entryFingerprint(uintptr_t address, uintptr_t segmentEnd) {
+    if (address > segmentEnd || segmentEnd - address < kExpectedEntry.size()) return false;
+    const auto *bytes = reinterpret_cast<const uint8_t *>(address);
+    if (std::memcmp(bytes, kExpectedEntry.data(), 20) != 0 ||
+        std::memcmp(bytes + 24, kExpectedEntry.data() + 24, 8) != 0) return false;
+    uint32_t actual = 0, expected = 0;
+    std::memcpy(&actual, bytes + 20, sizeof(actual));
+    std::memcpy(&expected, kExpectedEntry.data() + 20, sizeof(expected));
+    return (actual & 0x9f00001fU) == (expected & 0x9f00001fU);
 }
 
 bool isStackFrameStart(uint32_t instruction) { return (instruction & 0xffc003ffU) == 0xd10003ffU; }
@@ -398,34 +427,55 @@ uintptr_t findFunctionStart(const Segment &segment, uintptr_t call) {
     return 0;
 }
 
-uintptr_t locateFontEntry(const UnitySearch &image, size_t *accessorCount, size_t *candidateCount) {
-    uintptr_t accessors[kMaxAccessors]{}, candidates[kMaxCandidates]{};
-    size_t storedAccessors = 0;
-    *accessorCount = 0; *candidateCount = 0;
+struct FontLocation {
+    uintptr_t entry = 0;
+    size_t accessors = 0;
+    size_t callers = 0;
+    size_t candidates = 0;
+    const char *reason = nullptr;
+};
+
+FontLocation locateFontEntry(const UnitySearch &image) {
+    FontLocation result{};
+    uintptr_t accessor = 0;
     for (size_t s = 0; s < image.count; ++s) {
         const Segment &segment = image.executable[s];
-        for (uintptr_t at = segment.begin; at + kExpectedAccessor.size() <= segment.end; at += 4) {
+        for (uintptr_t at = segment.begin; at <= segment.end &&
+             segment.end - at >= kExpectedAccessor.size(); at += 4) {
             if (std::memcmp(reinterpret_cast<const void *>(at), kExpectedAccessor.data(), kExpectedAccessor.size()) == 0) {
-                ++*accessorCount;
-                if (storedAccessors == kMaxAccessors) return 0;
-                accessors[storedAccessors++] = at;
+                ++result.accessors;
+                accessor = at;
+                if (result.accessors > 1) { result.reason = "accessor_not_unique"; return result; }
             }
         }
     }
+    if (result.accessors != 1) { result.reason = "accessor_not_unique"; return result; }
     for (size_t s = 0; s < image.count; ++s) {
         const Segment &segment = image.executable[s];
-        for (uintptr_t at = segment.begin; at + sizeof(uint32_t) <= segment.end; at += 4) {
+        for (uintptr_t at = segment.begin; at <= segment.end &&
+             segment.end - at >= sizeof(uint32_t); at += 4) {
             const uint32_t instruction = *reinterpret_cast<const uint32_t *>(at);
             if ((instruction & 0xfc000000U) != 0x94000000U ||
-                !containsAddress(accessors, storedAccessors, branchTarget(at, instruction)) ||
-                !validatesCaller(at, segment.end)) continue;
+                branchTarget(at, instruction) != accessor || !validatesCaller(at, segment.end)) continue;
+            ++result.callers;
+            if (result.callers > 1) { result.reason = "caller_not_unique"; return result; }
             const uintptr_t start = findFunctionStart(segment, at);
-            if (!start || containsAddress(candidates, *candidateCount, start)) continue;
-            if (*candidateCount == kMaxCandidates) return 0;
-            candidates[(*candidateCount)++] = start;
+            if (start) { ++result.candidates; result.entry = start; }
         }
     }
-    return *candidateCount == 1 ? candidates[0] : 0;
+    if (result.callers != 1) { result.reason = "caller_not_unique"; return result; }
+    if (result.candidates != 1) { result.reason = "candidate_not_unique"; return result; }
+    bool executable = false, fingerprint = false;
+    for (size_t s = 0; s < image.count; ++s) {
+        const Segment &segment = image.executable[s];
+        if (result.entry < segment.begin || result.entry >= segment.end) continue;
+        executable = true;
+        fingerprint = entryFingerprint(result.entry, segment.end);
+        break;
+    }
+    if (!executable) result.reason = "candidate_not_executable";
+    else if (!fingerprint) result.reason = "entry_signature_mismatch";
+    return result;
 }
 
 bool loadFont() {
@@ -470,7 +520,7 @@ void hookedFont(void *object, uint32_t a1, uint32_t a2, uint32_t a3) {
                     std::memcpy(buffer + 0x10, &gFontSize, sizeof(gFontSize));
                     gSwapCount.fetch_add(1, std::memory_order_relaxed);
                     LOGI("font swapped: %zu -> %zu", originalSize, gFontSize);
-                    breadcrumb("INFO", "core.font.swap", "%zu -> %zu", originalSize, gFontSize);
+                    breadcrumb("INFO", "core.font.swap", "old_size=%zu new_size=%zu", originalSize, gFontSize);
                 }
             }
         }
@@ -499,24 +549,37 @@ void *startFontHook(void *) {
     else breadcrumb("WARN", "core.io.result", "%s not loaded; imports not patched", kIl2CppName);
     patchFileImports(image, kUnityName);
     uintptr_t target = 0;
-    if (verifiedUnity(image)) {
-        target = image.base + kFontEntry;
-        LOGI("known Unity build verified");
-        breadcrumb("INFO", "core.unity.verified", "known build; target=+0x%lx", static_cast<unsigned long>(kFontEntry));
-    } else {
-        size_t accessorCount = 0, candidateCount = 0;
-        const uintptr_t candidate = locateFontEntry(image, &accessorCount, &candidateCount);
-        LOGW("unapproved Unity build: accessor=%zu caller=%zu candidate=+0x%lx; font hook skipped",
-             accessorCount, candidateCount, static_cast<unsigned long>(candidate ? candidate - image.base : 0));
-        breadcrumb("WARN", "core.unity.unsupported", "accessor=%zu caller=%zu candidate=+0x%lx",
-                   accessorCount, candidateCount, static_cast<unsigned long>(candidate ? candidate - image.base : 0));
+    const char *mode = "known";
+    if (!validElfAndNote(image)) {
+        breadcrumb("WARN", "core.unity.unsupported", "reason=invalid_elf_or_build_id_note");
         return nullptr;
+    }
+    if (const UnityProfile *profile = matchingProfile(image)) {
+        if (!verifiedUnity(image, *profile)) {
+            breadcrumb("WARN", "core.unity.unsupported", "reason=known_signature_mismatch profile=%s", profile->name);
+            return nullptr;
+        }
+        target = image.base + profile->entry;
+        breadcrumb("INFO", "core.unity.verified", "mode=known profile=%s target=+0x%lx",
+                   profile->name, static_cast<unsigned long>(profile->entry));
+    } else {
+        mode = "dynamic";
+        const FontLocation location = locateFontEntry(image);
+        if (location.reason) {
+            breadcrumb("WARN", "core.unity.unsupported", "reason=%s accessor=%zu caller=%zu candidate=%zu",
+                       location.reason, location.accessors, location.callers, location.candidates);
+            return nullptr;
+        }
+        target = location.entry;
+        breadcrumb("INFO", "core.unity.dynamic_verified", "accessor=%zu caller=%zu candidate=+0x%lx target=+0x%lx",
+                   location.accessors, location.callers, static_cast<unsigned long>(target - image.base),
+                   static_cast<unsigned long>(target - image.base));
     }
     if (!loadFont()) return nullptr;
     if (!installHook(reinterpret_cast<void *>(target), reinterpret_cast<void *>(hookedFont),
                      reinterpret_cast<void **>(&gFontOriginal), "Unity font entry")) return nullptr;
     LOGI("verified font hook installed at +0x%lx", static_cast<unsigned long>(target - image.base));
-    breadcrumb("INFO", "core.font.hooked", "target=+0x%lx", static_cast<unsigned long>(target - image.base));
+    breadcrumb("INFO", "core.font.hooked", "mode=%s target=+0x%lx", mode, static_cast<unsigned long>(target - image.base));
     return nullptr;
 }
 

@@ -106,6 +106,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          PRESERVED_BETA_122_1="v1.2.2-beta.1"
           PRESERVED_TAG="v1.2.1-beta.15"
           PRESERVED_BETA18_TAG="v1.2.1-beta.18"
           PRESERVED_BETA19_TAG="v1.2.1-beta.19"
@@ -113,7 +114,7 @@ jobs:
           PRESERVED_BETA22_TAG="v1.2.1-beta.22"
           PRESERVED_BETA23_TAG="v1.2.1-beta.23"
           gh release list --limit 100 --json tagName,isPrerelease \
-            --jq ".[] | select(.isPrerelease == true and .tagName != \"$RELEASE_TAG\" and .tagName != \"$PRESERVED_TAG\" and .tagName != \"$PRESERVED_BETA18_TAG\" and .tagName != \"$PRESERVED_BETA19_TAG\" and .tagName != \"$PRESERVED_BETA21_TAG\" and .tagName != \"$PRESERVED_BETA22_TAG\" and .tagName != \"$PRESERVED_BETA23_TAG\") | .tagName" |
+            --jq ".[] | select(.isPrerelease == true and .tagName != \"$PRESERVED_BETA_122_1\" and .tagName != \"$RELEASE_TAG\" and .tagName != \"$PRESERVED_TAG\" and .tagName != \"$PRESERVED_BETA18_TAG\" and .tagName != \"$PRESERVED_BETA19_TAG\" and .tagName != \"$PRESERVED_BETA21_TAG\" and .tagName != \"$PRESERVED_BETA22_TAG\" and .tagName != \"$PRESERVED_BETA23_TAG\") | .tagName" |
           while IFS= read -r OLD_TAG; do
             test -n "$OLD_TAG" || continue
             echo "Removing old prerelease $OLD_TAG"
