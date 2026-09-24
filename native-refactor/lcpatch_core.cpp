@@ -31,8 +31,6 @@ constexpr char kIl2CppName[] = "libil2cpp.so";
 constexpr uintptr_t kBuildIdNote = 0x308;
 constexpr size_t kMaxFontBytes = 64U * 1024U * 1024U;
 constexpr size_t kMaxSegments = 16;
-constexpr size_t kMaxAccessors = 256;
-constexpr size_t kMaxCandidates = 32;
 
 constexpr std::array<uint8_t, 16> kBuildIdNoteHeader = {
     0x04, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
