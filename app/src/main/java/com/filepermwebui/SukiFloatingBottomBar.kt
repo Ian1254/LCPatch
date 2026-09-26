@@ -330,8 +330,6 @@ internal fun SukiFloatingBottomBar(
                         releaseSettleJob = null
                         dragLeftJob?.cancel()
                         dragRightJob?.cancel()
-                        dragLeft.snapTo(gestureStartLeftPx)
-                        dragRight.snapTo(gestureStartRightPx)
                         releaseSettling = false
                         dragging = false
                         pressPreviewActive = false
@@ -342,10 +340,15 @@ internal fun SukiFloatingBottomBar(
                         val startedOnSelector =
                             abs(down.position.x - selectorCenter) <= itemWidthPx * 0.55f
                         pressPreviewActive = !startedOnSelector && downIndex != latestTarget
-                        if (pressPreviewActive) {
-                            val previewLeft = paddingPx + downIndex * itemWidthPx
-                            dragLeftJob = scope.launch { dragLeft.animateTo(previewLeft, GestureSettleSpring) }
-                            dragRightJob = scope.launch { dragRight.animateTo(previewLeft + itemWidthPx, GestureSettleSpring) }
+                        val preview = pressPreviewActive
+                        val previewLeft = paddingPx + downIndex * itemWidthPx
+                        dragLeftJob = scope.launch {
+                            dragLeft.snapTo(gestureStartLeftPx)
+                            if (preview) dragLeft.animateTo(previewLeft, GestureSettleSpring)
+                        }
+                        dragRightJob = scope.launch {
+                            dragRight.snapTo(gestureStartRightPx)
+                            if (preview) dragRight.animateTo(previewLeft + itemWidthPx, GestureSettleSpring)
                         }
                         pressOnSelector = startedOnSelector || pressPreviewActive
                         var lastX = down.position.x
