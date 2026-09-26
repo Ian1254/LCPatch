@@ -86,6 +86,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -233,9 +234,6 @@ class MainActivity : ComponentActivity() {
                 )
             }.collect { pageScrollPositions[page] = it }
         }
-        LaunchedEffect(notice) {
-            if (notice?.kind == UiNoticeKind.Error) pageListState.animateScrollToItem(0)
-        }
         val overviewScrollBehavior = MiuixScrollBehavior()
         val settingsScrollBehavior = MiuixScrollBehavior()
         val logsScrollBehavior = MiuixScrollBehavior()
@@ -308,8 +306,8 @@ class MainActivity : ComponentActivity() {
             if (page == DOWNLOADED || page == CONVERSION) downloadedPacks = translations.downloaded()
         }
         LaunchedEffect(notice) {
-            if (notice != null && notice?.kind != UiNoticeKind.Error) {
-                delay(2800)
+            notice?.let { current ->
+                delay(if (current.kind == UiNoticeKind.Error) 4200 else 2800)
                 taskState.dismissNotice()
             }
         }
@@ -545,29 +543,6 @@ class MainActivity : ComponentActivity() {
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        notice?.takeIf { it.kind == UiNoticeKind.Error && visiblePage == page }?.let { errorNotice ->
-                            item(key = "inline-error") {
-                                Card(
-                                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)
-                                ) {
-                                    Text(errorNotice.message, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.End
-                                    ) {
-                                        if (taskState.retryAction != null) {
-                                            TextButton(text = "重試", onClick = taskState::retry)
-                                        }
-                                        TextButton(
-                                            text = "日誌",
-                                            onClick = { navigateTo(LOGS); taskState.dismissNotice() }
-                                        )
-                                        TextButton(text = "關閉", onClick = taskState::dismissNotice)
-                                    }
-                                }
-                            }
-                        }
                         when (visiblePage) {
                             OVERVIEW -> overview(
                                 overlayState = environmentOverlayState,
@@ -753,7 +728,7 @@ class MainActivity : ComponentActivity() {
 
         val renderNotice: @Composable (PaddingValues) -> Unit = { padding ->
             Box(Modifier.fillMaxSize()) {
-                notice?.takeIf { it.kind != UiNoticeKind.Error }?.let { currentNotice ->
+                notice?.let { currentNotice ->
                     val noticeModifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(
@@ -765,12 +740,16 @@ class MainActivity : ComponentActivity() {
                         modifier = noticeModifier
                             .clip(RoundedCornerShape(18.dp))
                             .background(MiuixTheme.colorScheme.surfaceContainer)
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            currentNotice.message,
+                            if (currentNotice.kind == UiNoticeKind.Error)
+                                currentNotice.message.substringBefore('：')
+                            else currentNotice.message,
                             fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -842,7 +821,6 @@ class MainActivity : ComponentActivity() {
                                     onTargetSelected = { index ->
                                         topPages.getOrNull(index)?.let(::navigateTo)
                                     },
-                                    backdrop = activeBarBackdrop
                                 )
                             } else {
                                 NavigationBar(color = MiuixTheme.colorScheme.surfaceContainer) {
@@ -1379,7 +1357,7 @@ class MainActivity : ComponentActivity() {
         items(entries) { entry ->
             Card(insideMargin = PaddingValues(18.dp)) {
                 Text(entry.name, style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(4.dp)); Text("${entry.author} · ${entry.section}", color = MiuixTheme.colorScheme.primary)
+                Spacer(Modifier.height(4.dp)); Text("${entry.author} · ${entry.section}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(6.dp)); Text(entry.description, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(12.dp))
                 val ownsTask = installingEntryKey == entry.url
@@ -1427,10 +1405,10 @@ class MainActivity : ComponentActivity() {
                 }
                 LaunchedEffect(entry.script) { conversionIndex = if (entry.script == "簡體") 1 else 0 }
                 Card(insideMargin = PaddingValues(16.dp), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)) {
-                    Text(entry.name, style = MiuixTheme.textStyles.title2, color = if (active) MiuixTheme.colorScheme.primary else Color.Unspecified)
+                    Text(entry.name, style = MiuixTheme.textStyles.title2)
                     if (active) {
                         Spacer(Modifier.height(4.dp))
-                        Text("目前套用中", color = MiuixTheme.colorScheme.primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("目前套用中", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.height(8.dp))
                     val buttonText = when {
@@ -1463,7 +1441,7 @@ class MainActivity : ComponentActivity() {
                     )
                     if (processingPackPath == entry.path) applyProgress?.let { value ->
                         Spacer(Modifier.height(8.dp))
-                        Text("${value.stage}：${entry.name}", color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                        Text("${value.stage}：${entry.name}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.height(7.dp))
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = value.fraction)
                         Spacer(Modifier.height(5.dp))
@@ -1475,7 +1453,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Text(
                         "文字類型：${entry.script} · ${if (entry.puaPrepared) "PUA 已完成" else "首次套用時轉換 PUA"}",
-                        color = if (entry.puaPrepared) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         fontSize = 13.sp,
                         fontWeight = if (entry.puaPrepared) FontWeight.Medium else FontWeight.Normal
                     )

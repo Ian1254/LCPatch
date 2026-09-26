@@ -1,7 +1,8 @@
 package com.lcpatch
 
+import android.app.Application
 import androidx.compose.runtime.mutableStateOf
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -12,11 +13,13 @@ enum class UiNoticeKind { Info, Success, Error }
 
 data class UiNotice(
     val message: String,
-    val kind: UiNoticeKind
+    val kind: UiNoticeKind,
+    val id: Long
 )
 
 /** Keeps long-running translation UI state alive across Activity recreation. */
-class MainTaskViewModel : ViewModel() {
+class MainTaskViewModel(application: Application) : AndroidViewModel(application) {
+    private var noticeSequence = 0L
     val transfer = mutableStateOf<TransferProgress?>(null)
     val applyProgress = mutableStateOf<ApplyProgress?>(null)
     val applying = mutableStateOf(false)
@@ -38,17 +41,19 @@ class MainTaskViewModel : ViewModel() {
 
     fun info(value: String) {
         retryAction = null
-        notice.value = UiNotice(value, UiNoticeKind.Info)
+        notice.value = UiNotice(value, UiNoticeKind.Info, ++noticeSequence)
     }
 
     fun success(value: String) {
         retryAction = null
-        notice.value = UiNotice(value, UiNoticeKind.Success)
+        notice.value = UiNotice(value, UiNoticeKind.Success, ++noticeSequence)
     }
 
     fun error(value: String, retry: (() -> Unit)? = null) {
         retryAction = retry
-        notice.value = UiNotice(value, UiNoticeKind.Error)
+        // The short notice may disappear, but the full diagnostic stays in Logs.
+        runCatching { LogRepository.append(getApplication<Application>(), "ERROR", "APP_ACTION", value) }
+        notice.value = UiNotice(value, UiNoticeKind.Error, ++noticeSequence)
     }
 
     fun retry() {

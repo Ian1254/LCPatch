@@ -1,6 +1,7 @@
 package com.lcpatch
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.border
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -52,9 +53,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -77,6 +75,7 @@ private const val BarHeightDp = 62f
 private const val SelectorHeightDp = 54f
 private const val EdgeOverscrollItems = 0.075f
 private const val MaxEdgeStretchDp = 24f
+private const val DragTrailScale = 4f
 
 private val PressSpring = spring<Float>(
     dampingRatio = 0.72f,
@@ -87,6 +86,11 @@ private val GestureSettleSpring = spring<Float>(
     dampingRatio = 0.86f,
     stiffness = 680f,
     visibilityThreshold = 0.001f
+)
+private val DragFollowSpring = spring<Float>(
+    dampingRatio = 1f,
+    stiffness = 1100f,
+    visibilityThreshold = 0.01f
 )
 
 private data class SelectorMotionSegment(
@@ -104,8 +108,7 @@ internal fun SukiFloatingBottomBar(
     targetIndex: Int,
     transactionId: Int,
     pagePosition: Float,
-    onTargetSelected: (Int) -> Unit,
-    backdrop: Backdrop?
+    onTargetSelected: (Int) -> Unit
 ) {
     val density = LocalDensity.current
     val viewConfiguration = LocalViewConfiguration.current
@@ -120,6 +123,7 @@ internal fun SukiFloatingBottomBar(
     val press = remember { Animatable(0f, 0.001f) }
 
     var dragging by remember { mutableStateOf(false) }
+    var pressPreviewActive by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(safePagePosition) }
     var releaseSettling by remember { mutableStateOf(false) }
     var gestureGeneration by remember { mutableIntStateOf(0) }
@@ -128,15 +132,18 @@ internal fun SukiFloatingBottomBar(
     var gestureStartLeftPx by remember { mutableFloatStateOf(0f) }
     var gestureStartRightPx by remember { mutableFloatStateOf(0f) }
     var pressOnSelector by remember { mutableStateOf(false) }
-    val containerColor = if (dark) Color(0xFF141417).copy(alpha = 0.48f)
-        else Color.White.copy(alpha = 0.54f)
-    val fallbackColor = if (dark) Color(0xEA222226) else Color(0xEEF5F5F7)
-    val selectorColor = if (dark) Color.White.copy(alpha = 0.10f)
-        else Color.Black.copy(alpha = 0.07f)
+    val containerColor = if (dark) Color(0xFF101012) else Color(0xFFF1F1F3)
+    val borderColor = if (dark) Color.White.copy(alpha = 0.12f)
+        else Color.Black.copy(alpha = 0.10f)
+    val selectorColor = if (dark) Color(0xFF38383B) else Color(0xFFDADADD)
     val textColor = if (dark) Color.White else Color(0xFF151518)
     val mutedColor = textColor.copy(alpha = 0.58f)
     val itemWidthPx = with(density) { ItemWidthDp.dp.toPx() }
     val paddingPx = with(density) { HorizontalPaddingDp.dp.toPx() }
+    val dragLeft = remember(itemWidthPx, paddingPx) { Animatable(paddingPx + safePagePosition * itemWidthPx, 0.01f) }
+    val dragRight = remember(itemWidthPx, paddingPx) { Animatable(paddingPx + (safePagePosition + 1f) * itemWidthPx, 0.01f) }
+    var dragLeftJob by remember { mutableStateOf<Job?>(null) }
+    var dragRightJob by remember { mutableStateOf<Job?>(null) }
     val releaseLeft = remember { Animatable(paddingPx + safePagePosition * itemWidthPx, 0.01f) }
     val releaseRight = remember { Animatable(paddingPx + (safePagePosition + 1f) * itemWidthPx, 0.01f) }
     val selectorHeightPx = with(density) { SelectorHeightDp.dp.toPx() }
@@ -204,20 +211,14 @@ internal fun SukiFloatingBottomBar(
     val gestureOwnsGeometry = gestureActive || dragging || releaseSettling
     val gestureStartVisualPosition =
         ((gestureStartLeftPx + gestureStartRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f
-    val dragWidthPx = lerpFloat(
-        gestureStartRightPx - gestureStartLeftPx,
-        itemWidthPx,
-        (abs(dragPosition - gestureStartVisualPosition) / 0.35f).coerceIn(0f, 1f)
-    )
-    val dragCenterPx = paddingPx + (dragPosition + 0.5f) * itemWidthPx
     val selectorMotionLeftPx = when {
-        dragging -> dragCenterPx - dragWidthPx / 2f
+        dragging || pressPreviewActive -> dragLeft.value
         releaseSettling -> releaseLeft.value
         gestureActive -> gestureStartLeftPx
         else -> motionLeftPx
     }
     val selectorMotionRightPx = when {
-        dragging -> dragCenterPx + dragWidthPx / 2f
+        dragging || pressPreviewActive -> dragRight.value
         releaseSettling -> releaseRight.value
         gestureActive -> gestureStartRightPx
         else -> motionRightPx
@@ -228,7 +229,8 @@ internal fun SukiFloatingBottomBar(
         motionProgress
     )
     val visualPosition = when {
-        dragging -> dragPosition
+        dragging || pressPreviewActive ->
+            ((dragLeft.value + dragRight.value) / 2f - paddingPx) / itemWidthPx - 0.5f
         releaseSettling ->
             ((releaseLeft.value + releaseRight.value) / 2f - paddingPx) / itemWidthPx - 0.5f
         gestureActive -> gestureStartVisualPosition
@@ -261,28 +263,18 @@ internal fun SukiFloatingBottomBar(
         Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        val surfaceModifier = if (backdrop != null) {
-            Modifier.drawBackdrop(
-                backdrop = backdrop,
-                shape = { CircleShape },
-                effects = { blur(8.dp.toPx()) },
-                onDrawSurface = { drawRect(containerColor) }
-            )
-        } else {
-            Modifier.background(fallbackColor, CircleShape)
-        }
-
         Box(
             Modifier
                 .width(BarWidthDp.dp)
                 .height(BarHeightDp.dp)
-                .then(surfaceModifier)
+                .background(containerColor, CircleShape)
+                .border(1.dp, borderColor, CircleShape)
                 .clip(CircleShape)
         ) {
-            val pressExpansion = with(density) { (1.4f * selectorPress).dp.toPx() }
-            val selectorLeft = selectorMotionLeftPx - pressExpansion
-            val selectorRight = selectorMotionRightPx + pressExpansion
-            val dynamicHeight = selectorHeightPx + pressExpansion * 1.4f
+            val pressInset = with(density) { (3f * selectorPress).dp.toPx() }
+            val selectorLeft = selectorMotionLeftPx + pressInset
+            val selectorRight = selectorMotionRightPx - pressInset
+            val dynamicHeight = selectorHeightPx - 2f * pressInset
             val selectorTop = with(density) { BarHeightDp.dp.toPx() } / 2f - dynamicHeight / 2f
 
             Layout(
@@ -336,15 +328,26 @@ internal fun SukiFloatingBottomBar(
                         gestureActive = true
                         releaseSettleJob?.cancel()
                         releaseSettleJob = null
+                        dragLeftJob?.cancel()
+                        dragRightJob?.cancel()
+                        dragLeft.snapTo(gestureStartLeftPx)
+                        dragRight.snapTo(gestureStartRightPx)
                         releaseSettling = false
                         dragging = false
+                        pressPreviewActive = false
                         val downIndex = floor(
                             (down.position.x - paddingPx) / itemWidthPx
                         ).toInt().coerceIn(0, ItemCount - 1)
                         val selectorCenter = paddingPx + (latestVisualPosition + 0.5f) * itemWidthPx
                         val startedOnSelector =
                             abs(down.position.x - selectorCenter) <= itemWidthPx * 0.55f
-                        pressOnSelector = startedOnSelector
+                        pressPreviewActive = !startedOnSelector && downIndex != latestTarget
+                        if (pressPreviewActive) {
+                            val previewLeft = paddingPx + downIndex * itemWidthPx
+                            dragLeftJob = scope.launch { dragLeft.animateTo(previewLeft, GestureSettleSpring) }
+                            dragRightJob = scope.launch { dragRight.animateTo(previewLeft + itemWidthPx, GestureSettleSpring) }
+                        }
+                        pressOnSelector = startedOnSelector || pressPreviewActive
                         var lastX = down.position.x
                         var cancelled = false
 
@@ -375,6 +378,14 @@ internal fun SukiFloatingBottomBar(
                                     0f,
                                     (ItemCount - 1).toFloat()
                                 )
+                                val centerPx = paddingPx + (dragPosition + 0.5f) * itemWidthPx
+                                val trailPx = (abs(dx) * DragTrailScale).coerceAtMost(maxEdgeStretchPx)
+                                val targetLeft = centerPx - itemWidthPx / 2f - if (dx > 0f) trailPx else 0f
+                                val targetRight = centerPx + itemWidthPx / 2f + if (dx < 0f) trailPx else 0f
+                                dragLeftJob?.cancel()
+                                dragRightJob?.cancel()
+                                dragLeftJob = scope.launch { dragLeft.animateTo(targetLeft, DragFollowSpring) }
+                                dragRightJob = scope.launch { dragRight.animateTo(targetRight, DragFollowSpring) }
                                 change.consume()
                             }
                             if (!change.pressed) break
@@ -387,16 +398,10 @@ internal fun SukiFloatingBottomBar(
                             wasDragging -> heldPosition.roundToInt()
                             else -> downIndex
                         }.coerceIn(0, ItemCount - 1)
-                        val heldWidthPx = if (wasDragging) lerpFloat(
-                            gestureStartRightPx - gestureStartLeftPx,
-                            itemWidthPx,
-                            (abs(heldPosition - startVisualPosition) / 0.35f).coerceIn(0f, 1f)
-                        ) else gestureStartRightPx - gestureStartLeftPx
-                        val heldCenterPx = if (wasDragging)
-                            paddingPx + (heldPosition + 0.5f) * itemWidthPx
-                        else (gestureStartLeftPx + gestureStartRightPx) / 2f
-                        val heldLeftPx = heldCenterPx - heldWidthPx / 2f
-                        val heldRightPx = heldCenterPx + heldWidthPx / 2f
+                        dragLeftJob?.cancel()
+                        dragRightJob?.cancel()
+                        val heldLeftPx = if (wasDragging || pressPreviewActive) dragLeft.value else gestureStartLeftPx
+                        val heldRightPx = if (wasDragging || pressPreviewActive) dragRight.value else gestureStartRightPx
                         if (wasDragging) {
                             // Keep the exact release geometry visible until
                             // either Pager or the same-page settle takes over.
@@ -404,6 +409,7 @@ internal fun SukiFloatingBottomBar(
                             gestureStartRightPx = heldRightPx
                         }
                         dragging = false
+                        pressPreviewActive = false
 
                         val targetLeftPx = paddingPx + target * itemWidthPx
                         val pagerAlreadyAtTarget = abs(latestPagePosition - target.toFloat()) < 0.001f
@@ -452,9 +458,10 @@ internal fun SukiFloatingBottomBar(
                             // is exposed. Same-target recovery uses this path.
                             motionSegment = SelectorMotionSegment(
                                 startPagerPosition = latestPagePosition,
-                                startLeftPx = gestureStartLeftPx,
-                                startRightPx = gestureStartRightPx,
-                                startVisualPosition = startVisualPosition,
+                                startLeftPx = heldLeftPx,
+                                startRightPx = heldRightPx,
+                                startVisualPosition =
+                                    ((heldLeftPx + heldRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f,
                                 targetIndex = target,
                                 transactionId = if (
                                     safeCurrent == target &&
