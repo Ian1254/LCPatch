@@ -54,7 +54,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -120,6 +119,7 @@ internal fun SukiFloatingBottomBar(
     val currentTarget by rememberUpdatedState(onTargetSelected)
     val latestPagePosition by rememberUpdatedState(safePagePosition)
     val latestTarget by rememberUpdatedState(safeTarget)
+    val latestTransaction by rememberUpdatedState(transactionId)
     val press = remember { Animatable(0f, 0.001f) }
 
     var dragging by remember { mutableStateOf(false) }
@@ -144,15 +144,14 @@ internal fun SukiFloatingBottomBar(
     val dragRight = remember(itemWidthPx, paddingPx) { Animatable(paddingPx + (safePagePosition + 1f) * itemWidthPx, 0.01f) }
     var dragLeftJob by remember { mutableStateOf<Job?>(null) }
     var dragRightJob by remember { mutableStateOf<Job?>(null) }
-    val releaseLeft = remember { Animatable(paddingPx + safePagePosition * itemWidthPx, 0.01f) }
-    val releaseRight = remember { Animatable(paddingPx + (safePagePosition + 1f) * itemWidthPx, 0.01f) }
+    var dragLeftReady by remember { mutableStateOf(true) }
+    var dragRightReady by remember { mutableStateOf(true) }
     val selectorHeightPx = with(density) { SelectorHeightDp.dp.toPx() }
     val selectorPress = if (pressOnSelector) press.value else 0f
     val maxEdgeStretchPx = with(density) { MaxEdgeStretchDp.dp.toPx() }
 
-    // Navigation geometry is now a true two-edge morph. Pager still owns the
-    // timeline, but the leading and trailing physical edges consume that same
-    // progress with different monotonic curves.
+    // Pager drives programmatic navigation. Pointer gestures and their release
+    // keep the two animated edges until they have settled.
     val initialMotionLeftPx = paddingPx + safePagePosition * itemWidthPx
     var motionSegment by remember {
         mutableStateOf(
@@ -209,18 +208,17 @@ internal fun SukiFloatingBottomBar(
     // Every owner hands over the rendered left and right edges. In particular,
     // taking over a stretched Pager segment must not reset its width in a frame.
     val gestureOwnsGeometry = gestureActive || dragging || releaseSettling
+    val dragEdgesReady = dragLeftReady && dragRightReady
     val gestureStartVisualPosition =
         ((gestureStartLeftPx + gestureStartRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f
     val selectorMotionLeftPx = when {
-        dragging || pressPreviewActive -> dragLeft.value
-        releaseSettling -> releaseLeft.value
-        gestureActive -> gestureStartLeftPx
+        (dragging || pressPreviewActive || releaseSettling) && dragEdgesReady -> dragLeft.value
+        gestureActive || releaseSettling -> gestureStartLeftPx
         else -> motionLeftPx
     }
     val selectorMotionRightPx = when {
-        dragging || pressPreviewActive -> dragRight.value
-        releaseSettling -> releaseRight.value
-        gestureActive -> gestureStartRightPx
+        (dragging || pressPreviewActive || releaseSettling) && dragEdgesReady -> dragRight.value
+        gestureActive || releaseSettling -> gestureStartRightPx
         else -> motionRightPx
     }
     val motionVisualPosition = lerpFloat(
@@ -229,16 +227,23 @@ internal fun SukiFloatingBottomBar(
         motionProgress
     )
     val visualPosition = when {
-        dragging || pressPreviewActive ->
+        (dragging || pressPreviewActive || releaseSettling) && dragEdgesReady ->
             ((dragLeft.value + dragRight.value) / 2f - paddingPx) / itemWidthPx - 0.5f
-        releaseSettling ->
-            ((releaseLeft.value + releaseRight.value) / 2f - paddingPx) / itemWidthPx - 0.5f
-        gestureActive -> gestureStartVisualPosition
+        gestureActive || releaseSettling -> gestureStartVisualPosition
         else -> motionVisualPosition
     }
     val latestSelectorMotionLeftPx by rememberUpdatedState(selectorMotionLeftPx)
     val latestSelectorMotionRightPx by rememberUpdatedState(selectorMotionRightPx)
     val latestVisualPosition by rememberUpdatedState(visualPosition)
+    val pressInset = with(density) { (3f * selectorPress).dp.toPx() }
+    val selectorLeft = selectorMotionLeftPx + pressInset
+    val selectorRight = selectorMotionRightPx - pressInset
+    val dynamicHeight = selectorHeightPx - 2f * pressInset
+    val selectorTop = with(density) { BarHeightDp.dp.toPx() } / 2f - dynamicHeight / 2f
+    val latestVisibleLeftPx by rememberUpdatedState(selectorLeft)
+    val latestVisibleRightPx by rememberUpdatedState(selectorRight)
+    val latestVisibleTopPx by rememberUpdatedState(selectorTop)
+    val latestVisibleBottomPx by rememberUpdatedState(selectorTop + dynamicHeight)
 
     // On rapid retarget, capture the capsule exactly as currently rendered.
     // The new transaction starts from those two real edges, so there is no
@@ -271,19 +276,20 @@ internal fun SukiFloatingBottomBar(
                 .border(1.dp, borderColor, CircleShape)
                 .clip(CircleShape)
         ) {
-            val pressInset = with(density) { (3f * selectorPress).dp.toPx() }
-            val selectorLeft = selectorMotionLeftPx + pressInset
-            val selectorRight = selectorMotionRightPx - pressInset
-            val dynamicHeight = selectorHeightPx - 2f * pressInset
-            val selectorTop = with(density) { BarHeightDp.dp.toPx() } / 2f - dynamicHeight / 2f
-
             Layout(
                 modifier = Modifier.fillMaxSize(),
                 content = {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .background(selectorColor, CircleShape)
+                            .background(
+                                lerp(
+                                    selectorColor,
+                                    if (dark) Color(0xFF646469) else Color(0xFFB9B9BE),
+                                    selectorPress.coerceIn(0f, 1f)
+                                ),
+                                CircleShape
+                            )
                     )
                 }
             ) { measurables, constraints ->
@@ -323,6 +329,8 @@ internal fun SukiFloatingBottomBar(
                         // new gesture keeps rendering this exact geometry.
                         gestureStartLeftPx = latestSelectorMotionLeftPx
                         gestureStartRightPx = latestSelectorMotionRightPx
+                        val startLeftVelocity = dragLeft.velocity
+                        val startRightVelocity = dragRight.velocity
                         val startVisualPosition =
                             ((gestureStartLeftPx + gestureStartRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f
                         gestureActive = true
@@ -330,25 +338,34 @@ internal fun SukiFloatingBottomBar(
                         releaseSettleJob = null
                         dragLeftJob?.cancel()
                         dragRightJob?.cancel()
+                        dragLeftReady = false
+                        dragRightReady = false
                         releaseSettling = false
                         dragging = false
                         pressPreviewActive = false
                         val downIndex = floor(
                             (down.position.x - paddingPx) / itemWidthPx
                         ).toInt().coerceIn(0, ItemCount - 1)
-                        val selectorCenter = paddingPx + (latestVisualPosition + 0.5f) * itemWidthPx
                         val startedOnSelector =
-                            abs(down.position.x - selectorCenter) <= itemWidthPx * 0.55f
+                            down.position.x in latestVisibleLeftPx..latestVisibleRightPx &&
+                                down.position.y in latestVisibleTopPx..latestVisibleBottomPx
                         pressPreviewActive = !startedOnSelector && downIndex != latestTarget
                         val preview = pressPreviewActive
                         val previewLeft = paddingPx + downIndex * itemWidthPx
                         dragLeftJob = scope.launch {
                             dragLeft.snapTo(gestureStartLeftPx)
-                            if (preview) dragLeft.animateTo(previewLeft, GestureSettleSpring)
+                            if (gestureGeneration == generation) dragLeftReady = true
+                            if (preview) dragLeft.animateTo(
+                                previewLeft, GestureSettleSpring, initialVelocity = startLeftVelocity
+                            )
                         }
                         dragRightJob = scope.launch {
                             dragRight.snapTo(gestureStartRightPx)
-                            if (preview) dragRight.animateTo(previewLeft + itemWidthPx, GestureSettleSpring)
+                            if (gestureGeneration == generation) dragRightReady = true
+                            if (preview) dragRight.animateTo(
+                                previewLeft + itemWidthPx, GestureSettleSpring,
+                                initialVelocity = startRightVelocity
+                            )
                         }
                         pressOnSelector = startedOnSelector || pressPreviewActive
                         var lastX = down.position.x
@@ -385,10 +402,24 @@ internal fun SukiFloatingBottomBar(
                                 val trailPx = (abs(dx) * DragTrailScale).coerceAtMost(maxEdgeStretchPx)
                                 val targetLeft = centerPx - itemWidthPx / 2f - if (dx > 0f) trailPx else 0f
                                 val targetRight = centerPx + itemWidthPx / 2f + if (dx < 0f) trailPx else 0f
+                                val leftVelocity = dragLeft.velocity
+                                val rightVelocity = dragRight.velocity
                                 dragLeftJob?.cancel()
                                 dragRightJob?.cancel()
-                                dragLeftJob = scope.launch { dragLeft.animateTo(targetLeft, DragFollowSpring) }
-                                dragRightJob = scope.launch { dragRight.animateTo(targetRight, DragFollowSpring) }
+                                dragLeftJob = scope.launch {
+                                    if (!dragLeftReady) {
+                                        dragLeft.snapTo(gestureStartLeftPx)
+                                        dragLeftReady = true
+                                    }
+                                    dragLeft.animateTo(targetLeft, DragFollowSpring, initialVelocity = leftVelocity)
+                                }
+                                dragRightJob = scope.launch {
+                                    if (!dragRightReady) {
+                                        dragRight.snapTo(gestureStartRightPx)
+                                        dragRightReady = true
+                                    }
+                                    dragRight.animateTo(targetRight, DragFollowSpring, initialVelocity = rightVelocity)
+                                }
                                 change.consume()
                             }
                             if (!change.pressed) break
@@ -401,80 +432,58 @@ internal fun SukiFloatingBottomBar(
                             wasDragging -> heldPosition.roundToInt()
                             else -> downIndex
                         }.coerceIn(0, ItemCount - 1)
+                        val edgesReadyAtRelease = dragLeftReady && dragRightReady
+                        val heldLeftPx = if (edgesReadyAtRelease && (wasDragging || pressPreviewActive)) dragLeft.value else gestureStartLeftPx
+                        val heldRightPx = if (edgesReadyAtRelease && (wasDragging || pressPreviewActive)) dragRight.value else gestureStartRightPx
+                        val heldLeftVelocity = if (edgesReadyAtRelease && (wasDragging || pressPreviewActive)) dragLeft.velocity else 0f
+                        val heldRightVelocity = if (edgesReadyAtRelease && (wasDragging || pressPreviewActive)) dragRight.velocity else 0f
                         dragLeftJob?.cancel()
                         dragRightJob?.cancel()
-                        val heldLeftPx = if (wasDragging || pressPreviewActive) dragLeft.value else gestureStartLeftPx
-                        val heldRightPx = if (wasDragging || pressPreviewActive) dragRight.value else gestureStartRightPx
-                        if (wasDragging) {
-                            // Keep the exact release geometry visible until
-                            // either Pager or the same-page settle takes over.
-                            gestureStartLeftPx = heldLeftPx
-                            gestureStartRightPx = heldRightPx
-                        }
+                        gestureStartLeftPx = heldLeftPx
+                        gestureStartRightPx = heldRightPx
                         dragging = false
                         pressPreviewActive = false
 
                         val targetLeftPx = paddingPx + target * itemWidthPx
-                        val pagerAlreadyAtTarget = abs(latestPagePosition - target.toFloat()) < 0.001f
-                        if (pagerAlreadyAtTarget &&
-                            (abs(heldLeftPx - targetLeftPx) > 0.01f ||
-                                abs(heldRightPx - targetLeftPx - itemWidthPx) > 0.01f)
-                        ) {
-                            // The Pager cannot supply progress if it is already
-                            // at the destination. Settle both actual edges instead.
-                            releaseSettleJob = scope.launch {
-                                releaseLeft.snapTo(heldLeftPx)
-                                releaseRight.snapTo(heldRightPx)
-                                if (gestureGeneration != generation) return@launch
-                                releaseSettling = true
-                                gestureActive = false
-                                coroutineScope {
-                                    launch { releaseLeft.animateTo(targetLeftPx, GestureSettleSpring) }
-                                    launch { releaseRight.animateTo(targetLeftPx + itemWidthPx, GestureSettleSpring) }
-                                }
-                                if (gestureGeneration == generation) {
-                                    motionSegment = SelectorMotionSegment(
-                                        startPagerPosition = latestPagePosition,
-                                        startLeftPx = targetLeftPx,
-                                        startRightPx = targetLeftPx + itemWidthPx,
-                                        startVisualPosition = target.toFloat(),
-                                        targetIndex = target,
-                                        transactionId = transactionId
+                        // Keep the same two Animatables across the release. Pager
+                        // changes page after up, but cannot reset the capsule's
+                        // velocity in the middle of its flight.
+                        releaseSettling = true
+                        gestureActive = false
+                        releaseSettleJob = scope.launch {
+                            dragLeft.snapTo(heldLeftPx)
+                            dragRight.snapTo(heldRightPx)
+                            if (gestureGeneration != generation) return@launch
+                            dragLeftReady = true
+                            dragRightReady = true
+                            kotlinx.coroutines.coroutineScope {
+                                launch {
+                                    dragLeft.animateTo(
+                                        targetLeftPx, GestureSettleSpring,
+                                        initialVelocity = heldLeftVelocity
                                     )
-                                    releaseSettling = false
+                                }
+                                launch {
+                                    dragRight.animateTo(
+                                        targetLeftPx + itemWidthPx, GestureSettleSpring,
+                                        initialVelocity = heldRightVelocity
+                                    )
                                 }
                             }
-                        } else if (wasDragging && !cancelled) {
-                            // Cross-page release continues from the actual drag shape.
-                            motionSegment = SelectorMotionSegment(
-                                startPagerPosition = latestPagePosition,
-                                startLeftPx = heldLeftPx,
-                                startRightPx = heldRightPx,
-                                startVisualPosition =
-                                    ((heldLeftPx + heldRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f,
-                                targetIndex = target,
-                                transactionId = transactionId + 1
-                            )
-                            gestureActive = false
-                        } else {
-                            // Establish the new segment before Pager geometry
-                            // is exposed. Same-target recovery uses this path.
-                            motionSegment = SelectorMotionSegment(
-                                startPagerPosition = latestPagePosition,
-                                startLeftPx = heldLeftPx,
-                                startRightPx = heldRightPx,
-                                startVisualPosition =
-                                    ((heldLeftPx + heldRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f,
-                                targetIndex = target,
-                                transactionId = if (
-                                    safeCurrent == target &&
-                                    abs(latestPagePosition - target.toFloat()) < 0.001f
-                                ) transactionId else transactionId + 1
-                            )
-                            gestureActive = false
+                            if (gestureGeneration == generation) {
+                                motionSegment = SelectorMotionSegment(
+                                    startPagerPosition = latestPagePosition,
+                                    startLeftPx = targetLeftPx,
+                                    startRightPx = targetLeftPx + itemWidthPx,
+                                    startVisualPosition = target.toFloat(),
+                                    targetIndex = target,
+                                    transactionId = latestTransaction
+                                )
+                                releaseSettling = false
+                            }
                         }
 
-                        currentTarget(target)
+                        if (!cancelled) currentTarget(target)
                         scope.launch {
                             press.animateTo(0f, PressSpring)
                             if (gestureGeneration == generation) pressOnSelector = false
