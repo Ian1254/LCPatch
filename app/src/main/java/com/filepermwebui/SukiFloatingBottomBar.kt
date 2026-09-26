@@ -413,7 +413,7 @@ internal fun SukiFloatingBottomBar(
 
                         val targetLeftPx = paddingPx + target * itemWidthPx
                         val pagerAlreadyAtTarget = abs(latestPagePosition - target.toFloat()) < 0.001f
-                        if (!cancelled && pagerAlreadyAtTarget &&
+                        if (pagerAlreadyAtTarget &&
                             (abs(heldLeftPx - targetLeftPx) > 0.01f ||
                                 abs(heldRightPx - targetLeftPx - itemWidthPx) > 0.01f)
                         ) {
