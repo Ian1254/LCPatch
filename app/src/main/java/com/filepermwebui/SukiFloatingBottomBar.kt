@@ -56,6 +56,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -66,6 +67,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
+import kotlin.math.sign
 
 private const val ItemCount = 3
 private const val ItemWidthDp = 80f
@@ -116,7 +118,6 @@ internal fun SukiFloatingBottomBar(
     val latestPagePosition by rememberUpdatedState(safePagePosition)
     val latestTarget by rememberUpdatedState(safeTarget)
     val press = remember { Animatable(0f, 0.001f) }
-    val releaseSettle = remember { Animatable(safePagePosition, 0.001f) }
 
     var dragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(safePagePosition) }
@@ -127,15 +128,17 @@ internal fun SukiFloatingBottomBar(
     var gestureStartLeftPx by remember { mutableFloatStateOf(0f) }
     var gestureStartRightPx by remember { mutableFloatStateOf(0f) }
     var pressOnSelector by remember { mutableStateOf(false) }
-    val containerColor = if (dark) Color(0xFF141417).copy(alpha = 0.54f)
-        else Color.White.copy(alpha = 0.58f)
+    val containerColor = if (dark) Color(0xFF141417).copy(alpha = 0.48f)
+        else Color.White.copy(alpha = 0.54f)
     val fallbackColor = if (dark) Color(0xEA222226) else Color(0xEEF5F5F7)
-    val selectorColor = if (dark) Color.White.copy(alpha = 0.12f)
-        else Color.Black.copy(alpha = 0.08f)
+    val selectorColor = if (dark) Color.White.copy(alpha = 0.10f)
+        else Color.Black.copy(alpha = 0.07f)
     val textColor = if (dark) Color.White else Color(0xFF151518)
     val mutedColor = textColor.copy(alpha = 0.58f)
     val itemWidthPx = with(density) { ItemWidthDp.dp.toPx() }
     val paddingPx = with(density) { HorizontalPaddingDp.dp.toPx() }
+    val releaseLeft = remember { Animatable(paddingPx + safePagePosition * itemWidthPx, 0.01f) }
+    val releaseRight = remember { Animatable(paddingPx + (safePagePosition + 1f) * itemWidthPx, 0.01f) }
     val selectorHeightPx = with(density) { SelectorHeightDp.dp.toPx() }
     val selectorPress = if (pressOnSelector) press.value else 0f
     val maxEdgeStretchPx = with(density) { MaxEdgeStretchDp.dp.toPx() }
@@ -196,19 +199,26 @@ internal fun SukiFloatingBottomBar(
         }
     }
 
-    // Gesture and same-page settle keep fixed-width geometry. Cross-page
-    // release immediately hands the rendered edges to the Pager-driven motion
-    // segment, so there is no stationary catch-up phase. NavigationRow reads
-    // the same segment-mapped visualPosition as the selector container.
+    // Every owner hands over the rendered left and right edges. In particular,
+    // taking over a stretched Pager segment must not reset its width in a frame.
     val gestureOwnsGeometry = gestureActive || dragging || releaseSettling
+    val gestureStartVisualPosition =
+        ((gestureStartLeftPx + gestureStartRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f
+    val dragWidthPx = lerpFloat(
+        gestureStartRightPx - gestureStartLeftPx,
+        itemWidthPx,
+        (abs(dragPosition - gestureStartVisualPosition) / 0.35f).coerceIn(0f, 1f)
+    )
+    val dragCenterPx = paddingPx + (dragPosition + 0.5f) * itemWidthPx
     val selectorMotionLeftPx = when {
-        dragging -> paddingPx + dragPosition * itemWidthPx
-        releaseSettling -> paddingPx + releaseSettle.value * itemWidthPx
+        dragging -> dragCenterPx - dragWidthPx / 2f
+        releaseSettling -> releaseLeft.value
         gestureActive -> gestureStartLeftPx
         else -> motionLeftPx
     }
     val selectorMotionRightPx = when {
-        dragging || releaseSettling -> selectorMotionLeftPx + itemWidthPx
+        dragging -> dragCenterPx + dragWidthPx / 2f
+        releaseSettling -> releaseRight.value
         gestureActive -> gestureStartRightPx
         else -> motionRightPx
     }
@@ -217,11 +227,10 @@ internal fun SukiFloatingBottomBar(
         motionTargetPosition,
         motionProgress
     )
-    val gestureStartVisualPosition =
-        ((gestureStartLeftPx + gestureStartRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f
     val visualPosition = when {
         dragging -> dragPosition
-        releaseSettling -> releaseSettle.value
+        releaseSettling ->
+            ((releaseLeft.value + releaseRight.value) / 2f - paddingPx) / itemWidthPx - 0.5f
         gestureActive -> gestureStartVisualPosition
         else -> motionVisualPosition
     }
@@ -322,6 +331,8 @@ internal fun SukiFloatingBottomBar(
                         // new gesture keeps rendering this exact geometry.
                         gestureStartLeftPx = latestSelectorMotionLeftPx
                         gestureStartRightPx = latestSelectorMotionRightPx
+                        val startVisualPosition =
+                            ((gestureStartLeftPx + gestureStartRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f
                         gestureActive = true
                         releaseSettleJob?.cancel()
                         releaseSettleJob = null
@@ -353,8 +364,8 @@ internal fun SukiFloatingBottomBar(
                                 abs(totalDx) > viewConfiguration.touchSlop
                             ) {
                                 dragging = true
-                                dragPosition = latestVisualPosition
-                                lastX = change.position.x
+                                dragPosition = startVisualPosition
+                                lastX = down.position.x + viewConfiguration.touchSlop * sign(totalDx)
                             }
                             if (dragging) {
                                 val dx = change.position.x - lastX
@@ -376,8 +387,16 @@ internal fun SukiFloatingBottomBar(
                             wasDragging -> heldPosition.roundToInt()
                             else -> downIndex
                         }.coerceIn(0, ItemCount - 1)
-                        val heldLeftPx = paddingPx + heldPosition * itemWidthPx
-                        val heldRightPx = heldLeftPx + itemWidthPx
+                        val heldWidthPx = if (wasDragging) lerpFloat(
+                            gestureStartRightPx - gestureStartLeftPx,
+                            itemWidthPx,
+                            (abs(heldPosition - startVisualPosition) / 0.35f).coerceIn(0f, 1f)
+                        ) else gestureStartRightPx - gestureStartLeftPx
+                        val heldCenterPx = if (wasDragging)
+                            paddingPx + (heldPosition + 0.5f) * itemWidthPx
+                        else (gestureStartLeftPx + gestureStartRightPx) / 2f
+                        val heldLeftPx = heldCenterPx - heldWidthPx / 2f
+                        val heldRightPx = heldCenterPx + heldWidthPx / 2f
                         if (wasDragging) {
                             // Keep the exact release geometry visible until
                             // either Pager or the same-page settle takes over.
@@ -386,49 +405,48 @@ internal fun SukiFloatingBottomBar(
                         }
                         dragging = false
 
-                        if (wasDragging && !cancelled) {
-                            val destination = target.toFloat()
-                            val pagerAlreadyAtTarget =
-                                safeCurrent == target &&
-                                    abs(latestPagePosition - destination) < 0.001f
-                            if (pagerAlreadyAtTarget) {
-                                // Pager has no remaining distance to provide a
-                                // progress timeline. Only this same-page return
-                                // uses the existing local settle spring.
-                                releaseSettleJob = scope.launch {
-                                    releaseSettle.snapTo(heldPosition)
-                                    if (gestureGeneration != generation) return@launch
-                                    releaseSettling = true
-                                    gestureActive = false
-                                    releaseSettle.animateTo(destination, GestureSettleSpring)
-                                    if (gestureGeneration == generation) {
-                                        val targetLeftPx = paddingPx + destination * itemWidthPx
-                                        motionSegment = SelectorMotionSegment(
-                                            startPagerPosition = latestPagePosition,
-                                            startLeftPx = targetLeftPx,
-                                            startRightPx = targetLeftPx + itemWidthPx,
-                                            startVisualPosition = destination,
-                                            targetIndex = target,
-                                            transactionId = transactionId
-                                        )
-                                        releaseSettling = false
-                                    }
-                                }
-                            } else {
-                                // Cross-page release starts immediately from
-                                // the rendered drag geometry. Pager supplies
-                                // the only progress timeline; there is no hold
-                                // phase and therefore no visible dead period.
-                                motionSegment = SelectorMotionSegment(
-                                    startPagerPosition = latestPagePosition,
-                                    startLeftPx = heldLeftPx,
-                                    startRightPx = heldRightPx,
-                                    startVisualPosition = heldPosition,
-                                    targetIndex = target,
-                                    transactionId = transactionId + 1
-                                )
+                        val targetLeftPx = paddingPx + target * itemWidthPx
+                        val pagerAlreadyAtTarget = abs(latestPagePosition - target.toFloat()) < 0.001f
+                        if (!cancelled && pagerAlreadyAtTarget &&
+                            (abs(heldLeftPx - targetLeftPx) > 0.01f ||
+                                abs(heldRightPx - targetLeftPx - itemWidthPx) > 0.01f)
+                        ) {
+                            // The Pager cannot supply progress if it is already
+                            // at the destination. Settle both actual edges instead.
+                            releaseSettleJob = scope.launch {
+                                releaseLeft.snapTo(heldLeftPx)
+                                releaseRight.snapTo(heldRightPx)
+                                if (gestureGeneration != generation) return@launch
+                                releaseSettling = true
                                 gestureActive = false
+                                coroutineScope {
+                                    launch { releaseLeft.animateTo(targetLeftPx, GestureSettleSpring) }
+                                    launch { releaseRight.animateTo(targetLeftPx + itemWidthPx, GestureSettleSpring) }
+                                }
+                                if (gestureGeneration == generation) {
+                                    motionSegment = SelectorMotionSegment(
+                                        startPagerPosition = latestPagePosition,
+                                        startLeftPx = targetLeftPx,
+                                        startRightPx = targetLeftPx + itemWidthPx,
+                                        startVisualPosition = target.toFloat(),
+                                        targetIndex = target,
+                                        transactionId = transactionId
+                                    )
+                                    releaseSettling = false
+                                }
                             }
+                        } else if (wasDragging && !cancelled) {
+                            // Cross-page release continues from the actual drag shape.
+                            motionSegment = SelectorMotionSegment(
+                                startPagerPosition = latestPagePosition,
+                                startLeftPx = heldLeftPx,
+                                startRightPx = heldRightPx,
+                                startVisualPosition =
+                                    ((heldLeftPx + heldRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f,
+                                targetIndex = target,
+                                transactionId = transactionId + 1
+                            )
+                            gestureActive = false
                         } else {
                             // Establish the new segment before Pager geometry
                             // is exposed. Same-target recovery uses this path.
@@ -436,7 +454,7 @@ internal fun SukiFloatingBottomBar(
                                 startPagerPosition = latestPagePosition,
                                 startLeftPx = gestureStartLeftPx,
                                 startRightPx = gestureStartRightPx,
-                                startVisualPosition = gestureStartVisualPosition,
+                                startVisualPosition = startVisualPosition,
                                 targetIndex = target,
                                 transactionId = if (
                                     safeCurrent == target &&
