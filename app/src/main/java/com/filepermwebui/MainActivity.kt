@@ -233,6 +233,9 @@ class MainActivity : ComponentActivity() {
                 )
             }.collect { pageScrollPositions[page] = it }
         }
+        LaunchedEffect(notice) {
+            if (notice?.kind == UiNoticeKind.Error) pageListState.animateScrollToItem(0)
+        }
         val overviewScrollBehavior = MiuixScrollBehavior()
         val settingsScrollBehavior = MiuixScrollBehavior()
         val logsScrollBehavior = MiuixScrollBehavior()
@@ -445,11 +448,9 @@ class MainActivity : ComponentActivity() {
                 runCatching { updates.latestRelease(includePrerelease = updateChannel == "beta") }
                     .onSuccess { release ->
                         latestRelease = release
-                        taskState.success(
-                            if (updates.isNewer(release.version, BuildConfig.VERSION_NAME)) {
-                                "發現新版本 " + release.version
-                            } else "目前已是最新版"
-                        )
+                        if (updates.isNewer(release.version, BuildConfig.VERSION_NAME)) {
+                            taskState.success("發現新版本 " + release.version)
+                        }
                     }
                     .onFailure {
                         taskState.error(
@@ -544,6 +545,29 @@ class MainActivity : ComponentActivity() {
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        notice?.takeIf { it.kind == UiNoticeKind.Error && visiblePage == page }?.let { errorNotice ->
+                            item(key = "inline-error") {
+                                Card(
+                                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)
+                                ) {
+                                    Text(errorNotice.message, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        if (taskState.retryAction != null) {
+                                            TextButton(text = "重試", onClick = taskState::retry)
+                                        }
+                                        TextButton(
+                                            text = "日誌",
+                                            onClick = { navigateTo(LOGS); taskState.dismissNotice() }
+                                        )
+                                        TextButton(text = "關閉", onClick = taskState::dismissNotice)
+                                    }
+                                }
+                            }
+                        }
                         when (visiblePage) {
                             OVERVIEW -> overview(
                                 overlayState = environmentOverlayState,
@@ -729,60 +753,25 @@ class MainActivity : ComponentActivity() {
 
         val renderNotice: @Composable (PaddingValues) -> Unit = { padding ->
             Box(Modifier.fillMaxSize()) {
-                notice?.let { currentNotice ->
+                notice?.takeIf { it.kind != UiNoticeKind.Error }?.let { currentNotice ->
                     val noticeModifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(
                             start = 18.dp,
                             end = 18.dp,
-                            bottom = padding.calculateBottomPadding() + 22.dp
+                            bottom = padding.calculateBottomPadding() + 12.dp
                         )
-                    if (currentNotice.kind == UiNoticeKind.Error) {
-                        Card(
-                            modifier = noticeModifier,
-                            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                            colors = CardDefaults.defaultColors(
-                                color = MiuixTheme.colorScheme.error.copy(alpha = 0.14f)
-                            )
-                        ) {
-                            Text(currentNotice.message, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            Spacer(Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (taskState.retryAction != null) {
-                                    TextButton(
-                                        modifier = Modifier.weight(1f),
-                                        text = "重試",
-                                        onClick = taskState::retry
-                                    )
-                                }
-                                TextButton(
-                                    modifier = Modifier.weight(1f),
-                                    text = "查看日誌",
-                                    onClick = { navigateTo(LOGS); taskState.dismissNotice() }
-                                )
-                                TextButton(
-                                    modifier = Modifier.weight(1f),
-                                    text = "關閉",
-                                    onClick = taskState::dismissNotice
-                                )
-                            }
-                        }
-                    } else {
-                        Box(
-                            modifier = noticeModifier
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(MiuixTheme.colorScheme.surfaceContainer)
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                currentNotice.message,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
+                    Box(
+                        modifier = noticeModifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(MiuixTheme.colorScheme.surfaceContainer)
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            currentNotice.message,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
@@ -856,12 +845,10 @@ class MainActivity : ComponentActivity() {
                                     backdrop = activeBarBackdrop
                                 )
                             } else {
-                                TintedBar(activeBarBackdrop) {
-                                    NavigationBar(color = Color.Transparent) {
-                                        NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { navigateTo(OVERVIEW) }, icon = MiuixIcons.Home, label = "概觀")
-                                        NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { navigateTo(LOGS) }, icon = Icons.Default.List, label = "日誌")
-                                        NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { navigateTo(SETTINGS) }, icon = MiuixIcons.Settings, label = "設定")
-                                    }
+                                NavigationBar(color = MiuixTheme.colorScheme.surfaceContainer) {
+                                    NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { navigateTo(OVERVIEW) }, icon = MiuixIcons.Home, label = "概觀")
+                                    NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { navigateTo(LOGS) }, icon = Icons.Default.List, label = "日誌")
+                                    NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { navigateTo(SETTINGS) }, icon = MiuixIcons.Settings, label = "設定")
                                 }
                             }
                         }
@@ -1433,21 +1420,19 @@ class MainActivity : ComponentActivity() {
             item { InfoCard("尚無已下載漢化", "請先從「下載漢化」取得漢化包。下載完成後會預設立即套用，也會保留在此供日後切換。") }
         } else {
             item { InfoCard("本機漢化", "選擇已下載的漢化包即可直接切換，不需要重新下載。") }
-            items(entries) { entry ->
+            items(entries, key = { it.path }) { entry ->
                 val active = entry.name == activeName
                 var conversionIndex by rememberSaveable(entry.path, "downloaded-conversion") {
                     mutableIntStateOf(if (entry.script == "簡體") 1 else 0)
                 }
                 LaunchedEffect(entry.script) { conversionIndex = if (entry.script == "簡體") 1 else 0 }
-                Card(insideMargin = PaddingValues(18.dp), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)) {
+                Card(insideMargin = PaddingValues(16.dp), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)) {
                     Text(entry.name, style = MiuixTheme.textStyles.title2, color = if (active) MiuixTheme.colorScheme.primary else Color.Unspecified)
-                    Spacer(Modifier.height(5.dp))
-                    Text(
-                        if (active) "已選擇 · 目前套用中" else File(entry.path).name,
-                        color = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                    Spacer(Modifier.height(12.dp))
+                    if (active) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("目前套用中", color = MiuixTheme.colorScheme.primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.height(8.dp))
                     val buttonText = when {
                         active -> "已套用"
                         applyingPackPath == entry.path -> "正在套用…"
@@ -1455,14 +1440,16 @@ class MainActivity : ComponentActivity() {
                         else -> "套用此漢化"
                     }
                     val applyBusy = applyingPackPath == entry.path
-                    ProgressActionButton(
-                        text = buttonText,
-                        progress = applyProgress?.fraction?.takeIf { applyBusy },
-                        busy = applyBusy,
-                        enabled = !active && !applying,
-                        onClick = { apply(entry) }
-                    )
-                    Spacer(Modifier.height(6.dp))
+                    if (!active) {
+                        ProgressActionButton(
+                            text = buttonText,
+                            progress = applyProgress?.fraction?.takeIf { applyBusy },
+                            busy = applyBusy,
+                            enabled = !applying,
+                            onClick = { apply(entry) }
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
                     OverlayDropdownPreference(
                         modifier = PreferenceItemModifier,
                         title = "繁簡轉換",
