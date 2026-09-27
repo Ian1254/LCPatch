@@ -1,5 +1,6 @@
 package com.lcpatch
 
+import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.border
 import androidx.compose.animation.core.spring
@@ -32,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +65,7 @@ import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.sign
@@ -75,7 +78,9 @@ private const val BarHeightDp = 62f
 private const val SelectorHeightDp = 54f
 private const val EdgeOverscrollItems = 0.075f
 private const val MaxEdgeStretchDp = 24f
-private const val DragTrailScale = 4f
+private const val DragTrailVelocitySeconds = 0.03f
+private const val DragTrailRelaxationMs = 45f
+private const val DragTrailIdleMs = 48L
 
 private val PressSpring = spring<Float>(
     dampingRatio = 0.72f,
@@ -121,6 +126,8 @@ internal fun SukiFloatingBottomBar(
     var pressPreviewActive by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(safePagePosition) }
     var dragTrailPx by remember { mutableFloatStateOf(0f) }
+    var dragTrailTargetPx by remember { mutableFloatStateOf(0f) }
+    var lastDragMoveUptimeMillis by remember { mutableStateOf(0L) }
     var releaseSettling by remember { mutableStateOf(false) }
     var gestureGeneration by remember { mutableIntStateOf(0) }
     var releaseSettleJob by remember { mutableStateOf<Job?>(null) }
@@ -253,6 +260,26 @@ internal fun SukiFloatingBottomBar(
     val latestVisibleTopPx by rememberUpdatedState(selectorTop)
     val latestVisibleBottomPx by rememberUpdatedState(selectorTop + dynamicHeight)
 
+    // Only the trailing shape is filtered. The capsule's center is always
+    // calculated from the current pointer position in the gesture loop.
+    LaunchedEffect(dragging) {
+        if (dragging) {
+            var previousFrameNanos = 0L
+            while (true) {
+                val frameNanos = withFrameNanos { it }
+                val elapsedMs = if (previousFrameNanos == 0L) 16f else
+                    ((frameNanos - previousFrameNanos) / 1_000_000f).coerceIn(1f, 32f)
+                previousFrameNanos = frameNanos
+                val target = if (SystemClock.uptimeMillis() - lastDragMoveUptimeMillis > DragTrailIdleMs) {
+                    0f
+                } else dragTrailTargetPx
+                val blend = 1f - exp(-elapsedMs / DragTrailRelaxationMs)
+                dragTrailPx += (target - dragTrailPx) * blend
+                if (abs(dragTrailPx) < 0.1f && target == 0f) dragTrailPx = 0f
+            }
+        }
+    }
+
     // On rapid retarget, capture the capsule exactly as currently rendered.
     // The new transaction starts from those two real edges, so there is no
     // reset-to-normal-width frame before reversing direction.
@@ -376,7 +403,8 @@ internal fun SukiFloatingBottomBar(
                             )
                         }
                         pressOnSelector = startedOnSelector || pressPreviewActive
-                        var lastX = down.position.x
+                        var lastMoveX = down.position.x
+                        var lastMoveTime = down.uptimeMillis
                         var cancelled = false
                         val velocityTracker = VelocityTracker().apply {
                             addPosition(down.uptimeMillis, down.position)
@@ -401,21 +429,29 @@ internal fun SukiFloatingBottomBar(
                                 dragging = true
                                 dragPosition = startVisualPosition
                                 dragTrailPx = 0f
-                                lastX = down.position.x + viewConfiguration.touchSlop * sign(totalDx)
+                                dragTrailTargetPx = 0f
+                                lastDragMoveUptimeMillis = change.uptimeMillis
+                                lastMoveX = change.position.x
+                                lastMoveTime = change.uptimeMillis
                                 dragLeftJob?.cancel()
                                 dragRightJob?.cancel()
                             }
                             if (dragging) {
-                                val dx = change.position.x - lastX
-                                lastX = change.position.x
+                                val dx = change.position.x - lastMoveX
+                                val elapsedMs = (change.uptimeMillis - lastMoveTime).coerceAtLeast(1L)
+                                lastMoveX = change.position.x
+                                lastMoveTime = change.uptimeMillis
+                                val adjustedDx = sign(totalDx) *
+                                    (abs(totalDx) - viewConfiguration.touchSlop).coerceAtLeast(0f)
                                 dragPosition = rubberBand(
-                                    dragPosition + dx / itemWidthPx,
+                                    startVisualPosition + adjustedDx / itemWidthPx,
                                     0f,
                                     (ItemCount - 1).toFloat()
                                 )
                                 if (dx != 0f) {
-                                    dragTrailPx = (abs(dx) * DragTrailScale)
-                                        .coerceAtMost(maxEdgeStretchPx) * sign(dx)
+                                    dragTrailTargetPx = (dx * 1000f / elapsedMs * DragTrailVelocitySeconds)
+                                        .coerceIn(-maxEdgeStretchPx, maxEdgeStretchPx)
+                                    lastDragMoveUptimeMillis = change.uptimeMillis
                                 }
                                 change.consume()
                             }
