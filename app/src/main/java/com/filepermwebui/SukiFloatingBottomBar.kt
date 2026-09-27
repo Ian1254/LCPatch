@@ -592,10 +592,10 @@ private fun dragSelectorEdges(
     // At either end, pin the outside edge to the same inset. Resistance
     // stretches the capsule toward the bar's center, never through its rim.
     if (position < 0f) {
-        return Pair(minLeftPx, minLeftPx + width + overscrollPx)
+        return Pair(minLeftPx, minLeftPx + width + overscrollPx + if (trailPx < 0f) trail else 0f)
     }
     if (position > (ItemCount - 1).toFloat()) {
-        return Pair(maxRightPx - width - overscrollPx, maxRightPx)
+        return Pair(maxRightPx - width - overscrollPx - if (trailPx > 0f) trail else 0f, maxRightPx)
     }
     val center = paddingPx + (boundedPosition + 0.5f) * itemWidthPx
     val left = center - width / 2f - if (trailPx > 0f) trail else 0f
