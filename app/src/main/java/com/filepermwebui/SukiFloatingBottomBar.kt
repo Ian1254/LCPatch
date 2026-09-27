@@ -1,6 +1,5 @@
 package com.lcpatch
 
-import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.border
 import androidx.compose.animation.core.spring
@@ -71,15 +70,15 @@ import kotlin.math.roundToInt
 private const val ItemCount = 3
 private const val BarWidthDp = 240f
 private const val BarHeightDp = 52f
-private const val HorizontalPaddingDp = 5f
+private const val HorizontalPaddingDp = 7f
 private const val ItemWidthDp = (BarWidthDp - 2f * HorizontalPaddingDp) / ItemCount
 private const val SelectorHeightDp = 45f
 private const val SelectorWidthExtraDp = 7f
 private const val EdgeOverscrollItems = 0.075f
 private const val MaxEdgeStretchDp = 24f
-private const val DragTrailVelocitySeconds = 0.03f
-private const val DragTrailRelaxationMs = 45f
-private const val DragTrailIdleMs = 48L
+private const val DragFollowMs = 32f
+private const val DragTrailRelaxationMs = 75f
+private const val DragTrailFraction = 0.45f
 
 private val PressSpring = spring<Float>(
     dampingRatio = 0.72f,
@@ -87,8 +86,8 @@ private val PressSpring = spring<Float>(
     visibilityThreshold = 0.001f
 )
 private val GestureSettleSpring = spring<Float>(
-    dampingRatio = 0.86f,
-    stiffness = 680f,
+    dampingRatio = 0.92f,
+    stiffness = 520f,
     visibilityThreshold = 0.001f
 )
 private data class SelectorMotionSegment(
@@ -123,9 +122,8 @@ internal fun SukiFloatingBottomBar(
     var dragging by remember { mutableStateOf(false) }
     var pressPreviewActive by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(safePagePosition) }
+    var displayedDragPosition by remember { mutableFloatStateOf(safePagePosition) }
     var dragTrailPx by remember { mutableFloatStateOf(0f) }
-    var dragTrailTargetPx by remember { mutableFloatStateOf(0f) }
-    var lastDragMoveUptimeMillis by remember { mutableStateOf(0L) }
     var releaseSettling by remember { mutableStateOf(false) }
     var gestureGeneration by remember { mutableIntStateOf(0) }
     var releaseSettleJob by remember { mutableStateOf<Job?>(null) }
@@ -219,7 +217,7 @@ internal fun SukiFloatingBottomBar(
     val gestureStartVisualPosition =
         ((gestureStartLeftPx + gestureStartRightPx) / 2f - paddingPx) / itemWidthPx - 0.5f
     val (fingerLeftPx, fingerRightPx) = dragSelectorEdges(
-        position = dragPosition,
+        position = displayedDragPosition,
         trailPx = dragTrailPx,
         startPosition = gestureStartVisualPosition,
         startLeftPx = gestureStartLeftPx,
@@ -248,7 +246,7 @@ internal fun SukiFloatingBottomBar(
         motionProgress
     )
     val visualPosition = when {
-        dragging -> dragPosition.coerceIn(0f, (ItemCount - 1).toFloat())
+        dragging -> displayedDragPosition.coerceIn(0f, (ItemCount - 1).toFloat())
         (pressPreviewActive || releaseSettling) && dragEdgesReady ->
             ((dragLeft.value + dragRight.value) / 2f - paddingPx) / itemWidthPx - 0.5f
         gestureActive || releaseSettling -> gestureStartVisualPosition
@@ -257,18 +255,19 @@ internal fun SukiFloatingBottomBar(
     val latestSelectorMotionLeftPx by rememberUpdatedState(selectorMotionLeftPx)
     val latestSelectorMotionRightPx by rememberUpdatedState(selectorMotionRightPx)
     val latestVisualPosition by rememberUpdatedState(visualPosition)
-    val pressInset = with(density) { (3f * selectorPress).dp.toPx() }
-    val selectorLeft = selectorMotionLeftPx + pressInset
-    val selectorRight = selectorMotionRightPx - pressInset
-    val dynamicHeight = selectorHeightPx - 2f * pressInset
+    // Keep the same outer inset during press, drag and spring settle.
+    val selectorLeft = selectorMotionLeftPx.coerceAtLeast(selectorMinLeftPx)
+    val selectorRight = selectorMotionRightPx.coerceAtMost(selectorMaxRightPx)
+    val dynamicHeight = selectorHeightPx
     val selectorTop = with(density) { BarHeightDp.dp.toPx() } / 2f - dynamicHeight / 2f
     val latestVisibleLeftPx by rememberUpdatedState(selectorLeft)
     val latestVisibleRightPx by rememberUpdatedState(selectorRight)
     val latestVisibleTopPx by rememberUpdatedState(selectorTop)
     val latestVisibleBottomPx by rememberUpdatedState(selectorTop + dynamicHeight)
 
-    // Only the trailing shape is filtered. The capsule's center is always
-    // calculated from the current pointer position in the gesture loop.
+    // Ease the capsule center over a short frame window. The tail is derived
+    // from the remaining distance, so sparse or noisy pointer events cannot
+    // inject large one-frame velocity spikes into the shape.
     LaunchedEffect(dragging) {
         if (dragging) {
             var previousFrameNanos = 0L
@@ -277,12 +276,17 @@ internal fun SukiFloatingBottomBar(
                 val elapsedMs = if (previousFrameNanos == 0L) 16f else
                     ((frameNanos - previousFrameNanos) / 1_000_000f).coerceIn(1f, 32f)
                 previousFrameNanos = frameNanos
-                val target = if (SystemClock.uptimeMillis() - lastDragMoveUptimeMillis > DragTrailIdleMs) {
-                    0f
-                } else dragTrailTargetPx
-                val blend = 1f - exp(-elapsedMs / DragTrailRelaxationMs)
-                dragTrailPx += (target - dragTrailPx) * blend
-                if (abs(dragTrailPx) < 0.1f && target == 0f) dragTrailPx = 0f
+                val follow = 1f - exp(-elapsedMs / DragFollowMs)
+                displayedDragPosition += (dragPosition - displayedDragPosition) * follow
+                if (abs(dragPosition - displayedDragPosition) < 0.001f) {
+                    displayedDragPosition = dragPosition
+                }
+                val remainingPx = (dragPosition - displayedDragPosition) * itemWidthPx
+                val targetTrail = (remainingPx * DragTrailFraction)
+                    .coerceIn(-maxEdgeStretchPx * 0.65f, maxEdgeStretchPx * 0.65f)
+                val trailBlend = 1f - exp(-elapsedMs / DragTrailRelaxationMs)
+                dragTrailPx += (targetTrail - dragTrailPx) * trailBlend
+                if (abs(dragTrailPx) < 0.1f && targetTrail == 0f) dragTrailPx = 0f
             }
         }
     }
@@ -392,9 +396,8 @@ internal fun SukiFloatingBottomBar(
                         // makes the capsule visibly lag behind the finger.
                         if (startedOnSelector) {
                             dragPosition = startVisualPosition
+                            displayedDragPosition = startVisualPosition
                             dragTrailPx = 0f
-                            dragTrailTargetPx = 0f
-                            lastDragMoveUptimeMillis = down.uptimeMillis
                             dragging = true
                         }
                         pressPreviewActive = !startedOnSelector && downIndex != latestTarget
@@ -416,8 +419,6 @@ internal fun SukiFloatingBottomBar(
                             )
                         }
                         pressOnSelector = startedOnSelector || pressPreviewActive
-                        var lastMoveX = down.position.x
-                        var lastMoveTime = down.uptimeMillis
                         var cancelled = false
                         val velocityTracker = VelocityTracker().apply {
                             addPosition(down.uptimeMillis, down.position)
@@ -435,20 +436,11 @@ internal fun SukiFloatingBottomBar(
                             velocityTracker.addPosition(change.uptimeMillis, change.position)
                             val totalDx = change.position.x - down.position.x
                             if (dragging) {
-                                val dx = change.position.x - lastMoveX
-                                val elapsedMs = (change.uptimeMillis - lastMoveTime).coerceAtLeast(1L)
-                                lastMoveX = change.position.x
-                                lastMoveTime = change.uptimeMillis
                                 dragPosition = rubberBand(
                                     startVisualPosition + totalDx / itemWidthPx,
                                     0f,
                                     (ItemCount - 1).toFloat()
                                 )
-                                if (dx != 0f) {
-                                    dragTrailTargetPx = (dx * 1000f / elapsedMs * DragTrailVelocitySeconds)
-                                        .coerceIn(-maxEdgeStretchPx, maxEdgeStretchPx)
-                                    lastDragMoveUptimeMillis = change.uptimeMillis
-                                }
                                 change.consume()
                             }
                             if (!change.pressed) break
@@ -463,7 +455,7 @@ internal fun SukiFloatingBottomBar(
                         }.coerceIn(0, ItemCount - 1)
                         val edgesReadyAtRelease = dragLeftReady && dragRightReady
                         val heldDragEdges = dragSelectorEdges(
-                            heldPosition, dragTrailPx, startVisualPosition,
+                            displayedDragPosition, dragTrailPx, startVisualPosition,
                             gestureStartLeftPx, gestureStartRightPx, itemWidthPx, paddingPx,
                             selectorWidthPx, selectorMinLeftPx, selectorMaxRightPx
                         )
@@ -479,7 +471,7 @@ internal fun SukiFloatingBottomBar(
                         }
                         val fingerVelocity = if (wasDragging && !cancelled) {
                             velocityTracker.calculateVelocity().x.coerceIn(
-                                -itemWidthPx * 8f, itemWidthPx * 8f
+                                -itemWidthPx * 2f, itemWidthPx * 2f
                             )
                         } else 0f
                         val heldLeftVelocity = if (wasDragging) fingerVelocity else if (edgesReadyAtRelease && pressPreviewActive) dragLeft.velocity else 0f
