@@ -47,7 +47,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -68,14 +67,13 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.roundToInt
-import kotlin.math.sign
 
 private const val ItemCount = 3
-private const val ItemWidthDp = 80f
-private const val HorizontalPaddingDp = 4f
-private const val BarWidthDp = 248f
-private const val BarHeightDp = 62f
-private const val SelectorHeightDp = 54f
+private const val BarWidthDp = 240f
+private const val BarHeightDp = 54f
+private const val HorizontalPaddingDp = 5f
+private const val ItemWidthDp = (BarWidthDp - 2f * HorizontalPaddingDp) / ItemCount
+private const val SelectorHeightDp = BarHeightDp - 2f * HorizontalPaddingDp
 private const val EdgeOverscrollItems = 0.075f
 private const val MaxEdgeStretchDp = 24f
 private const val DragTrailVelocitySeconds = 0.03f
@@ -110,7 +108,6 @@ internal fun SukiFloatingBottomBar(
     onTargetSelected: (Int) -> Unit
 ) {
     val density = LocalDensity.current
-    val viewConfiguration = LocalViewConfiguration.current
     val scope = rememberCoroutineScope()
     val dark = MiuixTheme.colorScheme.surface.luminance() < 0.5f
     val safeCurrent = currentIndex.coerceIn(0, ItemCount - 1)
@@ -135,12 +132,13 @@ internal fun SukiFloatingBottomBar(
     var gestureStartLeftPx by remember { mutableFloatStateOf(0f) }
     var gestureStartRightPx by remember { mutableFloatStateOf(0f) }
     var pressOnSelector by remember { mutableStateOf(false) }
-    val containerColor = if (dark) Color(0xFF101012) else Color(0xFFF1F1F3)
+    val containerColor = if (dark) Color(0xFF171719) else Color(0xFFF1F1F3)
     val borderColor = if (dark) Color.White.copy(alpha = 0.12f)
         else Color.Black.copy(alpha = 0.10f)
-    val selectorColor = if (dark) Color(0xFF38383B) else Color(0xFFDADADD)
+    val selectorColor = if (dark) Color(0xFF4B4B4E) else Color(0xFFDADADD)
     val textColor = if (dark) Color.White else Color(0xFF151518)
-    val mutedColor = textColor.copy(alpha = 0.58f)
+    val mutedColor = textColor.copy(alpha = if (dark) 0.94f else 0.86f)
+    val selectedColor = textColor.copy(alpha = 0.72f)
     val itemWidthPx = with(density) { ItemWidthDp.dp.toPx() }
     val paddingPx = with(density) { HorizontalPaddingDp.dp.toPx() }
     val dragLeft = remember(itemWidthPx, paddingPx) { Animatable(paddingPx + safePagePosition * itemWidthPx, 0.01f) }
@@ -300,7 +298,7 @@ internal fun SukiFloatingBottomBar(
     }
 
     Box(
-        Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp),
+        Modifier.fillMaxWidth().navigationBarsPadding(),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -343,19 +341,15 @@ internal fun SukiFloatingBottomBar(
             NavigationRow(
                 visualPosition = visualPosition,
                 semanticsIndex = safeCurrent,
-                textColor = textColor,
                 mutedColor = mutedColor,
+                selectedColor = selectedColor,
                 modifier = Modifier.fillMaxSize().padding(horizontal = HorizontalPaddingDp.dp)
             )
 
-            // Normal tap commits only on release. Drag keeps beta.19's single
-            // gesture owner, touchSlop, rubber band and target calculation.
+            // Navigation commits only on release. Only a gesture beginning
+            // inside the selected capsule can move it horizontally.
             Box(
-                Modifier.fillMaxSize().pointerInput(
-                    itemWidthPx,
-                    paddingPx,
-                    viewConfiguration.touchSlop
-                ) {
+                Modifier.fillMaxSize().pointerInput(itemWidthPx, paddingPx) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         gestureGeneration += 1
@@ -384,6 +378,16 @@ internal fun SukiFloatingBottomBar(
                         val startedOnSelector =
                             down.position.x in latestVisibleLeftPx..latestVisibleRightPx &&
                                 down.position.y in latestVisibleTopPx..latestVisibleBottomPx
+                        // The selected capsule follows the pointer from the first
+                        // move. Waiting for touch slop and then subtracting it
+                        // makes the capsule visibly lag behind the finger.
+                        if (startedOnSelector) {
+                            dragPosition = startVisualPosition
+                            dragTrailPx = 0f
+                            dragTrailTargetPx = 0f
+                            lastDragMoveUptimeMillis = down.uptimeMillis
+                            dragging = true
+                        }
                         pressPreviewActive = !startedOnSelector && downIndex != latestTarget
                         val preview = pressPreviewActive
                         val previewLeft = paddingPx + downIndex * itemWidthPx
@@ -421,30 +425,13 @@ internal fun SukiFloatingBottomBar(
                             }
                             velocityTracker.addPosition(change.uptimeMillis, change.position)
                             val totalDx = change.position.x - down.position.x
-                            if (
-                                startedOnSelector &&
-                                !dragging &&
-                                abs(totalDx) > viewConfiguration.touchSlop
-                            ) {
-                                dragging = true
-                                dragPosition = startVisualPosition
-                                dragTrailPx = 0f
-                                dragTrailTargetPx = 0f
-                                lastDragMoveUptimeMillis = change.uptimeMillis
-                                lastMoveX = change.position.x
-                                lastMoveTime = change.uptimeMillis
-                                dragLeftJob?.cancel()
-                                dragRightJob?.cancel()
-                            }
                             if (dragging) {
                                 val dx = change.position.x - lastMoveX
                                 val elapsedMs = (change.uptimeMillis - lastMoveTime).coerceAtLeast(1L)
                                 lastMoveX = change.position.x
                                 lastMoveTime = change.uptimeMillis
-                                val adjustedDx = sign(totalDx) *
-                                    (abs(totalDx) - viewConfiguration.touchSlop).coerceAtLeast(0f)
                                 dragPosition = rubberBand(
-                                    startVisualPosition + adjustedDx / itemWidthPx,
+                                    startVisualPosition + totalDx / itemWidthPx,
                                     0f,
                                     (ItemCount - 1).toFloat()
                                 )
@@ -587,7 +574,7 @@ private fun dragSelectorEdges(
         (travel / 0.35f).coerceIn(0f, 1f)
     )
     val center = paddingPx + (position + 0.5f) * itemWidthPx
-    val trail = abs(trailPx) * (travel / 0.2f).coerceIn(0f, 1f)
+    val trail = abs(trailPx)
     return Pair(
         center - width / 2f - if (trailPx > 0f) trail else 0f,
         center + width / 2f + if (trailPx < 0f) trail else 0f
@@ -606,14 +593,14 @@ private fun rubberBand(value: Float, min: Float, max: Float): Float = when {
 private fun NavigationRow(
     visualPosition: Float,
     semanticsIndex: Int,
-    textColor: Color,
     mutedColor: Color,
+    selectedColor: Color,
     modifier: Modifier
 ) {
     Row(modifier) {
-        NavigationItem("概觀", MiuixIcons.Home, 0, visualPosition, semanticsIndex, textColor, mutedColor)
-        NavigationItem("日誌", Icons.Default.List, 1, visualPosition, semanticsIndex, textColor, mutedColor)
-        NavigationItem("設定", MiuixIcons.Settings, 2, visualPosition, semanticsIndex, textColor, mutedColor)
+        NavigationItem("概觀", MiuixIcons.Home, 0, visualPosition, semanticsIndex, mutedColor, selectedColor)
+        NavigationItem("日誌", Icons.Default.List, 1, visualPosition, semanticsIndex, mutedColor, selectedColor)
+        NavigationItem("設定", MiuixIcons.Settings, 2, visualPosition, semanticsIndex, mutedColor, selectedColor)
     }
 }
 
@@ -624,11 +611,11 @@ private fun RowScope.NavigationItem(
     index: Int,
     visualPosition: Float,
     semanticsIndex: Int,
-    textColor: Color,
-    mutedColor: Color
+    mutedColor: Color,
+    selectedColor: Color
 ) {
     val selectedFraction = (1f - abs(visualPosition - index)).coerceIn(0f, 1f)
-    val contentColor = lerp(mutedColor, textColor, selectedFraction)
+    val contentColor = lerp(mutedColor, selectedColor, selectedFraction)
     val itemScale = 0.985f + 0.015f * selectedFraction
     Column(
         Modifier
@@ -647,7 +634,6 @@ private fun RowScope.NavigationItem(
             modifier = Modifier.size(22.dp).graphicsLayer {
                 scaleX = itemScale
                 scaleY = itemScale
-                alpha = 0.86f + 0.14f * selectedFraction
             },
             tint = contentColor
         )
@@ -656,7 +642,6 @@ private fun RowScope.NavigationItem(
             modifier = Modifier.graphicsLayer {
                 scaleX = itemScale
                 scaleY = itemScale
-                alpha = 0.86f + 0.14f * selectedFraction
             },
             color = contentColor,
             fontSize = 11.sp,
