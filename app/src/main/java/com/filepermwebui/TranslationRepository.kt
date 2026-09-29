@@ -10,7 +10,7 @@ import java.util.zip.ZipInputStream
 import org.json.JSONObject
 import com.github.houbb.opencc4j.util.ZhConverterUtil
 
-data class TranslationEntry(val section: String, val name: String, val author: String, val description: String, val url: String)
+data class TranslationEntry(val section: String, val name: String, val author: String, val description: String, val url: String, val script: String? = null)
 data class TransferProgress(val name: String, val bytes: Long, val total: Long, val bytesPerSecond: Long, val finished: Boolean = false)
 data class ApplyProgress(val stage: String, val current: Int, val total: Int) {
     val fraction: Float? get() = total.takeIf { it > 0 }?.let { (current.toFloat() / it).coerceIn(0f, 1f) }
@@ -37,6 +37,7 @@ class TranslationRepository(private val context: Context) {
     companion object {
         const val SOURCE = "https://textdb.online/WFd2u9fuvURB7pEJXNSCL3NX"
         private const val OFFICIAL_LATEST = "https://api.github.com/repos/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/latest"
+        private const val MERGED_LATEST = "https://api.github.com/repos/Ian1254/LCPatch-Localization-Builder/releases/latest"
         val LANGUAGES = listOf(
             OverrideLanguage("jp", "日本語", "JP"),
             OverrideLanguage("kr", "한국어", "KR"),
@@ -66,9 +67,41 @@ class TranslationRepository(private val context: Context) {
         }.map(::parseTranslationCatalog).getOrDefault(emptyList()).filterNot {
             it.name.contains("零協") || it.author.contains("零協") || it.author.contains("都市零協會")
         }
+        val merged = runCatching { fetchMergedLatest() }.getOrDefault(emptyList())
         val community = runCatching { fetchOfficialLatest() }.getOrDefault(emptyList())
-        (primary + community).distinctBy { it.name to it.url }
+        (merged + primary + community).distinctBy { it.name to it.url }
             .also { require(it.isNotEmpty()) { "下載清單格式已變更，請稍後重試" } }
+    }
+
+    private fun fetchMergedLatest(): List<TranslationEntry> {
+        val raw = HttpClient.open(MERGED_LATEST, accept = "application/vnd.github+json").run {
+            inputStream.bufferedReader().use { it.readText() }.also { disconnect() }
+        }
+        val release = JSONObject(raw)
+        val tag = release.getString("tag_name")
+        val match = Regex("^v(\\d+\\.\\d+\\.\\d+)-(\\d{10})$").matchEntire(tag)
+            ?: error("合併版 Release 版本格式不正確")
+        val gameVersion = match.groupValues[1]
+        val llcVersion = match.groupValues[2]
+        val expected = "LCPatch_${gameVersion}_LLC_${llcVersion}.zip"
+        val assets = release.getJSONArray("assets")
+        val matches = (0 until assets.length()).map { assets.getJSONObject(it) }
+            .filter { it.optString("name") == expected }
+        require(matches.size == 1) { "合併版 Release 缺少漢化 ZIP" }
+        val url = matches.single().getString("browser_download_url")
+        require(url.startsWith("https://github.com/Ian1254/LCPatch-Localization-Builder/releases/download/")) {
+            "合併版下載連結不正確"
+        }
+        return listOf(
+            TranslationEntry(
+                "漢化-XP",
+                "合併漢化（零協＋ghcruise）",
+                "LCPatch-Localization-Builder",
+                "遊戲 $gameVersion・零協 $llcVersion；補齊劇情角色名稱與設定文本",
+                url,
+                script = "簡體"
+            )
+        )
     }
 
     private fun fetchOfficialLatest(): List<TranslationEntry> {
@@ -116,7 +149,8 @@ class TranslationRepository(private val context: Context) {
             prefs.edit().putString("download.${output.name}", entry.name).apply()
             val prepared = File(staging, "download-${safeName(entry.name)}").also { it.deleteRecursively(); it.mkdirs() }
             unpackLocalize(output, prepared)
-            File(prepared, ".lcpatch-script").writeText(inferScript(entry.name))
+            val script = entry.script ?: inferScript(entry.name)
+            File(prepared, ".lcpatch-script").writeText(script)
             encodeDirectoryToPua(prepared, preparation)
             File(prepared, PUA_MARKER).writeText("1")
             val publicPath = "$PUBLIC_DOWNLOADS/${safeName(entry.name)}"
@@ -124,7 +158,7 @@ class TranslationRepository(private val context: Context) {
             output.delete()
             progress(TransferProgress(fileName, result.bytes, if (result.total > 0) result.total else result.bytes, 0, true))
             LogRepository.append(context, "INFO", "download.completed", "${entry.name} 已下載並解壓到獨立目錄")
-            DownloadedTranslation(entry.name, publicPath, inferScript(entry.name), true)
+            DownloadedTranslation(entry.name, publicPath, script, true)
         } catch (error: Throwable) {
             val looksLikeZip = runCatching {
                 part.length() > 4 && part.inputStream().use { it.read() == 0x50 && it.read() == 0x4b }

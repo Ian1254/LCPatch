@@ -11,7 +11,7 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 X
 - 支援自訂 TTF／OTF 字型、漢化啟用開關、深淺色模式、Miuix 介面及模組日誌。
 - 使用 LSPosed API 102；native 核心與第三方 native 依賴均包含可重建原始碼。
 
-漢化清單包含一般線上來源，以及都市零協會官方 GitHub 儲存庫的最新 Release。LCPatch 儲存庫本身不包含第三方漢化內容。
+漢化清單包含一般線上來源、都市零協會官方 GitHub 儲存庫的最新 Release，以及 [LCPatch-Localization-Builder](https://github.com/Ian1254/LCPatch-Localization-Builder) 的合併漢化。合併版會自動從最新 Release 取得，但 App 不核對遊戲版本；若遊戲更新快於資源包，套用後可能有缺字或缺文。LCPatch 儲存庫本身不包含第三方漢化內容。
 
 ## 支援環境
 
