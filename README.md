@@ -13,6 +13,8 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 X
 
 漢化清單包含一般線上來源、都市零協會官方 GitHub 儲存庫的最新 Release，以及 [LCPatch-Localization-Builder](https://github.com/Ian1254/LCPatch-Localization-Builder) 的合併漢化。合併版會自動從最新 Release 取得，但 App 不核對遊戲版本；若遊戲更新快於資源包，套用後可能有缺字或缺文。LCPatch 儲存庫本身不包含第三方漢化內容。
 
+舊版 Root 簡體漢化已從下載清單移除；本機同名舊包會在不再套用時清理。清單卡片只顯示來源，不顯示內部分類名稱。
+
 ## 支援環境
 
 - Android 9（API 28）以上

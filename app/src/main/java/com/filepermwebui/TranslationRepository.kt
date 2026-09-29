@@ -65,7 +65,8 @@ class TranslationRepository(private val context: Context) {
         val primary = runCatching {
             HttpClient.open(SOURCE).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
         }.map(::parseTranslationCatalog).getOrDefault(emptyList()).filterNot {
-            it.name.contains("零協") || it.author.contains("零協") || it.author.contains("都市零協會")
+            it.name.contains("零協") || it.author.contains("零協") || it.author.contains("都市零協會") ||
+                isLegacyRootSimplified(it.name)
         }
         val merged = runCatching { fetchMergedLatest() }.getOrDefault(emptyList())
         val community = runCatching { fetchOfficialLatest() }.getOrDefault(emptyList())
@@ -206,6 +207,12 @@ class TranslationRepository(private val context: Context) {
         if (!result.success) return@withContext emptyList()
         result.output.lineSequence().filter(String::isNotBlank).mapNotNull { original ->
             val oldName = File(original).name
+            if (isLegacyRootSimplified(oldName) && oldName != activeName()) {
+                if (runRoot("rm -rf -- ${quote(original)}")) {
+                    LogRepository.append(context, "INFO", "translation.legacy_removed", "已移除舊版 Root 簡體漢化")
+                    return@mapNotNull null
+                }
+            }
             val cleanName = safeName(oldName)
             val canonical = "$PUBLIC_DOWNLOADS/$cleanName"
             if (original != canonical) runRoot("mv -f ${quote(original)} ${quote(canonical)}")
@@ -480,6 +487,9 @@ class TranslationRepository(private val context: Context) {
     private fun safeName(value: String): String = value.replace(Regex("[\\/:*?\"<>|]"), "_").trim().take(80).ifBlank { "translation" }
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }
+
+internal fun isLegacyRootSimplified(name: String): Boolean =
+    Regex("^Root\\s*简体汉化$", RegexOption.IGNORE_CASE).matches(name)
 
 internal fun parseTranslationCatalog(text: String): List<TranslationEntry> {
     var section = ""
