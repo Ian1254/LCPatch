@@ -2,9 +2,18 @@ package com.lcpatch
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TranslationCatalogTest {
+    @Test fun recognizesOnlyTheOldRootSimplifiedPack() {
+        assertTrue(isLegacyRootSimplified("Root 简体汉化"))
+        assertTrue(isLegacyRootSimplified("Root简体汉化"))
+        assertFalse(isLegacyRootSimplified("Root 繁體漢化"))
+        assertFalse(isLegacyRootSimplified("My Root 简体汉化"))
+    }
+
     @Test fun acceptsXpSectionsAndExcludesNormalMode() {
         val source = """
             [汉化-XP]
