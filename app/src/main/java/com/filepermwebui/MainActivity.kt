@@ -1357,7 +1357,7 @@ class MainActivity : ComponentActivity() {
         items(entries) { entry ->
             Card(insideMargin = PaddingValues(18.dp)) {
                 Text(entry.name, style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(4.dp)); Text("${entry.author} · ${entry.section}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.height(4.dp)); Text(entry.author, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(6.dp)); Text(entry.description, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(12.dp))
                 val ownsTask = installingEntryKey == entry.url
@@ -1406,10 +1406,6 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(entry.script) { conversionIndex = if (entry.script == "簡體") 1 else 0 }
                 Card(insideMargin = PaddingValues(16.dp), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)) {
                     Text(entry.name, style = MiuixTheme.textStyles.title2)
-                    if (active) {
-                        Spacer(Modifier.height(4.dp))
-                        Text("目前套用中", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    }
                     Spacer(Modifier.height(8.dp))
                     val buttonText = when {
                         active -> "已套用"
@@ -1418,16 +1414,14 @@ class MainActivity : ComponentActivity() {
                         else -> "套用此漢化"
                     }
                     val applyBusy = applyingPackPath == entry.path
-                    if (!active) {
-                        ProgressActionButton(
-                            text = buttonText,
-                            progress = applyProgress?.fraction?.takeIf { applyBusy },
-                            busy = applyBusy,
-                            enabled = !applying,
-                            onClick = { apply(entry) }
-                        )
-                        Spacer(Modifier.height(6.dp))
-                    }
+                    ProgressActionButton(
+                        text = buttonText,
+                        progress = applyProgress?.fraction?.takeIf { applyBusy },
+                        busy = applyBusy,
+                        enabled = !active && !applying,
+                        onClick = { apply(entry) }
+                    )
+                    Spacer(Modifier.height(6.dp))
                     OverlayDropdownPreference(
                         modifier = PreferenceItemModifier,
                         title = "繁簡轉換",
