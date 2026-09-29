@@ -1,6 +1,6 @@
 package com.lcpatch;
 
-/** Registry of font-hook builds that have passed device verification. */
+/** Game versions with known verification status; runtime also checks Unity signatures. */
 public final class FontProfiles {
     public static final class Profile {
         public final long versionCode;
@@ -28,8 +28,11 @@ public final class FontProfiles {
         return null;
     }
 
-    public static String status(long versionCode) {
+    public static String status(long versionCode, String gameVersion) {
         Profile profile = find(versionCode);
-        return profile == null ? "未驗證遊戲版本" : "已驗證 · 文字與字型核心";
+        if (versionCode < 0) return "無法確認遊戲版本";
+        if (profile != null) return "已實機驗證 · 執行時仍檢查 Unity";
+        if (gameVersion.startsWith("1.115.0 (")) return "已收錄 Unity 特徵 · 待實機驗證";
+        return "未實機驗證 · 啟動時檢查 Unity";
     }
 }

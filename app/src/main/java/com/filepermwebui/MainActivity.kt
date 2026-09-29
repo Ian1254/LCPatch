@@ -261,7 +261,7 @@ class MainActivity : ComponentActivity() {
                     logs.setSelectedFolder(uri)
                     taskState.success("診斷文件位置已更新")
                 } catch (error: Throwable) {
-                    taskState.error("無法保存資料夾授權：${error.message}")
+                    taskState.error("無法儲存資料夾授權：${error.message}")
                 }
                 revision++
             }
@@ -269,8 +269,8 @@ class MainActivity : ComponentActivity() {
         val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) scope.launch {
                 runCatching { withContext(Dispatchers.IO) { translations.setCustomFont(uri, contentName(uri)) } }
-                    .onSuccess { fontName = translations.fontName(); taskState.success("字體已更新") }
-                    .onFailure { taskState.error("字體匯入失敗：${it.message}") }
+                    .onSuccess { fontName = translations.fontName(); taskState.success("已匯入字型；重新套用漢化後生效") }
+                    .onFailure { taskState.error("字型匯入失敗：${it.message}") }
             }
         }
         val customPackPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -294,9 +294,7 @@ class MainActivity : ComponentActivity() {
                     .onSuccess { catalog = it }
                     .onFailure {
                         catalogError = it.message ?: "無法取得漢化清單"
-                        taskState.error(
-                            "無法取得漢化清單：" + (it.message ?: "請檢查網路連線")
-                        ) { refreshCatalog() }
+                        taskState.error(catalogError!!) { refreshCatalog() }
                     }
                 catalogLoading = false
             }
@@ -580,14 +578,18 @@ class MainActivity : ComponentActivity() {
                                 fontName = fontName,
                                 onLanguage = ::changeTargetLanguage,
                                 onFont = { fontPicker.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream")) },
-                                onClearFont = { translations.clearCustomFont(); fontName = translations.fontName(); taskState.success("已改回漢化包內字體") },
+                                hasCustomFont = translations.hasCustomFont(),
+                                onClearFont = { translations.clearCustomFont(); fontName = translations.fontName(); taskState.success("已改用內建字型；重新套用漢化後生效") },
                                 onImport = { customPackPicker.launch(arrayOf("application/zip", "application/octet-stream")) },
                                 onReset = { logs.resetSelectedFolder(); revision++; taskState.success("已改回預設暫存位置") }
                             )
                             LOGS -> logPage(
                                 events,
                                 save = {
-                                    try { logs.saveDiagnostic(events); taskState.success("診斷文件已儲存") }
+                                    try {
+                                        logs.saveDiagnostic(events)
+                                        taskState.success(if (logs.selectedFolder() == null) "診斷文件已存至 App 暫存區，請使用分享功能取得" else "診斷文件已儲存至所選資料夾")
+                                    }
                                     catch (error: Throwable) { taskState.error("儲存失敗：${error.message}") }
                                 },
                                 share = {
@@ -743,12 +745,10 @@ class MainActivity : ComponentActivity() {
                             .padding(horizontal = 16.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            if (currentNotice.kind == UiNoticeKind.Error)
-                                currentNotice.message.substringBefore('：')
-                            else currentNotice.message,
+                            currentNotice.message,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
-                            maxLines = 2,
+                            maxLines = if (currentNotice.kind == UiNoticeKind.Error) 4 else 2,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
@@ -930,7 +930,7 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(8.dp))
                 Detail("Limbus Company", if (game.installed) "已安裝" else "未安裝")
                 Detail("版本", game.version)
-                Detail("字型相容性", FontProfiles.status(game.versionCode))
+                Detail("字型相容性", FontProfiles.status(game.versionCode, game.version))
                 Spacer(Modifier.height(14.dp))
                 Button(modifier = Modifier.fillMaxWidth(), enabled = game.installed, onClick = ::launchGame) { Text("啟動 Limbus Company") }
             }
@@ -951,7 +951,7 @@ class MainActivity : ComponentActivity() {
         onFolder: () -> Unit, onAbout: () -> Unit, onUpdate: () -> Unit,
         onDisplay: () -> Unit, onConversion: () -> Unit, targetLanguage: OverrideLanguage,
         applyProgress: ApplyProgress?, applying: Boolean, changingTargetLanguage: Boolean,
-        fontName: String, onLanguage: (OverrideLanguage) -> Unit,
+        fontName: String, hasCustomFont: Boolean, onLanguage: (OverrideLanguage) -> Unit,
         onFont: () -> Unit, onClearFont: () -> Unit, onImport: () -> Unit, onReset: () -> Unit
     ) {
         item { SectionLabel("漢化") }
@@ -974,10 +974,10 @@ class MainActivity : ComponentActivity() {
                 }
                 ArrowPreference(modifier = PreferenceItemModifier, title = "繁簡轉換", summary = "轉換已下載漢化目錄內的 JSON 文件", onClick = onConversion)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "匯入自訂漢化文件", summary = "從本機加入 ZIP 漢化包", onClick = onImport)
-                ArrowPreference(modifier = PreferenceItemModifier, title = "更換字體", summary = fontName, onClick = onFont)
+                ArrowPreference(modifier = PreferenceItemModifier, title = "更換字型", summary = fontName, onClick = onFont)
             }
         }
-        if (fontName != "使用漢化包內字體") item { TextButton(modifier = Modifier.fillMaxWidth(), text = "移除自訂字體", onClick = onClearFont) }
+        if (hasCustomFont) item { TextButton(modifier = Modifier.fillMaxWidth(), text = "移除自訂字型", onClick = onClearFont) }
         item { SectionLabel("應用程式") }
         item {
             Card {
@@ -1017,13 +1017,13 @@ class MainActivity : ComponentActivity() {
                 SwitchPreference(
                     modifier = PreferenceItemModifier,
                     title = "背景模糊",
-                    summary = if (blurEnabled) "已啟用；頂欄與底欄保持即時模糊" else "已停用；使用穩定的半透明背景",
+                    summary = if (blurEnabled) "已啟用；頂欄使用背景模糊" else "已停用；頂欄使用半透明背景",
                     checked = blurEnabled,
                     onCheckedChange = onBlurEnabled
                 )
             }
         }
-        item { InfoCard("顯示效果", "可選擇使用背景模糊；關閉後頂欄與底欄會改用穩定的半透明背景。") }
+        item { InfoCard("顯示效果", "背景模糊只影響頂欄；底欄使用實色背景。") }
     }
 
     private fun LazyListScope.logPage(events: List<LogEvent>, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
@@ -1074,7 +1074,7 @@ class MainActivity : ComponentActivity() {
                 Detail("儲存目錄", "/sdcard/LCPatch")
             }
         }
-        item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字體以及語言覆蓋設定。遊戲更新後會先驗證目標結構，配置不相符時停止載入，以降低閃退風險。", translucent = true) }
+        item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字型以及語言覆蓋設定。遊戲更新後會驗證 Unity 字型入口，無法安全確認時停用字型掛鉤；漢化文件仍依各文件的存在情況重導。", translucent = true) }
         item { InfoCard("開放原始碼與致謝", "介面採用 compose-miuix-ui，LSPosed 整合採用 libxposed API 102，繁簡轉換採用 opencc4j。漢化內容與授權條款歸各翻譯組及原作者所有。", translucent = true) }
     }
 
@@ -1408,9 +1408,9 @@ class MainActivity : ComponentActivity() {
                     Text(entry.name, style = MiuixTheme.textStyles.title2)
                     Spacer(Modifier.height(8.dp))
                     val buttonText = when {
-                        active -> "已套用"
                         applyingPackPath == entry.path -> "正在套用…"
                         processingPackPath == entry.path -> "正在轉換…"
+                        active -> "已套用"
                         else -> "套用此漢化"
                     }
                     val applyBusy = applyingPackPath == entry.path
@@ -1508,15 +1508,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    private fun friendlyError(event: LogEvent): String = when (event.code) {
-        "native.failed" -> "模組元件載入失敗，請更新或重新安裝 LCPatch"
-        "locator.library_missing" -> "遊戲元件尚未準備完成，請重新啟動遊戲"
-        "locator.ambiguous" -> "目前遊戲版本尚未支援，請等待相容更新"
-        "hook.install_failed" -> "字型套用失敗，請重新啟動遊戲"
-        "hook.engine_missing" -> "字型掛鉤核心不可用，本次已安全停用"
-        else -> "設定尚未完成，可前往設定查看診斷"
     }
 }
 

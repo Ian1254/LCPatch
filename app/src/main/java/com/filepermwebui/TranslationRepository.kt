@@ -62,16 +62,28 @@ class TranslationRepository(private val context: Context) {
     private val prefs = context.getSharedPreferences("translations", Context.MODE_PRIVATE)
 
     suspend fun fetchCatalog(): List<TranslationEntry> = withContext(Dispatchers.IO) {
-        val primary = runCatching {
+        val primaryResult = runCatching {
             HttpClient.open(SOURCE).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
-        }.map(::parseTranslationCatalog).getOrDefault(emptyList()).filterNot {
+        }.map(::parseTranslationCatalog)
+        val primary = primaryResult.getOrDefault(emptyList()).filterNot {
             it.name.contains("零協") || it.author.contains("零協") || it.author.contains("都市零協會") ||
                 isLegacyRootSimplified(it.name)
         }
-        val merged = runCatching { fetchMergedLatest() }.getOrDefault(emptyList())
-        val community = runCatching { fetchOfficialLatest() }.getOrDefault(emptyList())
+        val mergedResult = runCatching { fetchMergedLatest() }
+        val officialResult = runCatching { fetchOfficialLatest() }
+        val merged = mergedResult.getOrDefault(emptyList())
+        val community = officialResult.getOrDefault(emptyList())
         (merged + primary + community).distinctBy { it.name to it.url }
-            .also { require(it.isNotEmpty()) { "下載清單格式已變更，請稍後重試" } }
+            .also { entries ->
+                if (entries.isEmpty()) {
+                    val reason = listOfNotNull(
+                        primaryResult.exceptionOrNull()?.let { "一般來源：${it.message ?: it.javaClass.simpleName}" },
+                        mergedResult.exceptionOrNull()?.let { "合併版：${it.message ?: it.javaClass.simpleName}" },
+                        officialResult.exceptionOrNull()?.let { "零協會：${it.message ?: it.javaClass.simpleName}" }
+                    ).joinToString("；")
+                    error(if (reason.isEmpty()) "目前沒有可用的漢化資源" else "無法取得漢化清單：$reason")
+                }
+            }
     }
 
     private fun fetchMergedLatest(): List<TranslationEntry> {
@@ -146,7 +158,7 @@ class TranslationRepository(private val context: Context) {
             require(part.length() > 4 && part.inputStream().use { it.read() == 0x50 && it.read() == 0x4b }) { "下載內容不是 ZIP 漢化包" }
             ZipFile(part).use { require(it.entries().asSequence().any { item -> localizeRelativePath(item.name) != null }) { "漢化包缺少 Localize 資料夾" } }
             if (output.exists()) output.delete()
-            require(part.renameTo(output)) { "無法保存下載檔" }
+            require(part.renameTo(output)) { "無法儲存下載檔" }
             prefs.edit().putString("download.${output.name}", entry.name).apply()
             val prepared = File(staging, "download-${safeName(entry.name)}").also { it.deleteRecursively(); it.mkdirs() }
             unpackLocalize(output, prepared)
@@ -155,7 +167,7 @@ class TranslationRepository(private val context: Context) {
             encodeDirectoryToPua(prepared, preparation)
             File(prepared, PUA_MARKER).writeText("1")
             val publicPath = "$PUBLIC_DOWNLOADS/${safeName(entry.name)}"
-            require(runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && rm -rf ${quote(publicPath)} && cp -R ${quote(prepared.absolutePath)} ${quote(publicPath)} && chmod -R 0755 ${quote(publicPath)}")) { "無法保存已解壓漢化" }
+            require(runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && rm -rf ${quote(publicPath)} && cp -R ${quote(prepared.absolutePath)} ${quote(publicPath)} && chmod -R 0755 ${quote(publicPath)}")) { "無法儲存已解壓漢化" }
             output.delete()
             progress(TransferProgress(fileName, result.bytes, if (result.total > 0) result.total else result.bytes, 0, true))
             LogRepository.append(context, "INFO", "download.completed", "${entry.name} 已下載並解壓到獨立目錄")
@@ -227,7 +239,7 @@ class TranslationRepository(private val context: Context) {
             encodeDirectoryToPua(raw, progress)
             File(raw, PUA_MARKER).writeText("1")
             validateJsonDirectory(File(raw, "Localize"))
-            require(runRoot("rm -rf ${quote(entry.path)} && cp -R ${quote(raw.absolutePath)} ${quote(entry.path)} && chmod -R 0755 ${quote(entry.path)}")) { "無法保存 PUA 轉換結果" }
+            require(runRoot("rm -rf ${quote(entry.path)} && cp -R ${quote(raw.absolutePath)} ${quote(entry.path)} && chmod -R 0755 ${quote(entry.path)}")) { "無法儲存 PUA 轉換結果" }
         }
         applyPrepared(raw, entry.name, progress)
     }
@@ -244,7 +256,7 @@ class TranslationRepository(private val context: Context) {
         encodeDirectoryToPua(prepared) {}
         File(prepared, PUA_MARKER).writeText("1")
         val publicPath = "$PUBLIC_DOWNLOADS/$label"
-        require(runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && rm -rf ${quote(publicPath)} && cp -R ${quote(prepared.absolutePath)} ${quote(publicPath)} && chmod -R 0755 ${quote(publicPath)}")) { "無法保存到 LCPatch 目錄" }
+        require(runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && rm -rf ${quote(publicPath)} && cp -R ${quote(prepared.absolutePath)} ${quote(publicPath)} && chmod -R 0755 ${quote(publicPath)}")) { "無法儲存到 LCPatch 目錄" }
         cache.delete()
         prefs.edit().putString("download.${cache.name}", label).apply()
         LogRepository.append(context, "INFO", "translation.imported", "已匯入並解壓 $label")
@@ -273,7 +285,10 @@ class TranslationRepository(private val context: Context) {
         result
     }
 
-    fun fontName(): String = prefs.getString("font_name", "內建 PUA 中文字型") ?: "內建 PUA 中文字型"
+    fun fontName(): String = if (hasCustomFont()) {
+        prefs.getString("font_name", null) ?: "自訂字型"
+    } else "內建 PUA 中文字型"
+    fun hasCustomFont(): Boolean = customFontFile() != null
 
     fun translationEnabled(): Boolean = prefs.getBoolean("translation_enabled", true)
 
@@ -322,11 +337,11 @@ class TranslationRepository(private val context: Context) {
     fun setCustomFont(uri: Uri, displayName: String) {
         val extension = displayName.substringAfterLast('.', "ttf").lowercase().let { if (it in setOf("ttf", "otf")) it else "ttf" }
         val target = File(context.filesDir, "custom-font.$extension")
-        context.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use(input::copyTo) } ?: error("無法讀取字體文件")
-        require(target.length() in 12..64L * 1024 * 1024) { "字體文件大小不正確" }
+        context.contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use(input::copyTo) } ?: error("無法讀取字型文件")
+        require(target.length() in 12..64L * 1024 * 1024) { "字型文件大小不正確" }
         File(context.filesDir, if (extension == "ttf") "custom-font.otf" else "custom-font.ttf").delete()
         val publicPath = "$PUBLIC_FONTS/${safeName(displayName.substringBeforeLast('.'))}.$extension"
-        require(runRoot("mkdir -p ${quote(PUBLIC_FONTS)} && cp -f ${quote(target.absolutePath)} ${quote(publicPath)} && chmod 0666 ${quote(publicPath)}")) { "無法保存到 LCPatch 字體目錄" }
+        require(runRoot("mkdir -p ${quote(PUBLIC_FONTS)} && cp -f ${quote(target.absolutePath)} ${quote(publicPath)} && chmod 0666 ${quote(publicPath)}")) { "無法儲存到 LCPatch 字型目錄" }
         prefs.edit().putString("font_name", displayName).putString("font_path", target.absolutePath).putString("font_public_path", publicPath).apply()
     }
 

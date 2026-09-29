@@ -7,7 +7,7 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 X
 - 從線上清單取得漢化，顯示下載速度與進度，下載完成後自動解壓、轉換 PUA 並套用。
 - 匯入自訂 ZIP，或掃描 `/sdcard/LCPatch/漢化/` 內已解壓的漢化目錄。
 - 使用 `opencc4j 1.14.0` 對已下載目錄內的 JSON 進行整體繁簡轉換，並顯示處理進度。
-- 自動修正可辨識的目錄結構與語言文件名稱，可選擇覆蓋日本語、한국어或 English。
+- 自動修正可辨識的目錄結構與語言文件名稱，可選擇覆蓋日本語、한국어 或 English。
 - 支援自訂 TTF／OTF 字型、漢化啟用開關、深淺色模式、Miuix 介面及模組日誌。
 - 使用 LSPosed API 102；native 核心與第三方 native 依賴均包含可重建原始碼。
 
@@ -32,7 +32,7 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 X
 3. 開啟 LCPatch，確認 LSPosed 與 Root 檢查皆已通過。
 4. 在「下載漢化」下載資源，或從設定匯入自訂漢化 ZIP。
 5. 視需要選擇覆蓋語言、繁簡格式及自訂字型，再套用漢化。
-6. 完整關閉並重新啟動遊戲。若結果異常，可在設定的日誌頁匯出診斷文件。
+6. 完整關閉並重新啟動遊戲。若結果異常，可在底欄「日誌」頁匯出診斷文件。
 
 套用與停用漢化時，LCPatch 會先強制停止遊戲，避免遊戲正在讀取文件時替換目錄。
 
@@ -55,7 +55,7 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 X
 
 模組事件由遊戲程序寫入 LCPatch 的受限 ContentProvider。Provider 會核對呼叫端 UID，只接受 LCPatch 或已安裝的 Limbus Company，並最多保存 500 筆事件。
 
-匯出的診斷文件包含裝置、Android、遊戲、模組與 ABI 資訊，以及已收集的模組事件。可在設定中選擇保存位置，或透過 Android 分享功能附於問題回報。
+匯出的診斷文件包含裝置、Android、遊戲、模組與 ABI 資訊，以及已收集的模組事件。可在設定中選擇儲存資料夾；若未選擇，「儲存」會寫入 App 暫存區，可透過「分享診斷文件」取得檔案並附於問題回報。
 
 ## 原始碼與建置
 
@@ -65,9 +65,9 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 X
 - `app/src/main/java/com/filepermwebui/LogProvider.kt`：跨程序日誌儲存。
 - `app/src/main/java/com/filepermwebui/MainActivity.kt`：Compose／Miuix 管理介面。
 
-GitHub Actions 會在推送至 `main`、建立 Pull Request 或手動執行時，從原始碼建立 native 核心、執行單元測試與 release lint，並上傳未簽署 APK artifact。推送與 App 版本一致的 `v*` 標籤時，工作流程會使用加密的 Actions Secrets 完成 zipalign、APK v3 簽章與 16 KB 對齊驗證，再建立 GitHub Release 並附上 SHA-256 文件。
+GitHub Actions 會在建立 Pull Request 或手動執行 Android CI 時，從原始碼建立 native 核心、執行單元測試與 release lint，並上傳未簽署 APK artifact。推送 `main` 且變更 `version.properties`，或手動執行 Android Release 工作流程時，會使用加密的 Actions Secrets 完成 zipalign、APK v3 簽章與 16 KB 對齊驗證，再建立對應版本的 `v*` 標籤及 GitHub Release，附上 SHA-256 文件。若該版本已發布，推送觸發會略過重複發布。
 
-自動簽署使用 `LCPATCH_KEYSTORE_BASE64`、`LCPATCH_STORE_PASSWORD`、`LCPATCH_KEY_ALIAS` 與 `LCPATCH_KEY_PASSWORD` 四個 repository Secrets。本機的 `signing/`、APK、native 產物與建置快取均已由 `.gitignore` 排除。可重現的 CI 建置步驟以 [Android build workflow](.github/workflows/android.yml) 為準。
+自動簽署使用 `LCPATCH_KEYSTORE_BASE64`、`LCPATCH_STORE_PASSWORD`、`LCPATCH_KEY_ALIAS` 與 `LCPATCH_KEY_PASSWORD` 四個 repository Secrets。本機的 `signing/`、APK、native 產物與建置快取均已由 `.gitignore` 排除。可重現的 CI 建置步驟以 [Android build action](.github/actions/android-build/action.yml) 為準。`verification.json` 記錄舊版 1.0.0 的建置驗證，不代表目前版本的測試結果。
 
 Windows 本機建置需準備 Java 17 以上、Android SDK、NDK 27.2.12479018、CMake 與 Ninja，設定 `ANDROID_SDK_ROOT` 後在儲存庫根目錄執行 `./build.ps1`。腳本會以 Gradle Wrapper 產生未簽署的 release APK；正式散布仍應使用自行保管的簽署金鑰。
 
