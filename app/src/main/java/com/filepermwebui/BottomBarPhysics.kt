@@ -100,19 +100,24 @@ internal class BottomBarPhysics(initialPosition: Float) {
                 if (edge.velocity > 0) edge.velocity = 0.0
             }
         }
-        bound(left, 0.0, 2.0)
-        bound(right, 1.0, 3.0)
+        // Only the container walls are hard stops. At either end, the
+        // inward-facing edge must remain free to compress and spring back.
+        bound(left, 0.0, 3.0)
+        bound(right, 0.0, 3.0)
         val width = right.position - left.position
         if (width > 1.32 || width < 0.85) {
-            val center = (left.position + right.position) / 2.0
             val half = width.coerceIn(0.85, 1.32) / 2.0
+            // Project width and center together so a wall cannot truncate
+            // the minimum width after correcting a compressed capsule.
+            val center = ((left.position + right.position) / 2.0)
+                .coerceIn(half, 3.0 - half)
             left.position = center - half
             right.position = center + half
             val velocity = (left.velocity + right.velocity) / 2.0
             left.velocity = velocity
             right.velocity = velocity
-            bound(left, 0.0, 2.0)
-            bound(right, 1.0, 3.0)
+            bound(left, 0.0, 3.0)
+            bound(right, 0.0, 3.0)
         }
     }
 }

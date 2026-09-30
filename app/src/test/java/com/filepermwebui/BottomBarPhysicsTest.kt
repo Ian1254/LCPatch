@@ -60,7 +60,35 @@ class BottomBarPhysicsTest {
             assertTrue(p.leftPosition >= 0f)
             assertTrue(p.rightPosition <= 3f)
             assertTrue(p.rightPosition > p.leftPosition)
+            assertTrue(p.rightPosition - p.leftPosition >= 0.849f)
             assertTrue(p.rightPosition - p.leftPosition <= 1.321f)
+        }
+    }
+
+    @Test fun inwardEdgesCanOvershootAndRecoverAtBothRims() {
+        for (hz in listOf(60, 120)) {
+            for (rim in listOf(0, 2)) {
+                val p = BottomBarPhysics(1f)
+                p.select(rim)
+                var inwardOvershoot = false
+                repeat(hz * 2) {
+                    p.advance(1f / hz)
+                    inwardOvershoot = inwardOvershoot || if (rim == 0) {
+                        p.rightPosition < 0.99f
+                    } else {
+                        p.leftPosition > 2.01f
+                    }
+                    assertTrue(p.leftPosition >= 0f)
+                    assertTrue(p.rightPosition <= 3f)
+                    assertTrue(p.rightPosition - p.leftPosition >= 0.849f)
+                    assertTrue(p.rightPosition - p.leftPosition <= 1.321f)
+                }
+                assertTrue("Inner edge should spring past its resting position at rim $rim ($hz Hz)", inwardOvershoot)
+                settle(p)
+                assertEquals(rim.toFloat(), p.leftPosition, 0.0001f)
+                assertEquals(rim + 1f, p.rightPosition, 0.0001f)
+                assertFalse(p.active)
+            }
         }
     }
 
