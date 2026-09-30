@@ -72,6 +72,8 @@ private const val HorizontalPaddingDp = 7f
 private const val ItemWidthDp = (BarWidthDp - 2f * HorizontalPaddingDp) / ItemCount
 private const val SelectorHeightDp = 45f
 private const val SelectorWidthExtraDp = 7f
+// Provisional press scale until the Clock reference asset is available.
+private const val SelectorPressedScale = 0.94f
 private val PressSpring = spring<Float>(dampingRatio = 0.72f, stiffness = 650f)
 
 @Composable
@@ -115,12 +117,19 @@ internal fun SukiFloatingBottomBar(
     // One continuously evolving pair of edges owns taps, drags and release.
     // Reading the revision publishes the plain controller's frame snapshot.
     @Suppress("UNUSED_VARIABLE") val revision = frameRevision
-    val selectorLeft = (selectorMinLeftPx + physics.leftPosition * itemWidthPx)
+    val motionLeft = (selectorMinLeftPx + physics.leftPosition * itemWidthPx)
         .coerceIn(selectorMinLeftPx, selectorMaxRightPx)
-    val selectorRight = (selectorMinLeftPx + physics.rightPosition * itemWidthPx + selectorExtraPx)
-        .coerceIn(selectorLeft + 1f, selectorMaxRightPx)
+    val motionRight = (selectorMinLeftPx + physics.rightPosition * itemWidthPx + selectorExtraPx)
+        .coerceIn(motionLeft + 1f, selectorMaxRightPx)
+    // Scale the capsule around its moving center, without changing the edge
+    // springs or the drag target. Allow a small spring overshoot on release.
+    val selectorScale = 1f - (1f - SelectorPressedScale) * selectorPress.coerceIn(-0.15f, 1.15f)
+    val selectorCenter = (motionLeft + motionRight) / 2f
+    val selectorHalfWidth = (motionRight - motionLeft) * selectorScale / 2f
+    val selectorLeft = (selectorCenter - selectorHalfWidth).coerceAtLeast(selectorMinLeftPx)
+    val selectorRight = (selectorCenter + selectorHalfWidth).coerceAtMost(selectorMaxRightPx)
     val visualPosition = physics.position.coerceIn(0f, (ItemCount - 1).toFloat())
-    val dynamicHeight = selectorHeightPx
+    val dynamicHeight = selectorHeightPx * selectorScale
     val selectorTop = with(density) { BarHeightDp.dp.toPx() } / 2f - dynamicHeight / 2f
     val latestVisibleLeftPx by rememberUpdatedState(selectorLeft)
     val latestVisibleRightPx by rememberUpdatedState(selectorRight)
