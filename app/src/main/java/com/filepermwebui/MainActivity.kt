@@ -85,6 +85,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1210,7 +1211,9 @@ class MainActivity : ComponentActivity() {
         val trackColor = when {
             busy -> primary.copy(alpha = 0.16f)
             enabled -> primary
-            else -> MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.72f)
+            else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+                .copy(alpha = 0.16f)
+                .compositeOver(MiuixTheme.colorScheme.surfaceContainer)
         }
         val textColor = when {
             !enabled && !busy -> MiuixTheme.colorScheme.onSurfaceVariantSummary
