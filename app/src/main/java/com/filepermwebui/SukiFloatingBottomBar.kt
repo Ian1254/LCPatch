@@ -156,7 +156,7 @@ internal fun SukiFloatingBottomBar(
     }
 
     Box(
-        Modifier.fillMaxWidth().navigationBarsPadding(),
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Box(
