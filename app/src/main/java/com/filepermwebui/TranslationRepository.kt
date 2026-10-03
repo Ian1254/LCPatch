@@ -92,11 +92,16 @@ class TranslationRepository(private val context: Context) {
         }
         val release = JSONObject(raw)
         val tag = release.getString("tag_name")
-        val match = Regex("^v(\\d+\\.\\d+\\.\\d+)-(\\d{10})$").matchEntire(tag)
-            ?: error("合併版 Release 版本格式不正確")
-        val gameVersion = match.groupValues[1]
-        val llcVersion = match.groupValues[2]
-        val expected = "LCPatch_${gameVersion}_LLC_${llcVersion}.zip"
+        val directMatch = Regex("^LLC-(\\d{10})$").matchEntire(tag)
+        val legacyMatch = Regex("^v(\\d+\\.\\d+\\.\\d+)-(\\d{10})$").matchEntire(tag)
+        val llcVersion = directMatch?.groupValues?.get(1)
+            ?: legacyMatch?.groupValues?.get(2)
+            ?: error("漢化 Release 版本格式不正確")
+        val expected = if (directMatch != null) {
+            "LCPatch_LLC_${llcVersion}.zip"
+        } else {
+            "LCPatch_${legacyMatch!!.groupValues[1]}_LLC_${llcVersion}.zip"
+        }
         val assets = release.getJSONArray("assets")
         val matches = (0 until assets.length()).map { assets.getJSONObject(it) }
             .filter { it.optString("name") == expected }
@@ -108,9 +113,9 @@ class TranslationRepository(private val context: Context) {
         return listOf(
             TranslationEntry(
                 "漢化-XP",
-                "合併漢化（零協＋ghcruise）",
+                if (directMatch != null) "零協會漢化（LCPatch 整理版）" else "合併漢化（零協＋ghcruise）",
                 "LCPatch-Localization-Builder",
-                "遊戲 $gameVersion・零協 $llcVersion；補齊劇情角色名稱與設定文本",
+                "零協 $llcVersion；自動補齊劇情角色名稱",
                 url,
                 script = "簡體"
             )
