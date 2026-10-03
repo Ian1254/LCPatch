@@ -931,7 +931,6 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(8.dp))
                 Detail("Limbus Company", if (game.installed) "已安裝" else "未安裝")
                 Detail("版本", game.version)
-                Detail("字型相容性", FontProfiles.status(game.versionCode, game.version))
                 Spacer(Modifier.height(14.dp))
                 Button(modifier = Modifier.fillMaxWidth(), enabled = game.installed, onClick = ::launchGame) { Text("啟動 Limbus Company") }
             }
@@ -985,7 +984,7 @@ class MainActivity : ComponentActivity() {
                 ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "主題、模糊效果與底欄", onClick = onDisplay)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", summary = logs.selectedFolderLabel(), onClick = onFolder)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
-                ArrowPreference(modifier = PreferenceItemModifier, title = "關於", summary = "版本、元件與相容策略", onClick = onAbout)
+                ArrowPreference(modifier = PreferenceItemModifier, title = "關於", summary = "版本與元件", onClick = onAbout)
             }
         }
         if (logs.selectedFolder() != null) item { TextButton(modifier = Modifier.fillMaxWidth(), text = "改回預設暫存位置", onClick = onReset) }
@@ -1075,7 +1074,7 @@ class MainActivity : ComponentActivity() {
                 Detail("儲存目錄", "/sdcard/LCPatch")
             }
         }
-        item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字型以及語言覆蓋設定。遊戲更新後會驗證 Unity 字型入口，無法安全確認時停用字型掛鉤；漢化文件仍依各文件的存在情況重導。", translucent = true) }
+        item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字型以及語言覆蓋設定。", translucent = true) }
         item { InfoCard("開放原始碼與致謝", "介面採用 compose-miuix-ui，LSPosed 整合採用 libxposed API 102，繁簡轉換採用 opencc4j。漢化內容與授權條款歸各翻譯組及原作者所有。", translucent = true) }
     }
 
