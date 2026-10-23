@@ -14,6 +14,7 @@ object CrashDiagnostics {
     private var lastCaptureElapsedRealtime = 0L
 
     fun capture(context: Context) {
+        if (!TranslationRepository(context).rootMode()) return
         val now = SystemClock.elapsedRealtime()
         synchronized(this) {
             if (now - lastCaptureElapsedRealtime < MIN_CAPTURE_INTERVAL_MS) return

@@ -1,6 +1,21 @@
 # LCPatch
 
-LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 Xposed 模組。它可以在 App 內下載、匯入、轉換及切換漢化，並由開源 native 核心將遊戲的本地化文件讀取導向已套用的內容，同時載入中文字型。
+LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器，支援無 root 原生文件覆蓋與 Root／LSPosed 模式。無 root 模式不修改遊戲 APK，使用已替換相近日語漢字的漢化文件，直接交由遊戲原有的語言載入流程讀取；Root 模式由開源 native 核心重導本地化文件並載入中文字型。
+
+## 無 root 模式
+
+1. 在設定或首次設定中選擇「無 root」，文件載入方式預設為 Shizuku。
+2. 在遊戲內切換至日本語或 한국어，完成語言資源下載。
+3. 啟動 [Shizuku](https://shizuku.rikka.app/guide/setup/)，在 LCPatch 授予權限。
+4. 選擇對應語言，下載並套用無 root 專用漢化，或匯入包含 `Localize/jp`／`Localize/kr` 的 ZIP。
+5. LCPatch 透過 Shizuku 關閉遊戲、備份原始語言目錄，再寫入 `files/Assets/Resources_moved/Localize/jp` 或 `kr`。重新啟動遊戲即可由原生流程讀取 `JP_*.json`／`KR_*.json`。
+6. 停用漢化或在設定選擇「還原原始語言文件」，即可恢復備份並移除漢化新增的文件。更新遊戲前先停用漢化，更新語言資源後再套用。
+
+無 root 來源為 [pzwboy/LocalizeLimbusCompanyForAndroid](https://github.com/pzwboy/LocalizeLimbusCompanyForAndroid)，保留來源的日文字形替換，不進行 PUA 編碼、繁簡轉換或字型注入；介面只在 Root 模式提供這些功能。第三方文本不包含在本儲存庫內。
+
+亦可選擇 SAF 授權遊戲的 `Localize` 目錄，或匯出含完整 Android 目錄結構的 ZIP 交由具權限的檔案管理器套用。Android 11 以上的標準系統選擇器限制存取 `Android/data`；SAF 不是這項限制的繞過方式。SAF 套用和還原前須自行完全關閉遊戲；手動匯出的文件由檔案管理器負責備份與還原。
+
+Shizuku 文件服務與實際遊戲載入仍需裝置驗證；本機單元測試不代表已在所有 Android／遊戲版本上驗證。實作與檢查結果見 [無 root 載入與 App 檢查](docs/non-root-audit.md)。
 
 ## 主要功能
 
@@ -19,13 +34,13 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器與 X
 
 - Android 9（API 28）以上
 - ARM64（`arm64-v8a`）裝置
-- Root 權限
-- 支援 libxposed API 102 的 LSPosed 環境
+- 無 root：Shizuku（或系統允許的 SAF 目錄授權）
+- Root 模式：Root 權限與支援 libxposed API 102 的 LSPosed 環境
 - 已安裝 Limbus Company
 
 目前遊戲版本 `1.113.1`（versionCode `468`）與 `1.114.0`（versionCode `469`）已有實機驗證；`1.115.0` 的 Unity Build ID 與字型入口／accessor 指令已由 ARM64 APK 核對並加入已知 profile，仍需實機確認字型交換。已知 Unity build 必須同時符合 Build ID、可執行區段、固定 offset 與指令特徵。未知 build 會嘗試嚴格動態驗證：accessor、合法 caller 與函式入口均須唯一，入口結構也須符合既有 fingerprint；任一驗證失敗就安全停用字型 hook。這只支援實作維持一致而位址漂移的版本，並不保證所有未來版本自動相容。
 
-## 安裝與使用
+## Root 模式安裝與使用
 
 1. 從 [Releases](https://github.com/Ian1254/LCPatch/releases) 下載 APK 並安裝。
 2. 在 LSPosed 中啟用 LCPatch，作用域選擇 Limbus Company。
@@ -79,6 +94,7 @@ LCPatch 原始碼依 Apache License 2.0 授權。實際使用的開源元件如�
 - [Compose Miuix](https://github.com/compose-miuix-ui/miuix)：Apache License 2.0
 - [opencc4j](https://github.com/houbb/opencc4j)：Apache License 2.0
 - [libxposed API／service](https://github.com/libxposed)：Apache License 2.0
+- [Shizuku API／provider](https://github.com/RikkaApps/Shizuku-API)：MIT License
 - [AndroidX／Jetpack Compose](https://source.android.com/docs/setup/about/licenses)：Apache License 2.0
 - [Sarasa Gothic](https://github.com/be5invis/Sarasa-Gothic)：SIL Open Font License 1.1
 - LCPatch PUA 映射：CC0 1.0
@@ -89,6 +105,6 @@ LCPatch 原始碼依 Apache License 2.0 授權。實際使用的開源元件如�
 
 LCPatch 是非官方第三方專案，與 Project Moon 及各漢化組沒有隸屬或授權關係。專案不提供遊戲本體或受著作權保護的遊戲資源；漢化內容的權利與責任由各來源及使用者依其授權條款承擔。
 
-本工具需要 Root 與 LSPosed，並可能建立、替換或清理 LCPatch 管理目錄及遊戲可讀取的本地化快取文件。使用前請備份重要資料，確認下載來源與目標語言設定，並自行承擔資料遺失、遊戲異常、帳號限制或系統不相容等風險。
+Root 模式需要 Root 與 LSPosed；無 root 模式需要取得遊戲文件的寫入授權。兩者均可能建立、替換或清理 LCPatch 管理目錄及遊戲可讀取的本地化文件。使用前請備份重要資料，確認下載來源與目標語言設定，並自行承擔資料遺失、遊戲異常、帳號限制或系統不相容等風險。
 
 本專案由生成式 AI 協助設計、撰寫與檢查，仍可能存在實作錯誤、安全缺陷或未涵蓋的裝置差異。AI 協助不等同完整的人工安全審核。依 Apache License 2.0，本軟體以現狀提供，不附帶任何明示或默示保證；使用者應在理解原始碼與風險後自行決定是否使用。

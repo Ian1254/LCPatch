@@ -10,10 +10,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -53,6 +55,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.Role
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -133,6 +136,12 @@ internal class EnvironmentStatusOverlayState internal constructor() {
         if (bounds.width > 0f && bounds.height > 0f) liveSourceBounds = bounds
     }
 
+    internal fun updateStatus(scopeStatus: String, rootStatus: String, healthy: Boolean,
+                              title: String, subtitle: String, summary: String, color: Color, accent: Color) {
+        request = request?.copy(scopeStatus = scopeStatus, rootStatus = rootStatus, healthy = healthy,
+            statusTitle = title, statusSubtitle = subtitle, statusSummary = summary, cardColor = color, accent = accent)
+    }
+
     internal fun open(
         sourceBounds: Rect,
         healthy: Boolean,
@@ -182,9 +191,9 @@ internal fun EnvironmentStatusOverviewCard(
     onCheckScope: () -> Unit,
     onRequestRoot: () -> Unit
 ) {
-    val healthy = scopeStatus == "已啟用"
-    val hasError = scopeStatus == "尚未授權遊戲"
-    val dark = isSystemInDarkTheme()
+    val healthy = scopeStatus == "已啟用" && rootStatus == "已授權" && gameInstalled
+    val hasError = scopeStatus == "尚未授權遊戲" || rootStatus == "未取得授權" || !gameInstalled
+    val dark = MiuixTheme.colorScheme.surface.luminance() < 0.5f
     val cardColor = when {
         healthy -> if (dark) Color(0xFF173D27) else Color(0xFFDFFAE4)
         hasError -> if (dark) Color(0xFF472224) else Color(0xFFFFDAD9)
@@ -197,8 +206,10 @@ internal fun EnvironmentStatusOverviewCard(
     }
     val statusTitle = when {
         healthy -> "已啟用"
+        !gameInstalled -> "尚未安裝遊戲"
+        rootStatus != "已授權" -> "待確認 Root 權限"
         hasError -> "尚未設定作用域"
-        else -> "尚未連接"
+        else -> "尚未連接模組"
     }
     val statusSubtitle = when {
         healthy -> "LCPatch " + BuildConfig.VERSION_NAME
@@ -209,6 +220,9 @@ internal fun EnvironmentStatusOverviewCard(
         "Limbus Company · $gameVersion"
     } else {
         "模組狀態 · $scopeStatus"
+    }
+    SideEffect {
+        overlayState.updateStatus(scopeStatus, rootStatus, healthy, statusTitle, statusSubtitle, statusSummary, cardColor, accent)
     }
 
     var sourceBounds by remember { mutableStateOf(Rect.Zero) }
@@ -234,6 +248,8 @@ internal fun EnvironmentStatusOverviewCard(
             }
             .clip(RoundedCornerShape(26.dp))
             .clickable(
+                role = Role.Button,
+                onClickLabel = "查看環境與權限",
                 interactionSource = cardInteraction,
                 indication = null
             ) {
@@ -261,7 +277,7 @@ internal fun EnvironmentStatusOverviewCard(
             statusTitle = statusTitle,
             statusSubtitle = statusSubtitle,
             statusSummary = statusSummary,
-            modifier = Modifier.fillMaxWidth().height(142.dp)
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
@@ -275,9 +291,9 @@ private fun EnvironmentStatusCollapsedContent(
     statusSummary: String,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier) {
+    Column(modifier = modifier.padding(16.dp)) {
         Column(
-            modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 16.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
             Text(statusTitle, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(3.dp))
@@ -289,12 +305,12 @@ private fun EnvironmentStatusCollapsedContent(
                 if (healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline
             ),
             contentDescription = null,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp).size(68.dp),
+            modifier = Modifier.padding(top = 8.dp).size(40.dp),
             tint = accent
         )
 
         Row(
-            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -368,7 +384,7 @@ internal fun EnvironmentStatusOverlayHost(
         }
     }
 
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .onGloballyPositioned { coordinates ->
@@ -380,7 +396,7 @@ internal fun EnvironmentStatusOverlayHost(
                 onClick = state::dismiss
             )
     ) {
-        if (!overlayVisible) return@BoxWithConstraints
+        if (!overlayVisible) return@Box
 
         val sourceBounds = state.liveSourceBounds.takeIf {
             it.width > 0f && it.height > 0f
@@ -477,8 +493,11 @@ private fun EnvironmentStatusExpandedContent(
     val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
     val actionsAlpha = smoothIntervalProgress(contentAlpha, 0.42f, 0.88f)
 
-    Box(modifier = modifier) {
-        Column(modifier = Modifier.align(Alignment.TopStart).padding(start = 24.dp, top = titleTop)) {
+    Column(modifier = modifier
+        .padding(start = 24.dp, end = 24.dp, top = titleTop, bottom = navigationInset + 18.dp)
+        .verticalScroll(rememberScrollState())) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(request.statusTitle, fontSize = 29.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(3.dp))
             Text(
@@ -493,19 +512,14 @@ private fun EnvironmentStatusExpandedContent(
                 if (request.healthy) R.drawable.ic_check_circle_outline else R.drawable.ic_error_outline
             ),
             contentDescription = null,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = titleTop, end = 24.dp).size(46.dp),
+            modifier = Modifier.size(46.dp),
             tint = request.accent
         )
+        }
+        Spacer(Modifier.height(28.dp))
 
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    start = 24.dp,
-                    end = 24.dp,
-                    top = titleTop + 112.dp,
-                    bottom = navigationInset + 18.dp
-                )
+            modifier = Modifier.fillMaxWidth()
         ) {
             Text(
                 "環境與權限",

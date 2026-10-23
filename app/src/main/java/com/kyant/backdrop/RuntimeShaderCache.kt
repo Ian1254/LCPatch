@@ -1,5 +1,6 @@
 package com.kyant.backdrop
 
+import android.os.Build
 import org.intellij.lang.annotations.Language
 
 sealed interface RuntimeShaderCache {
@@ -10,6 +11,9 @@ sealed interface RuntimeShaderCache {
 internal class RuntimeShaderCacheImpl : RuntimeShaderCache {
 
     override fun obtainRuntimeShader(key: String, string: String): RuntimeShader {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            error("Runtime shaders require Android 13; callers must use the fallback effect")
+        }
         return ShaderRegistry.runtimeShaders.getOrPut(key) { RuntimeShader(string) }
     }
 
