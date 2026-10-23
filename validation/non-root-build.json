@@ -1,0 +1,22 @@
+{
+  "tests": 38,
+  "passed": 37,
+  "skipped": 1,
+  "lint_errors": 0,
+  "lint_warnings": 55,
+  "device_tested": false,
+  "artifacts": [
+    {
+      "file": "app\\build\\outputs\\apk\\debug\\app-debug.apk",
+      "bytes": 67689926,
+      "sha256": "9cc9c4ea5b03d56d60ed9139acc31ca9a2c0655da2b0fcae7d0c660421ca14eb",
+      "required_entries_present": true
+    },
+    {
+      "file": "app\\build\\outputs\\apk\\release\\app-release-unsigned.apk",
+      "bytes": 19699257,
+      "sha256": "8a7d260d7d290098b70813a4df49b78e5817fcf843cb1f2c1bfa543d40ea0a9c",
+      "required_entries_present": true
+    }
+  ]
+}

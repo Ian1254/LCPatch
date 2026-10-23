@@ -3,6 +3,10 @@ Copyright 2026 LCPatch contributors
 
 Third-party components:
 
+- Shizuku API and provider 13.1.5, MIT License
+  Copyright (c) 2021 RikkaW
+  https://github.com/RikkaApps/Shizuku-API
+  Full license: app/src/main/assets/Shizuku-API-LICENSE.txt
 - Dobby, commit 5dfc8546954ce3b3198132ab13fddb89ee92cdd7,
   Apache License 2.0
   https://github.com/jmpews/Dobby

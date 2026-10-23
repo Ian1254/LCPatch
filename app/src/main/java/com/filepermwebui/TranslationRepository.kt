@@ -2,6 +2,7 @@ package com.lcpatch
 
 import android.content.Context
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -61,7 +62,92 @@ class TranslationRepository(private val context: Context) {
     private val staging = File(context.filesDir, "translations/staging").apply { mkdirs() }
     private val prefs = context.getSharedPreferences("translations", Context.MODE_PRIVATE)
 
+    private val gameStorage = GameDocumentStorage(context)
+    fun gameFolder(): Uri? = gameStorage.selected()
+    fun setGameFolder(uri: Uri) = gameStorage.select(uri)
+    fun nativeBackend(): String = prefs.getString("native_backend", "shizuku") ?: "shizuku"
+    fun setNativeBackend(value: String) {
+        require(value in setOf("shizuku", "saf"))
+        check(!translationEnabled()) { "請先停用目前漢化再切換載入方式" }
+        prefs.edit().putString("native_backend", value).apply()
+    }
+
+    private val localPacks = LocalPackStorage(File(context.filesDir, "translations/packs"))
+
+    fun rootMode(): Boolean = prefs.getBoolean("root_mode", prefs.contains("active_name"))
+    fun setRootMode(enabled: Boolean) {
+        check(enabled == rootMode() || !translationEnabled() || activeName() == "尚未選擇") { "請先停用目前漢化再切換模式" }
+        prefs.edit().putBoolean("root_mode", enabled).apply()
+    }
+
+    private fun executeRoot(command: String): RootCommandResult {
+        check(rootMode()) { "目前模式不允許 Root 操作，請使用無 root 文件載入方式" }
+        return RootShell.run(command, timeoutMs = 120_000L)
+    }
+
+    private suspend fun prepareCharacters(directory: File, progress: suspend (ApplyProgress) -> Unit) {
+        if (rootMode()) {
+            encodeDirectoryToPua(directory, progress)
+            File(directory, PUA_MARKER).writeText("1")
+        } else {
+            require(!File(directory, PUA_MARKER).exists()) { "此漢化包包含 PUA 轉碼，請改用無 root 日文字形漢化包" }
+            require(translationJsonFiles(directory).none { file ->
+                decodePuaUnicodeEscapes(file.readText()).any { it.code in 0xE000..0xF8FF }
+            }) { "無 root 模式無法顯示 PUA 字元，請匯入已替換日文字形的漢化包" }
+            validateJsonDirectory(File(directory, "Localize"))
+        }
+    }
+
+    private fun savePack(prepared: File, name: String): String {
+        if (!rootMode()) return localPacks.replace(prepared, safeName(name)).absolutePath
+        val path = "$PUBLIC_DOWNLOADS/${safeName(name)}"
+        require(runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && rm -rf ${quote(path)} && cp -R ${quote(prepared.absolutePath)} ${quote(path)} && chmod -R 0755 ${quote(path)}")) { "無法儲存已解壓漢化" }
+        return path
+    }
+
+    private fun readPack(entry: DownloadedTranslation, target: File) {
+        if (rootMode()) {
+            require(runRoot("cp -R ${quote(entry.path)} ${quote(target.absolutePath)} && chmod -R 0755 ${quote(target.absolutePath)}")) { "無法讀取漢化目錄" }
+        } else {
+            val source = localPacks.list().firstOrNull { it.canonicalPath == File(entry.path).canonicalPath }
+                ?: error("找不到 App 內的漢化目錄")
+            source.copyRecursively(target, overwrite = true)
+        }
+    }
+
+    suspend fun exportPack(entry: DownloadedTranslation, uri: Uri) = withContext(Dispatchers.IO) {
+        val work = File(staging, "export-source").also { it.deleteRecursively() }
+        val prepared = File(staging, "export-prepared").also { it.deleteRecursively(); it.mkdirs() }
+        try {
+            readPack(entry, work)
+            prepareCharacters(work) {}
+            normalizeForLanguage(work, prepared, targetLanguage())
+            if (rootMode()) {
+                val font = File(prepared, "Localize/cn/ChineseFont.ttf")
+                customFontFile()?.copyTo(font, overwrite = true) ?: copyBundledPuaFont(font)
+            }
+            validateJsonDirectory(prepared)
+            val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("無法寫入匯出文件")
+            zipDirectory(prepared, output)
+        } finally {
+            work.deleteRecursively()
+            prepared.deleteRecursively()
+        }
+    }
+
     suspend fun fetchCatalog(): List<TranslationEntry> = withContext(Dispatchers.IO) {
+        if (!rootMode()) {
+            val release = JSONObject(HttpClient.open("https://api.github.com/repos/pzwboy/LocalizeLimbusCompanyForAndroid/releases/latest", accept = "application/vnd.github+json").run {
+                inputStream.bufferedReader().use { it.readText() }.also { disconnect() }
+            })
+            val language = targetLanguage()
+            val assets = release.getJSONArray("assets")
+            val asset = (0 until assets.length()).map { assets.getJSONObject(it) }
+                .singleOrNull { it.optString("name") == "${language.id}.zip" }
+                ?: error("無 root 來源缺少 ${language.id}.zip")
+            return@withContext listOf(TranslationEntry("漢化-普通", "日文字形漢化（${language.label}）", "pzwboy / ghcruise / 都市零協會",
+                "${release.optString("tag_name")} · 保留來源的相近漢字，透過遊戲原生語言文件載入", asset.getString("browser_download_url"), "日文字形"))
+        }
         val primaryResult = runCatching {
             HttpClient.open(SOURCE).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
         }.map(::parseTranslationCatalog)
@@ -169,14 +255,12 @@ class TranslationRepository(private val context: Context) {
             unpackLocalize(output, prepared)
             val script = entry.script ?: inferScript(entry.name)
             File(prepared, ".lcpatch-script").writeText(script)
-            encodeDirectoryToPua(prepared, preparation)
-            File(prepared, PUA_MARKER).writeText("1")
-            val publicPath = "$PUBLIC_DOWNLOADS/${safeName(entry.name)}"
-            require(runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && rm -rf ${quote(publicPath)} && cp -R ${quote(prepared.absolutePath)} ${quote(publicPath)} && chmod -R 0755 ${quote(publicPath)}")) { "無法儲存已解壓漢化" }
+            prepareCharacters(prepared, preparation)
+            val publicPath = savePack(prepared, entry.name)
             output.delete()
             progress(TransferProgress(fileName, result.bytes, if (result.total > 0) result.total else result.bytes, 0, true))
             LogRepository.append(context, "INFO", "download.completed", "${entry.name} 已下載並解壓到獨立目錄")
-            DownloadedTranslation(entry.name, publicPath, script, true)
+            DownloadedTranslation(entry.name, publicPath, script, rootMode())
         } catch (error: Throwable) {
             val looksLikeZip = runCatching {
                 part.length() > 4 && part.inputStream().use { it.read() == 0x50 && it.read() == 0x4b }
@@ -200,10 +284,9 @@ class TranslationRepository(private val context: Context) {
         customFontFile()?.copyTo(runtimeFont, overwrite = true) ?: copyBundledPuaFont(runtimeFont)
         validateJsonDirectory(File(unpacked, "Localize/cn"))
         progress(ApplyProgress("正在寫入遊戲目錄", 0, 1))
-        val nativeAction = if (translationEnabled()) runtimeSwapCommand(File(unpacked, "Localize/cn").absolutePath)
-            else "rm -rf ${quote(NATIVE_DISABLED)} && mv ${quote(NATIVE_COMPAT)} ${quote(NATIVE_DISABLED)} 2>/dev/null || true"
+        val nativeAction = runtimeSwapCommand(File(unpacked, "Localize/cn").absolutePath)
         val command = "am force-stop $GAME_PACKAGE && $nativeAction"
-        val result = RootShell.run(command)
+        val result = executeRoot(command)
         require(result.success) { result.output.ifBlank { "root 套用失敗" } }
         val inspection = inspectRuntime()
         require(inspection.ready) { "遊戲快取驗證失敗：找不到 ${targetLanguage().prefix} 漢化文件" }
@@ -214,13 +297,18 @@ class TranslationRepository(private val context: Context) {
         return displayName
     }
 
-    fun activeName(): String = prefs.getString("active_name", "尚未選擇") ?: "尚未選擇"
-    fun activeScript(): String = prefs.getString("active_script", null)?.takeIf { it in setOf("簡體", "繁體") }
+    fun activeName(): String = prefs.getString(if (rootMode()) "active_name" else "native_active_name", "尚未選擇") ?: "尚未選擇"
+    fun activeScript(): String = if (!rootMode()) "日文字形" else prefs.getString("active_script", null)?.takeIf { it in setOf("簡體", "繁體") }
         ?: inferScript(activeName())
 
     suspend fun downloaded(): List<DownloadedTranslation> = withContext(Dispatchers.IO) {
+        if (!rootMode()) return@withContext localPacks.list().map { file ->
+            val script = File(file, ".lcpatch-script").takeIf(File::isFile)?.readText()?.trim()
+                ?.takeIf { it in setOf("簡體", "繁體") } ?: "日文字形"
+            DownloadedTranslation(file.name, file.absolutePath, script, File(file, PUA_MARKER).isFile)
+        }
         repairStorage()
-        val result = RootShell.run("find ${quote(PUBLIC_DOWNLOADS)} -mindepth 1 -maxdepth 1 -type d -print")
+        val result = executeRoot("find ${quote(PUBLIC_DOWNLOADS)} -mindepth 1 -maxdepth 1 -type d -print")
         if (!result.success) return@withContext emptyList()
         result.output.lineSequence().filter(String::isNotBlank).mapNotNull { original ->
             val oldName = File(original).name
@@ -238,6 +326,33 @@ class TranslationRepository(private val context: Context) {
     }
 
     suspend fun apply(entry: DownloadedTranslation, progress: suspend (ApplyProgress) -> Unit = {}): String = withContext(Dispatchers.IO) {
+        if (!rootMode()) {
+            val raw = File(staging, "native-source").also { it.deleteRecursively() }
+            val prepared = File(staging, "native-prepared").also { it.deleteRecursively(); it.mkdirs() }
+            readPack(entry, raw)
+            prepareCharacters(raw, progress)
+            normalizeForLanguage(raw, prepared, targetLanguage())
+            val directory = File(prepared, nativeExportPath(targetLanguage()))
+            if (nativeBackend() == "shizuku") {
+                val archive = File(staging, "native-transfer.zip")
+                try {
+                    zipDirectory(directory, archive.outputStream())
+                    progress(ApplyProgress("正在透過 Shizuku 寫入原生語言文件", 0, 0))
+                    NativeStorageClient.use(context) { service ->
+                        ParcelFileDescriptor.open(archive, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                            val error = service.apply(descriptor, targetLanguage().id)
+                            if (error.isNotEmpty() && !service.hasBackup()) {
+                                prefs.edit().remove("native_active_name").remove("native_active_language").apply()
+                            }
+                            check(error.isEmpty()) { error }
+                        }
+                    }
+                } finally { archive.delete() }
+            } else gameStorage.apply(directory, targetLanguage(), progress)
+            prefs.edit().putString("native_active_name", entry.name).putString("native_active_language", targetLanguage().id).apply()
+            LogRepository.append(context, "INFO", "translation.native_applied", "已寫入原生語言目錄：${entry.name}")
+            return@withContext entry.name
+        }
         val raw = File(staging, "${safeName(entry.name)}.raw").also { it.deleteRecursively() }
         require(runRoot("cp -R ${quote(entry.path)} ${quote(raw.absolutePath)} && chmod -R 0755 ${quote(raw.absolutePath)}")) { "無法讀取已下載漢化目錄" }
         if (!File(raw, PUA_MARKER).isFile) {
@@ -258,34 +373,36 @@ class TranslationRepository(private val context: Context) {
         val prepared = File(staging, "import-$label").also { it.deleteRecursively(); it.mkdirs() }
         unpackLocalize(cache, prepared)
         File(prepared, ".lcpatch-script").writeText(inferScript(label))
-        encodeDirectoryToPua(prepared) {}
-        File(prepared, PUA_MARKER).writeText("1")
-        val publicPath = "$PUBLIC_DOWNLOADS/$label"
-        require(runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && rm -rf ${quote(publicPath)} && cp -R ${quote(prepared.absolutePath)} ${quote(publicPath)} && chmod -R 0755 ${quote(publicPath)}")) { "無法儲存到 LCPatch 目錄" }
+        prepareCharacters(prepared) {}
+        val publicPath = savePack(prepared, label)
         cache.delete()
         prefs.edit().putString("download.${cache.name}", label).apply()
         LogRepository.append(context, "INFO", "translation.imported", "已匯入並解壓 $label")
-        DownloadedTranslation(label, publicPath, inferScript(label), true)
+        DownloadedTranslation(label, publicPath, if (rootMode()) inferScript(label) else "日文字形", rootMode())
     }
 
     fun targetLanguage(): OverrideLanguage {
         val id = prefs.getString("override_language", "jp")
-        return LANGUAGES.firstOrNull { it.id == id } ?: LANGUAGES.first()
+        return LANGUAGES.firstOrNull { it.id == id && (rootMode() || it.id != "en") } ?: LANGUAGES.first()
     }
 
     fun setTargetLanguage(value: OverrideLanguage) {
+        require(rootMode() || value.id in setOf("jp", "kr")) { "無 root 模式只支援日語與韓語字形漢化" }
         prefs.edit().putString("override_language", value.id).apply()
     }
 
     internal suspend fun convertDownloaded(entry: DownloadedTranslation, conversion: TextConversion, progress: suspend (ApplyProgress) -> Unit = {}): ConversionResult = withContext(Dispatchers.IO) {
+        check(rootMode()) { "無 root 漢化需保留來源字形，不能進行繁簡轉換" }
         val work = File(staging, "convert-${safeName(entry.name)}").also { it.deleteRecursively() }
-        require(runRoot("cp -R ${quote(entry.path)} ${quote(work.absolutePath)} && chmod -R 0755 ${quote(work.absolutePath)}")) { "無法讀取漢化目錄" }
+        readPack(entry, work)
         val result = convertTextFiles(work, conversion, progress)
         require(result.scannedFiles > 0) { "漢化目錄內沒有 JSON 文件" }
         File(work, ".lcpatch-script").writeText(if (conversion.id == "traditional") "繁體" else "簡體")
         File(work, PUA_MARKER).writeText("1")
         validateJsonDirectory(File(work, "Localize"))
-        require(runRoot("rm -rf ${quote(entry.path)} && cp -R ${quote(work.absolutePath)} ${quote(entry.path)} && chmod -R 0755 ${quote(entry.path)}")) { "無法寫回轉換後的漢化目錄" }
+        if (rootMode()) {
+            require(runRoot("rm -rf ${quote(entry.path)} && cp -R ${quote(work.absolutePath)} ${quote(entry.path)} && chmod -R 0755 ${quote(entry.path)}")) { "無法寫回轉換後的漢化目錄" }
+        } else localPacks.replace(work, safeName(entry.name))
         LogRepository.append(context, "INFO", "translation.converted", "${entry.name} ${conversion.label}完成：已掃描 ${result.scannedFiles} 個 JSON，內容有變更 ${result.changedFiles} 個")
         result
     }
@@ -295,9 +412,11 @@ class TranslationRepository(private val context: Context) {
     } else "內建 PUA 中文字型"
     fun hasCustomFont(): Boolean = customFontFile() != null
 
-    fun translationEnabled(): Boolean = prefs.getBoolean("translation_enabled", true)
+    fun translationEnabled(): Boolean = if (rootMode()) prefs.getBoolean("translation_enabled", true)
+        else if (nativeBackend() == "saf") gameStorage.hasBackup() else prefs.contains("native_active_name")
 
     fun migrateRuntime() {
+        if (!rootMode()) return
         val fallback = File(context.filesDir, "runtime-pua-font.ttf")
         val font = customFontFile() ?: fallback.also { copyBundledPuaFont(it) }
         val cleanup = "rm -rf '/sdcard/limbus mods/zh_cn' ${quote("$PUBLIC_ROOT/目前套用")} ${quote("$PUBLIC_ROOT/.active-next")} ${quote("$PUBLIC_ROOT/.active-old")} ${quote(NATIVE_NEXT)} ${quote(NATIVE_OLD)}"
@@ -306,6 +425,7 @@ class TranslationRepository(private val context: Context) {
     }
 
     fun prepareGameLaunch(): Boolean {
+        if (!rootMode()) return true
         val command = if (translationEnabled()) {
             "am force-stop $GAME_PACKAGE && ${validLanguageDirectoryTest(NATIVE_COMPAT)}"
         } else {
@@ -315,8 +435,10 @@ class TranslationRepository(private val context: Context) {
     }
 
     fun inspectRuntime(): RuntimeInspection {
+        if (!rootMode()) return RuntimeInspection()
         val prefix = targetLanguage().prefix.uppercase()
-        val command = "if [ -d ${quote(NATIVE_COMPAT)} ]; then total=${'$'}(find ${quote(NATIVE_COMPAT)} -type f -iname '*.json' | wc -l); matching=${'$'}(find ${quote(NATIVE_COMPAT)} -type f -iname ${quote("${prefix}_*.json")} | wc -l); font=${'$'}(stat -c %s ${quote("$NATIVE_COMPAT/ChineseFont.ttf")} 2>/dev/null || echo 0); echo \"${'$'}total|${'$'}matching|${'$'}font\"; else echo '0|0|0'; fi"
+        val directory = if (translationEnabled()) NATIVE_COMPAT else NATIVE_DISABLED
+        val command = "if [ -d ${quote(directory)} ]; then total=${'$'}(find ${quote(directory)} -type f -iname '*.json' | wc -l); matching=${'$'}(find ${quote(directory)} -type f -iname ${quote("${prefix}_*.json")} | wc -l); font=${'$'}(stat -c %s ${quote("$directory/ChineseFont.ttf")} 2>/dev/null || echo 0); echo \"${'$'}total|${'$'}matching|${'$'}font\"; else echo '0|0|0'; fi"
         val (success, output) = runRootOutput(command)
         if (!success) return RuntimeInspection()
         val values = output.lineSequence().lastOrNull { it.count { char -> char == '|' } == 2 }
@@ -329,6 +451,15 @@ class TranslationRepository(private val context: Context) {
     }
 
     suspend fun setTranslationEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
+        if (!rootMode()) {
+            require(!enabled) { "請從已下載漢化選擇套用" }
+            if (nativeBackend() == "shizuku") NativeStorageClient.use(context) { service ->
+                val error = service.restore()
+                check(error.isEmpty()) { error }
+            } else gameStorage.restore()
+            prefs.edit().remove("native_active_name").remove("native_active_language").apply()
+            return@withContext
+        }
         val command = if (enabled) {
             "am force-stop $GAME_PACKAGE && if ${validLanguageDirectoryTest(NATIVE_DISABLED)}; then rm -rf ${quote(NATIVE_COMPAT)} && mv ${quote(NATIVE_DISABLED)} ${quote(NATIVE_COMPAT)}; else ${validLanguageDirectoryTest(NATIVE_COMPAT)}; fi"
         } else {
@@ -346,7 +477,7 @@ class TranslationRepository(private val context: Context) {
         require(target.length() in 12..64L * 1024 * 1024) { "字型文件大小不正確" }
         File(context.filesDir, if (extension == "ttf") "custom-font.otf" else "custom-font.ttf").delete()
         val publicPath = "$PUBLIC_FONTS/${safeName(displayName.substringBeforeLast('.'))}.$extension"
-        require(runRoot("mkdir -p ${quote(PUBLIC_FONTS)} && cp -f ${quote(target.absolutePath)} ${quote(publicPath)} && chmod 0666 ${quote(publicPath)}")) { "無法儲存到 LCPatch 字型目錄" }
+        if (rootMode()) require(runRoot("mkdir -p ${quote(PUBLIC_FONTS)} && cp -f ${quote(target.absolutePath)} ${quote(publicPath)} && chmod 0666 ${quote(publicPath)}")) { "無法儲存到 LCPatch 字型目錄" }
         prefs.edit().putString("font_name", displayName).putString("font_path", target.absolutePath).putString("font_public_path", publicPath).apply()
     }
 
@@ -366,21 +497,21 @@ class TranslationRepository(private val context: Context) {
     }
 
     private fun runtimeSwapCommand(source: String): String =
-        atomicSwapCommand(source, NATIVE_COMPAT, NATIVE_NEXT, NATIVE_OLD)
+        atomicSwapCommand(source, if (translationEnabled()) NATIVE_COMPAT else NATIVE_DISABLED, NATIVE_NEXT, NATIVE_OLD)
 
     private fun atomicSwapCommand(source: String, destination: String, next: String, old: String): String =
-        "mkdir -p ${quote(File(next).parent!!)} && rm -rf ${quote(next)} ${quote(old)} && mkdir -p ${quote(next)} && cp -R ${quote("$source/.")} ${quote(next)} && chmod -R 0755 ${quote(next)} && ${validLanguageDirectoryTest(next)} && if [ -e ${quote(destination)} ]; then mv ${quote(destination)} ${quote(old)}; fi && if mv ${quote(next)} ${quote(destination)}; then chmod -R 0755 ${quote(destination)}; restorecon -RF ${quote(destination)} 2>/dev/null || true; if ${validLanguageDirectoryTest(destination)}; then rm -rf ${quote(old)} ${quote(NATIVE_DISABLED)}; else rm -rf ${quote(destination)}; if [ -e ${quote(old)} ]; then mv ${quote(old)} ${quote(destination)}; fi; false; fi; else if [ -e ${quote(old)} ]; then mv ${quote(old)} ${quote(destination)}; fi; false; fi"
+        "mkdir -p ${quote(File(next).parent!!)} && rm -rf ${quote(next)} ${quote(old)} && mkdir -p ${quote(next)} && cp -R ${quote("$source/.")} ${quote(next)} && chmod -R 0755 ${quote(next)} && ${validLanguageDirectoryTest(next)} && if [ -e ${quote(destination)} ]; then mv ${quote(destination)} ${quote(old)}; fi && if mv ${quote(next)} ${quote(destination)}; then chmod -R 0755 ${quote(destination)}; restorecon -RF ${quote(destination)} 2>/dev/null || true; if ${validLanguageDirectoryTest(destination)}; then rm -rf ${quote(old)} ${if (destination == NATIVE_COMPAT) quote(NATIVE_DISABLED) else ""}; else rm -rf ${quote(destination)}; if [ -e ${quote(old)} ]; then mv ${quote(old)} ${quote(destination)}; fi; false; fi; else if [ -e ${quote(old)} ]; then mv ${quote(old)} ${quote(destination)}; fi; false; fi"
 
     private fun validLanguageDirectoryTest(path: String): String =
         "{ [ -d ${quote(path)} ] && [ -n \"${'$'}(find ${quote(path)} -type f -iname '*.json' -print -quit)\" ]; }"
 
     private fun normalizeForLanguage(raw: File, output: File, language: OverrideLanguage) {
         val localize = File(raw, "Localize")
-        val source = localize.listFiles()?.firstOrNull { candidate ->
+        val source = if (!rootMode()) nativeLanguageSource(localize, language) else localize.listFiles()?.firstOrNull { candidate ->
             candidate.isDirectory && candidate.name.lowercase() in setOf("cn", "zh_cn", "zh-cn", "jp", "kr", "en", "hant", "zh-tw")
         } ?: localize
-        val destination = File(output, "Localize/cn").apply { mkdirs() }
-        source.walkTopDown().filter(File::isFile).forEach { input ->
+        val destination = File(output, if (rootMode()) "Localize/cn" else nativeExportPath(language)).apply { mkdirs() }
+        source.walkTopDown().filter { it.isFile && (rootMode() || it.extension.equals("json", true)) }.forEach { input ->
             val relative = input.relativeTo(source)
             val correctedName = correctedLanguageFileName(relative.name, language.prefix)
             val parent = relative.parent?.let { File(destination, it) } ?: destination
@@ -449,7 +580,7 @@ class TranslationRepository(private val context: Context) {
     }
 
     private fun readScript(path: String, name: String): String {
-        val result = RootShell.run("cat ${quote("$path/.lcpatch-script")} 2>/dev/null")
+        val result = executeRoot("cat ${quote("$path/.lcpatch-script")} 2>/dev/null")
         val value = result.output.trim()
         return if (result.success && value in setOf("簡體", "繁體")) value else inferScript(name)
     }
@@ -458,7 +589,7 @@ class TranslationRepository(private val context: Context) {
         val aliases = listOf("/sdcard/LCPatch/汉化", "/sdcard/lcpatch/漢化", "/sdcard/LC Patch/漢化", "/sdcard/limbus mod/汉化")
         val migrate = aliases.joinToString(" && ") { old -> "if [ -d ${quote(old)} ]; then cp -Rn ${quote("$old/.")} ${quote(PUBLIC_DOWNLOADS)}; fi" }
         runRoot("mkdir -p ${quote(PUBLIC_DOWNLOADS)} && $migrate")
-        val legacyList = RootShell.run("find ${quote(PUBLIC_DOWNLOADS)} -maxdepth 1 -type f -iname '*.zip' -print")
+        val legacyList = executeRoot("find ${quote(PUBLIC_DOWNLOADS)} -maxdepth 1 -type f -iname '*.zip' -print")
         if (legacyList.success) legacyList.output.lineSequence().filter(String::isNotBlank).forEach { path ->
             val label = safeName(File(path).nameWithoutExtension)
             val cache = File(downloads, "legacy-$label.zip")
@@ -497,14 +628,14 @@ class TranslationRepository(private val context: Context) {
         require(File(destination, "Localize").isDirectory) { "漢化包缺少 Localize 資料夾" }
     }
 
-    private fun runRoot(command: String): Boolean = RootShell.run(command).success
+    private fun runRoot(command: String): Boolean = executeRoot(command).success
 
     private fun runRootOutput(command: String): Pair<Boolean, String> {
-        val result = RootShell.run(command)
+        val result = executeRoot(command)
         return result.success to result.output
     }
 
-    private fun safeName(value: String): String = value.replace(Regex("[\\/:*?\"<>|]"), "_").trim().take(80).ifBlank { "translation" }
+    private fun safeName(value: String): String = safePackName(value)
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }
 
