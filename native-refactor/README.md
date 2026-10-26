@@ -5,9 +5,9 @@ This directory contains the source and build definition for the packaged
 
 The core keeps only:
 
-- isolated read-only `open`, `openat` and `fopen` redirects in the PLT/GOT of
-  `libunity.so` and `libil2cpp.so` for game requests below
-  `Localize/<language>/`, with per-file fallback to the original game asset;
+- managed JSON path substitution scoped to `TextAssetPatchManager.LoadLocalizeFileSync(string)`
+  and `TextAssetAsyncLoader.ProcessLoadAsync(int)`; `File.ReadAllText` and
+  `File.ReadAllTextAsync` receive a replacement only within those calls;
 - a Unity font hook with verified profiles for Limbus 1.113.1 and 1.115.0 that reads the game cache
   `ChineseFont.ttf`;
 - ELF, GNU Build ID, entry and accessor signature guards;
@@ -15,17 +15,30 @@ The core keeps only:
 - bounded TrueType loading and structured logcat messages.
 
 Translation files are synchronized by the app with root before game launch. A
-Localize redirect is still required because the game normally opens its bundled
-`files/Assets/Resources_moved/Localize/<language>` path rather than the cache
-directory. The redirect changes access only when the matching cache file
-exists and otherwise falls back to the original game file. Inline libc hooks
-are excluded; only the two game libraries' import slots are changed.
+The game normally loads `files/Assets/Resources_moved/Localize/<language>`.
+Only existing EN/JP/KR JSON replacements are selected, within a thread-local
+text-loader scope. Async paths are substituted before the Task captures them;
+scope does not propagate to its workers. Ordinary reads and checksums retain
+the original paths. No libc or PLT/GOT filesystem hooks are installed.
+
+Public IL2CPP APIs are resolved from the loaded image's GNU symbol hash table.
+No managed API is called by the startup worker: a public `il2cpp_runtime_invoke`
+on an already attached game thread triggers signature resolution and installation.
+All four method signatures and executable addresses must match. Missing signatures
+or installation failure leave path substitution disabled. Dobby installs share
+a mutex with the font worker; failed relocation is rejected before activation,
+and the original trampoline is published before making a wrapper reachable.
+
+Android 1.117.1 metadata and decrypted runtime code were used to identify both
+text-loading paths. Earlier native regression and ARM64 fixture runs passed,
+but final startup/failure-handling changes were not rerun at the user's request.
+Full LSPosed game loading and repeated launches remain unverified.
 Process-wide signal, timer,
 exit, abort, wait, ptrace and AppSealing patches are not included.
 
 The Dobby source is pinned at commit `5dfc8546954ce3b3198132ab13fddb89ee92cdd7`
 under `app/src/main/cpp/third_party/Dobby` and remains Apache-2.0 licensed.
-The vendored commit carries a small Android/NDK 27 compatibility patch: an ELF
+The vendored commit carries Android/NDK 27 compatibility and installation-order patches: an ELF
 GOT relocation in the ARM64 bridge, removal of a stale include, correction of
 stale `RuntimeModule` field names, and removal of an include cycle in the
 memory-readability helper. `SymbolResolver` is disabled because this core uses

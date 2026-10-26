@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.lcpatch.issue87verification">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
+    <application android:label="LCPatch native verification" android:debuggable="true" android:extractNativeLibs="true">
+        <activity android:name="com.lcpatch.verification.MainActivity" android:exported="true" />
+    </application>
+</manifest>
