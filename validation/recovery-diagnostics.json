@@ -1,0 +1,36 @@
+{
+  "version": "1.2.3-beta.3",
+  "date": "2026-10-27",
+  "recovery": "Restore beta.1 native loading and Dobby implementation; retain additional logcat breadcrumbs only.",
+  "root_cause": "Unconfirmed: supplied phone reports contain no crash stack. Rollback is a mitigation, not proof of a fix.",
+  "local_checks": {
+    "unit_tests": 50,
+    "passed": 49,
+    "skipped": 1,
+    "failed": 0,
+    "new_diagnostic_regressions": 12,
+    "arm64_core_build": "passed",
+    "lintVitalRelease": "passed",
+    "assembleDebug": "passed",
+    "assembleRelease": "passed",
+    "managed_invocation_hook_in_packaged_core": false
+  },
+  "android_command_smoke": {
+    "platform": "Android 15 x86_64 emulator",
+    "execution": "Independent debug command entry under inherited uid 0 with /system/bin/sh; not an app su-manager authorization test.",
+    "exit_code": 0,
+    "head_and_tail_output_bounds": "passed",
+    "timeout_classification": "passed",
+    "native_file": "unavailable, reported explicitly",
+    "crash_buffer": "no matching game record, reported explicitly",
+    "main_system_events": "collected with truncation reported",
+    "tombstone": "no matching game record, reported explicitly",
+    "process_exit_info": "collected"
+  },
+  "not_verified": [
+    "Reported Xiaomi Android 17 device no longer exits",
+    "LSPosed game launch and translation loading on the reported phone",
+    "Phone root-manager grant UI and ROM restrictions",
+    "Issue #87 repeated resource downloads (unresolved)"
+  ]
+}

@@ -5,7 +5,9 @@ import java.util.concurrent.TimeUnit
 internal data class RootCommandResult(
     val success: Boolean,
     val output: String,
-    val exitCode: Int?
+    val exitCode: Int?,
+    val truncated: Boolean = false,
+    val timedOut: Boolean = false
 )
 
 internal object RootShell {
@@ -14,13 +16,16 @@ internal object RootShell {
     fun run(
         command: String,
         timeoutMs: Long? = null,
-        maxOutputChars: Int = 256 * 1024
+        maxOutputChars: Int = 256 * 1024,
+        keepTail: Boolean = true,
+        executable: String = "su"
     ): RootCommandResult = synchronized(operationLock) {
         try {
-            val process = ProcessBuilder("su", "-c", command)
+            val process = ProcessBuilder(executable, "-c", command)
                 .redirectErrorStream(true)
                 .start()
             val output = StringBuilder()
+            var truncated = false
             val outputLock = Any()
             val reader = Thread({
                 try {
@@ -30,9 +35,15 @@ internal object RootShell {
                             val count = source.read(buffer)
                             if (count < 0) break
                             synchronized(outputLock) {
-                                output.append(buffer, 0, count)
-                                val overflow = output.length - maxOutputChars
-                                if (overflow > 0) output.delete(0, overflow)
+                                if (keepTail) {
+                                    output.append(buffer, 0, count)
+                                    val overflow = output.length - maxOutputChars
+                                    if (overflow > 0) { output.delete(0, overflow); truncated = true }
+                                } else {
+                                    val accepted = minOf(count, (maxOutputChars - output.length).coerceAtLeast(0))
+                                    output.append(buffer, 0, accepted)
+                                    if (accepted < count) truncated = true
+                                }
                             }
                         }
                     }
@@ -56,7 +67,9 @@ internal object RootShell {
             RootCommandResult(
                 success = finished && exitCode == 0,
                 output = synchronized(outputLock) { output.toString() },
-                exitCode = exitCode
+                exitCode = exitCode,
+                truncated = synchronized(outputLock) { truncated },
+                timedOut = !finished
             )
         } catch (error: Throwable) {
             RootCommandResult(false, error.message.orEmpty(), null)

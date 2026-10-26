@@ -31,19 +31,3 @@ target_link_options(lcpatch_core PRIVATE
     "-Wl,-z,common-page-size=16384"
 )
 target_link_libraries(lcpatch_core PRIVATE dobby_static log dl)
-
-option(LCPATCH_BUILD_TESTS "Build native text-loader regression tests" OFF)
-if(LCPATCH_BUILD_TESTS)
-    add_executable(managed_localize_test tests/managed_localize_test.cpp)
-    target_include_directories(managed_localize_test PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
-    target_compile_options(managed_localize_test PRIVATE -Wall -Wextra -Werror)
-    add_library(il2cpp SHARED tests/fake_il2cpp.cpp)
-    target_compile_options(il2cpp PRIVATE -O0 -fno-inline -fno-optimize-sibling-calls)
-endif()
-if(DEFINED LCPATCH_TEST_LOCALIZE_DIRECTORY)
-    if(NOT LCPATCH_BUILD_TESTS)
-        message(FATAL_ERROR "Test path override requires LCPATCH_BUILD_TESTS=ON")
-    endif()
-    target_compile_definitions(lcpatch_core PRIVATE
-        LCPATCH_TEST_LOCALIZE_DIRECTORY="${LCPATCH_TEST_LOCALIZE_DIRECTORY}")
-endif()

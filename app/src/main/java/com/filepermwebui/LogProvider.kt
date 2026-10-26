@@ -46,8 +46,10 @@ class LogProvider : ContentProvider() {
         return synchronized(lock) {
             when (method) {
                 "append" -> {
+                    val now = System.currentTimeMillis()
+                    val timestamp = extras?.getLong("timeMillis", now)?.takeIf { it > 0 && it <= now + 60_000 } ?: now
                     val event = JSONObject()
-                        .put("time", Instant.now().toString())
+                        .put("time", Instant.ofEpochMilli(timestamp).toString())
                         .put("level", extras?.getString("level") ?: "INFO")
                         .put("code", extras?.getString("code") ?: "event")
                         .put("message", extras?.getString("message") ?: "")
