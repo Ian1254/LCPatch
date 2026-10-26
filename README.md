@@ -1,6 +1,6 @@
 # LCPatch
 
-LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器，支援無 root 原生文件覆蓋與 Root／LSPosed 模式。無 root 模式不修改遊戲 APK，使用已替換相近日語漢字的漢化文件，直接交由遊戲原有的語言載入流程讀取；Root 模式由開源 native 核心重導本地化文件並載入中文字型。
+LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器，支援無 root 原生文件覆蓋與 Root／LSPosed 模式。無 root 模式不修改遊戲 APK，使用已替換相近日語漢字的漢化文件，直接交由遊戲原有的語言載入流程讀取；Root 模式由開源 native 核心在文字載入階段替換本地化 JSON 路徑並載入中文字型。
 
 ## 無 root 模式
 
@@ -50,6 +50,8 @@ Shizuku 文件服務與實際遊戲載入仍需裝置驗證；本機單元測試
 6. 完整關閉並重新啟動遊戲。若結果異常，可在底欄「日誌」頁匯出診斷文件。
 
 套用與停用漢化時，LCPatch 會先強制停止遊戲，避免遊戲正在讀取文件時替換目錄。
+
+1.2.3-beta.2 的 Root 文字核心不再攔截底層檔案操作；僅在已定位的同步／非同步文字載入流程替換路徑，讓其他資源檢查讀取官方原檔。入口不相容時會保留原文，並記錄 `core.localize.unsupported`。本版尚未完成 LSPosed 遊戲內載入與連續啟動驗證。
 
 ## 資料位置
 

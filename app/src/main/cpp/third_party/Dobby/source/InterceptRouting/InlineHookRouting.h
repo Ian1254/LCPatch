@@ -22,7 +22,7 @@ struct InlineHookRouting : InterceptRouting {
     GenerateTrampoline();
 
     GenerateRelocatedCode();
-
+    if (error) return;
     BackupOriginCode();
   }
 };
@@ -51,18 +51,29 @@ PUBLIC inline int DobbyHook(void *address, void *fake_func, void **out_origin_fu
 
   auto routing = new InlineHookRouting(entry, (addr_t)fake_func);
   routing->BuildRouting();
-  routing->Active();
   entry->routing = routing;
 
-  if (routing->error) {
+  if (routing->error || entry->relocated.addr() == 0 || entry->relocated.size == 0) {
     ERROR_LOG("build routing error.");
+    delete routing;
+    delete entry;
     return -1;
   }
 
+  // A new wrapper must always have a callable original before code becomes
+  // reachable. Construction failure must never patch the target.
   if (out_origin_func) {
     *out_origin_func = (void *)entry->relocated.addr();
+    features::apple::arm64e_pac_strip_and_sign(*out_origin_func);
   }
-  features::apple::arm64e_pac_strip_and_sign(*out_origin_func);
+  routing->Active();
+  if (routing->error) {
+    // Android's DobbyCodePatch restores the original bytes on failure.
+    ERROR_LOG("activate routing error.");
+    delete routing;
+    delete entry;
+    return -1;
+  }
 
   gInterceptor.add(entry);
 
