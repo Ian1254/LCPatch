@@ -23,7 +23,8 @@ public final class ModernApp extends Application {
     @Override public void onCreate() {
         super.onCreate();
         new Thread(() -> {
-            CrashDiagnostics.INSTANCE.capture(this);
+            try { CrashDiagnostics.INSTANCE.capture(this); }
+            catch (Exception error) { android.util.Log.e("LCPatch", "Background diagnostic collection failed", error); }
             new TranslationRepository(this).migrateRuntime();
         }, "LCPatch-diagnostics").start();
         XposedServiceHelper.registerListener(new XposedServiceHelper.OnServiceListener() {

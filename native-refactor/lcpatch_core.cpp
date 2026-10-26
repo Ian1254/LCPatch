@@ -19,15 +19,11 @@
 #include <cstring>
 
 #include "dobby.h"
-#include "managed_localize.h"
 
 namespace {
 
 constexpr char kTag[] = "LCPatchCore";
-#ifndef LCPATCH_TEST_LOCALIZE_DIRECTORY
-#define LCPATCH_TEST_LOCALIZE_DIRECTORY "/storage/emulated/0/Android/data/com.ProjectMoon.LimbusCompany/cache/Localize/cn"
-#endif
-constexpr char kRuntimeLocalize[] = LCPATCH_TEST_LOCALIZE_DIRECTORY;
+constexpr char kRuntimeLocalize[] = "/storage/emulated/0/Android/data/com.ProjectMoon.LimbusCompany/cache/Localize/cn";
 constexpr char kRuntimeFont[] = "/sdcard/Android/data/com.ProjectMoon.LimbusCompany/cache/Localize/cn/ChineseFont.ttf";
 constexpr char kNativeLog[] = "/storage/emulated/0/Android/data/com.ProjectMoon.LimbusCompany/cache/lcpatch-native.log";
 constexpr char kUnityName[] = "libunity.so";
@@ -75,13 +71,18 @@ constexpr std::array<size_t, 4> kKnownOriginalFontSizes = {
 
 using FontFn = void (*)(void *, uint32_t, uint32_t, uint32_t);
 FontFn gFontOriginal = nullptr;
+using OpenFn = int (*)(const char *, int, ...);
+using OpenAtFn = int (*)(int, const char *, int, ...);
+using FopenFn = FILE *(*)(const char *, const char *);
+OpenFn gOpenOriginal = nullptr;
+OpenAtFn gOpenAtOriginal = nullptr;
+FopenFn gFopenOriginal = nullptr;
 uint8_t *gFontData = nullptr;
 size_t gFontSize = 0;
 std::atomic<unsigned> gSwapCount{0};
 std::atomic<unsigned> gRedirectCount{0};
 std::atomic<bool> gStarted{false};
 pthread_mutex_t gLogLock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t gHookLock = PTHREAD_MUTEX_INITIALIZER;
 
 void breadcrumb(const char *level, const char *code, const char *format, ...) {
     char message[1024]{};
@@ -89,12 +90,16 @@ void breadcrumb(const char *level, const char *code, const char *format, ...) {
     va_start(args, format);
     std::vsnprintf(message, sizeof(message), format, args);
     va_end(args);
+    const int priority = std::strcmp(level, "ERROR") == 0 ? ANDROID_LOG_ERROR :
+        std::strcmp(level, "WARN") == 0 ? ANDROID_LOG_WARN : ANDROID_LOG_INFO;
+    // The external file may not exist yet. Always keep a logcat copy too.
+    __android_log_print(priority, kTag, "%s pid=%d tid=%ld %s", code, getpid(), syscall(SYS_gettid), message);
     timespec now{};
     clock_gettime(CLOCK_REALTIME, &now);
     char line[1280]{};
-    const int length = std::snprintf(line, sizeof(line), "%lld|%s|%s|%s\n",
+    const int length = std::snprintf(line, sizeof(line), "%lld|%s|%s|pid=%d tid=%ld %s\n",
         static_cast<long long>(now.tv_sec) * 1000LL + now.tv_nsec / 1000000LL,
-        level, code, message);
+        level, code, getpid(), syscall(SYS_gettid), message);
     if (length <= 0) return;
     pthread_mutex_lock(&gLogLock);
     const int fd = static_cast<int>(syscall(SYS_openat, AT_FDCWD, kNativeLog,
@@ -110,14 +115,102 @@ void breadcrumb(const char *level, const char *code, const char *format, ...) {
 
 bool installHook(void *target, void *replacement, void **original, const char *name);
 
+bool buildLocalizeRedirect(const char *path, char *output, size_t outputSize) {
+    if (!path || !*path || !output || outputSize == 0 ||
+        std::strstr(path, kRuntimeLocalize) == path || std::strstr(path, "/../") ||
+        std::strstr(path, "/./")) return false;
+    const char *marker = std::strstr(path, "/Localize/");
+    const char *language = marker ? marker + 10 :
+        (std::strncmp(path, "Localize/", 9) == 0 ? path + 9 : nullptr);
+    if (!language) return false;
+    const char *relative = std::strchr(language, '/');
+    if (!relative || !relative[1] || std::strstr(relative + 1, "../")) return false;
+    ++relative;
+    const int written = std::snprintf(output, outputSize, "%s/%s", kRuntimeLocalize, relative);
+    return written > 0 && static_cast<size_t>(written) < outputSize && access(output, R_OK) == 0;
+}
+
+const char *redirectReadPath(const char *path, char *buffer, size_t size) {
+    if (!buildLocalizeRedirect(path, buffer, size)) return path;
+    const unsigned count = gRedirectCount.fetch_add(1, std::memory_order_relaxed);
+    if (count < 12) {
+        LOGI("localize redirected: %s -> %s", path, buffer);
+        breadcrumb("INFO", "core.io.redirect", "%s -> %s", path, buffer);
+    }
+    return buffer;
+}
+
+const char *redirectOpenAtPath(int directory, const char *path, char *redirected,
+                               size_t redirectedSize, char *resolved, size_t resolvedSize) {
+    if (!path || path[0] == '/') return redirectReadPath(path, redirected, redirectedSize);
+    char base[4096]{};
+    if (directory == AT_FDCWD) {
+        if (!getcwd(base, sizeof(base))) return path;
+    } else {
+        char descriptor[64]{};
+        const int written = std::snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%d", directory);
+        if (written <= 0 || static_cast<size_t>(written) >= sizeof(descriptor)) return path;
+        const ssize_t length = readlink(descriptor, base, sizeof(base) - 1);
+        if (length <= 0) return path;
+        base[length] = '\0';
+    }
+    const int written = std::snprintf(resolved, resolvedSize, "%s/%s", base, path);
+    if (written <= 0 || static_cast<size_t>(written) >= resolvedSize) return path;
+    const char *selected = redirectReadPath(resolved, redirected, redirectedSize);
+    return selected == resolved ? path : selected;
+}
+
+int hookedOpen(const char *path, int flags, ...) {
+    mode_t mode = 0;
+    const bool needsMode = (flags & O_CREAT) != 0
+#ifdef O_TMPFILE
+        || (flags & O_TMPFILE) == O_TMPFILE
+#endif
+        ;
+    if (needsMode) {
+        va_list args; va_start(args, flags);
+        mode = static_cast<mode_t>(va_arg(args, int));
+        va_end(args);
+    }
+    char redirected[4096]{};
+    const bool readOnly = (flags & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC)) == 0;
+    const char *selected = readOnly ? redirectReadPath(path, redirected, sizeof(redirected)) : path;
+    return needsMode ? gOpenOriginal(selected, flags, mode) : gOpenOriginal(selected, flags);
+}
+
+int hookedOpenAt(int directory, const char *path, int flags, ...) {
+    mode_t mode = 0;
+    const bool needsMode = (flags & O_CREAT) != 0
+#ifdef O_TMPFILE
+        || (flags & O_TMPFILE) == O_TMPFILE
+#endif
+        ;
+    if (needsMode) {
+        va_list args; va_start(args, flags);
+        mode = static_cast<mode_t>(va_arg(args, int));
+        va_end(args);
+    }
+    char redirected[4096]{};
+    char resolved[4096]{};
+    const bool readOnly = (flags & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC)) == 0;
+    const char *selected = readOnly ? redirectOpenAtPath(directory, path, redirected, sizeof(redirected),
+        resolved, sizeof(resolved)) : path;
+    return needsMode ? gOpenAtOriginal(directory, selected, flags, mode)
+                     : gOpenAtOriginal(directory, selected, flags);
+}
+
+FILE *hookedFopen(const char *path, const char *mode) {
+    char redirected[4096];
+    const bool readOnly = mode && mode[0] == 'r' && std::strchr(mode, '+') == nullptr;
+    return gFopenOriginal(readOnly ? redirectReadPath(path, redirected, sizeof(redirected)) : path, mode);
+}
+
 bool installHook(void *target, void *replacement, void **original, const char *name) {
+    breadcrumb("INFO", "core.hook.begin", "name=%s target=%p", name, target);
     if (!target) { LOGE("symbol missing: %s", name); return false; }
-    // Dobby's interceptor registry is not thread-safe. Font and text workers
-    // may become ready together, so serialize every installation.
-    pthread_mutex_lock(&gHookLock);
     const int result = DobbyHook(target, replacement, original);
-    pthread_mutex_unlock(&gHookLock);
     if (result != 0 || !*original) { LOGE("hook failed: %s (%d)", name, result); return false; }
+    breadcrumb("INFO", "core.hook.ready", "name=%s", name);
     return true;
 }
 
@@ -183,253 +276,89 @@ uintptr_t loadedAddress(const UnitySearch &image, Elf64_Addr value, size_t lengt
     return 0;
 }
 
-// Resolve public IL2CPP APIs in the already loaded image. Module class-loader
-// namespaces need not permit dlopen("libil2cpp.so"). No fixed game offsets.
-void *imageExport(const UnitySearch &image, const char *name) {
-    const auto *elf = reinterpret_cast<const Elf64_Ehdr *>(image.base);
-    const auto *headers = reinterpret_cast<const Elf64_Phdr *>(image.base + elf->e_phoff);
-    Elf64_Addr symbols = 0, strings = 0, hash = 0;
-    size_t stringBytes = 0;
-    for (Elf64_Half i = 0; i < elf->e_phnum; ++i) {
-        if (headers[i].p_type != PT_DYNAMIC) continue;
-        const uintptr_t at = image.base + headers[i].p_vaddr;
-        if (!rangeContains(image.readable, image.readableCount, at, headers[i].p_memsz)) return nullptr;
-        const auto *entries = reinterpret_cast<const Elf64_Dyn *>(at);
-        for (size_t n = 0; n < headers[i].p_memsz / sizeof(Elf64_Dyn) && entries[n].d_tag != DT_NULL; ++n) {
-            switch (entries[n].d_tag) {
-                case DT_SYMTAB: symbols = entries[n].d_un.d_ptr; break;
-                case DT_STRTAB: strings = entries[n].d_un.d_ptr; break;
-                case DT_STRSZ: stringBytes = entries[n].d_un.d_val; break;
-                case DT_GNU_HASH: hash = entries[n].d_un.d_ptr; break;
-                default: break;
+int protectionAt(const UnitySearch &image, uintptr_t address) {
+    for (size_t i = 0; i < image.readableCount; ++i) {
+        if (address >= image.readable[i].begin && address < image.readable[i].end) return image.readable[i].protection;
+    }
+    return 0;
+}
+
+bool patchFileImports(const UnitySearch &image, const char *moduleName) {
+    breadcrumb("INFO", "core.io.begin", "scanning %s file PLT", moduleName);
+    const Elf64_Dyn *dynamic = nullptr;
+    for (size_t i = 0; i < image.readableCount && !dynamic; ++i) {
+        const Segment &segment = image.readable[i];
+        const auto *elf = reinterpret_cast<const Elf64_Ehdr *>(image.base);
+        const auto *headers = reinterpret_cast<const Elf64_Phdr *>(image.base + elf->e_phoff);
+        for (Elf64_Half n = 0; n < elf->e_phnum; ++n) {
+            if (headers[n].p_type == PT_DYNAMIC) {
+                const uintptr_t address = image.base + headers[n].p_vaddr;
+                if (address >= segment.begin && address + sizeof(Elf64_Dyn) <= segment.end) {
+                    dynamic = reinterpret_cast<const Elf64_Dyn *>(address); break;
+                }
             }
         }
     }
-    const uintptr_t symbolsAt = loadedAddress(image, symbols, sizeof(Elf64_Sym));
-    const uintptr_t stringsAt = loadedAddress(image, strings, stringBytes);
-    const uintptr_t hashAt = loadedAddress(image, hash, 16);
-    if (!symbolsAt || !stringsAt || !hashAt || !stringBytes) return nullptr;
-    const auto *gnu = reinterpret_cast<const uint32_t *>(hashAt);
-    const uint32_t buckets = gnu[0], first = gnu[1], bloom = gnu[2];
-    if (!buckets || buckets > (1U << 20) || bloom > (1U << 20)) return nullptr;
-    const uintptr_t bucketsAt = hashAt + 16 + static_cast<size_t>(bloom) * sizeof(Elf64_Addr);
-    if (!rangeContains(image.readable, image.readableCount, bucketsAt, static_cast<size_t>(buckets) * 4)) return nullptr;
-    uint32_t value = 5381;
-    for (const auto *p = reinterpret_cast<const unsigned char *>(name); *p; ++p) value = value * 33 + *p;
-    uint32_t index = reinterpret_cast<const uint32_t *>(bucketsAt)[value % buckets];
-    if (index < first) return nullptr;
-    const uintptr_t chainsAt = bucketsAt + static_cast<size_t>(buckets) * 4;
-    for (unsigned n = 0; n < (1U << 20); ++n, ++index) {
-        const uintptr_t chainAt = chainsAt + static_cast<size_t>(index - first) * 4;
-        const uintptr_t symbolAt = symbolsAt + static_cast<size_t>(index) * sizeof(Elf64_Sym);
-        if (!rangeContains(image.readable, image.readableCount, chainAt, 4) ||
-            !rangeContains(image.readable, image.readableCount, symbolAt, sizeof(Elf64_Sym))) return nullptr;
-        const uint32_t chain = *reinterpret_cast<const uint32_t *>(chainAt);
-        const auto &symbol = *reinterpret_cast<const Elf64_Sym *>(symbolAt);
-        if ((chain | 1U) == (value | 1U) && symbol.st_name < stringBytes) {
-            const char *candidate = reinterpret_cast<const char *>(stringsAt + symbol.st_name);
-            if (std::memchr(candidate, '\0', stringBytes - symbol.st_name) &&
-                std::strcmp(candidate, name) == 0 && symbol.st_shndx != SHN_UNDEF &&
-                ELF64_ST_TYPE(symbol.st_info) == STT_FUNC) {
-                const uintptr_t target = image.base + symbol.st_value;
-                return rangeContains(image.executable, image.count, target, 4) ? reinterpret_cast<void *>(target) : nullptr;
-            }
-        }
-        if (chain & 1U) break;
-    }
-    return nullptr;
-}
-
-struct LocalizeApi {
-    void *(*domainGet)();
-    const void **(*assemblies)(void *, size_t *);
-    const void *(*assemblyImage)(const void *);
-    void *(*classFromName)(const void *, const char *, const char *);
-    const void *(*methods)(void *, void **);
-    const char *(*methodName)(const void *);
-    uint32_t (*paramCount)(const void *);
-    const void *(*param)(const void *, uint32_t);
-    const void *(*returnType)(const void *);
-    uint32_t (*flags)(const void *, uint32_t *);
-    int (*typeKind)(const void *);
-    void *(*classFromType)(const void *);
-    const char *(*className)(void *);
-    const char *(*classNamespace)(void *);
-    int32_t (*valueSize)(void *, uint32_t *);
-    void *(*currentThread)();
-};
-
-bool loadLocalizeApi(const UnitySearch &image, LocalizeApi &api) {
-#define LOAD_API(field, symbol) \
-    api.field = reinterpret_cast<decltype(api.field)>(imageExport(image, symbol)); \
-    if (!api.field) return false
-    LOAD_API(domainGet, "il2cpp_domain_get");
-    LOAD_API(assemblies, "il2cpp_domain_get_assemblies");
-    LOAD_API(assemblyImage, "il2cpp_assembly_get_image");
-    LOAD_API(classFromName, "il2cpp_class_from_name");
-    LOAD_API(methods, "il2cpp_class_get_methods");
-    LOAD_API(methodName, "il2cpp_method_get_name");
-    LOAD_API(paramCount, "il2cpp_method_get_param_count");
-    LOAD_API(param, "il2cpp_method_get_param");
-    LOAD_API(returnType, "il2cpp_method_get_return_type");
-    LOAD_API(flags, "il2cpp_method_get_flags");
-    LOAD_API(typeKind, "il2cpp_type_get_type");
-    LOAD_API(classFromType, "il2cpp_class_from_type");
-    LOAD_API(className, "il2cpp_class_get_name");
-    LOAD_API(classNamespace, "il2cpp_class_get_namespace");
-    LOAD_API(valueSize, "il2cpp_class_value_size");
-    LOAD_API(currentThread, "il2cpp_thread_current");
-#undef LOAD_API
-    auto &managed = lcpatch::managedLocalize;
-    managed.stringLength = reinterpret_cast<decltype(managed.stringLength)>(imageExport(image, "il2cpp_string_length"));
-    managed.stringChars = reinterpret_cast<decltype(managed.stringChars)>(imageExport(image, "il2cpp_string_chars"));
-    managed.stringNew = reinterpret_cast<decltype(managed.stringNew)>(imageExport(image, "il2cpp_string_new"));
-    return managed.stringLength && managed.stringChars && managed.stringNew;
-}
-
-bool namedType(const LocalizeApi &api, const void *type, const char *space, const char *name) {
-    void *klass = api.classFromType(type);
-    return klass && std::strcmp(api.classNamespace(klass), space) == 0 && std::strcmp(api.className(klass), name) == 0;
-}
-
-// Signatures observed in Android 1.117.1 metadata and decrypted runtime code:
-// instance string LoadLocalizeFileSync(string); instance void ProcessLoadAsync(int);
-// static string ReadAllText(string); static Task<string> ReadAllTextAsync(string, CancellationToken).
-enum class LocalizeMethod { SyncLoader, AsyncLoader, Read, ReadAsync };
-void *localizeMethod(const UnitySearch &image, const LocalizeApi &api, void *klass,
-                     const char *name, LocalizeMethod kind) {
-    if (!klass) return nullptr;
-    void *iterator = nullptr, *target = nullptr;
-    for (unsigned n = 0; n < 4096; ++n) {
-        const void *method = api.methods(klass, &iterator);
-        if (!method) break;
-        if (std::strcmp(api.methodName(method), name) != 0) continue;
-        const bool readAsync = kind == LocalizeMethod::ReadAsync;
-        const bool asyncLoader = kind == LocalizeMethod::AsyncLoader;
-        const bool isStatic = kind == LocalizeMethod::Read || readAsync;
-        uint32_t implementation = 0;
-        if (((api.flags(method, &implementation) & 0x10U) != 0) != isStatic ||
-            api.paramCount(method) != (readAsync ? 2U : 1U) ||
-            api.typeKind(api.param(method, 0)) != (asyncLoader ? 0x08 : 0x0e)) continue;
-        const void *result = api.returnType(method);
-        if (api.typeKind(result) != (readAsync ? 0x15 : asyncLoader ? 0x01 : 0x0e)) continue;
-        if (readAsync) {
-            const void *token = api.param(method, 1);
-            uint32_t alignment = 0;
-            if (!namedType(api, token, "System.Threading", "CancellationToken") ||
-                api.valueSize(api.classFromType(token), &alignment) != sizeof(lcpatch::CancellationToken) ||
-                !namedType(api, result, "System.Threading.Tasks", "Task`1")) continue;
-        }
-        // Public MethodInfo ABI: methodPointer is its first field. Only accept
-        // an aligned entry inside this exact loaded IL2CPP executable image.
-        void *candidate = nullptr;
-        std::memcpy(&candidate, method, sizeof(candidate));
-        const auto address = reinterpret_cast<uintptr_t>(candidate);
-        if ((address & 3U) || !rangeContains(image.executable, image.count, address, 16) || target) return nullptr;
-        target = candidate;
-    }
-    return target;
-}
-
-void logLocalizeRedirect(const char *original, const char *selected) {
-    const unsigned count = gRedirectCount.fetch_add(1, std::memory_order_relaxed);
-    if (count < 12) breadcrumb("INFO", "core.localize.redirect", "%s -> %s", original, selected);
-}
-
-using RuntimeInvoke = void *(*)(const void *, void *, void **, void **);
-RuntimeInvoke gInvokeOriginal = nullptr;
-LocalizeApi gLocalizeApi{};
-UnitySearch gLocalizeImage{};
-std::atomic<bool> gInvokeReady{false};
-std::atomic<unsigned> gLocalizeState{0}; // waiting, installing, ready, unsupported
-unsigned gLocalizeAttempts = 0; // accessed only by the installer owning state 1
-
-void tryInstallLocalize() {
-    // This callback runs on the game's already attached managed thread, at an
-    // actual public runtime_invoke boundary. Never call domain_get from the
-    // startup worker: it can allocate GC objects before Runtime::Init is ready.
-    if (!gLocalizeApi.currentThread()) return;
-    unsigned expected = 0;
-    if (!gLocalizeState.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) return;
-    const auto &api = gLocalizeApi;
-    const auto &image = gLocalizeImage;
-    void *domain = api.domainGet();
-    size_t count = 0;
-    const void **assemblies = domain ? api.assemblies(domain, &count) : nullptr;
-    void *manager = nullptr, *loader = nullptr, *file = nullptr;
-    if (assemblies && count < 2048) {
-        for (size_t i = 0; i < count; ++i) {
-            const void *assembly = api.assemblyImage(assemblies[i]);
-            if (!manager) manager = api.classFromName(assembly, "TextAssetPatch", "TextAssetPatchManager");
-            if (!loader) loader = api.classFromName(assembly, "TextAssetPatch", "TextAssetAsyncLoader");
-            if (!file) file = api.classFromName(assembly, "System.IO", "File");
+    if (!dynamic) { breadcrumb("ERROR", "core.io.result", "%s dynamic section unavailable", moduleName); return false; }
+    Elf64_Addr stringValue = 0, symbolValue = 0, jumpValue = 0;
+    size_t stringBytes = 0, jumpBytes = 0;
+    Elf64_Sxword pltType = 0;
+    for (const Elf64_Dyn *entry = dynamic; entry->d_tag != DT_NULL; ++entry) {
+        switch (entry->d_tag) {
+            case DT_STRTAB: stringValue = entry->d_un.d_ptr; break;
+            case DT_STRSZ: stringBytes = entry->d_un.d_val; break;
+            case DT_SYMTAB: symbolValue = entry->d_un.d_ptr; break;
+            case DT_JMPREL: jumpValue = entry->d_un.d_ptr; break;
+            case DT_PLTRELSZ: jumpBytes = entry->d_un.d_val; break;
+            case DT_PLTREL: pltType = entry->d_un.d_val; break;
+            default: break;
         }
     }
-    void *targets[] = {
-        localizeMethod(image, api, manager, "LoadLocalizeFileSync", LocalizeMethod::SyncLoader),
-        localizeMethod(image, api, loader, "ProcessLoadAsync", LocalizeMethod::AsyncLoader),
-        localizeMethod(image, api, file, "ReadAllText", LocalizeMethod::Read),
-        localizeMethod(image, api, file, "ReadAllTextAsync", LocalizeMethod::ReadAsync),
-    };
-    for (size_t i = 0; i < 4; ++i) {
-        if (!targets[i]) {
-            if (++gLocalizeAttempts < 120) gLocalizeState.store(0, std::memory_order_release);
-            else {
-                breadcrumb("WARN", "core.localize.unsupported", "reason=method_signature_unavailable index=%zu; original files retained", i);
-                gLocalizeState.store(3, std::memory_order_release);
-            }
-            return;
-        }
-        for (size_t j = 0; j < i; ++j) if (targets[i] == targets[j]) {
-            breadcrumb("WARN", "core.localize.unsupported", "reason=shared_method_entry; original files retained");
-            gLocalizeState.store(3, std::memory_order_release);
-            return;
-        }
+    const uintptr_t stringsAt = loadedAddress(image, stringValue, 1);
+    const uintptr_t symbolsAt = loadedAddress(image, symbolValue, sizeof(Elf64_Sym));
+    const uintptr_t jumpsAt = loadedAddress(image, jumpValue, jumpBytes);
+    if (!stringsAt || !symbolsAt || !jumpsAt || !jumpBytes || !stringBytes || pltType != DT_RELA) {
+        breadcrumb("ERROR", "core.io.result", "%s has unsupported PLT metadata", moduleName); return false;
     }
-    auto &managed = lcpatch::managedLocalize;
-    managed.runtimeDirectory = kRuntimeLocalize;
-    managed.onRedirect = logLocalizeRedirect;
-    managed.installing.store(true, std::memory_order_release);
-    if (!installHook(targets[2], reinterpret_cast<void *>(lcpatch::hookedReadText), reinterpret_cast<void **>(&managed.readText), "File.ReadAllText") ||
-        !installHook(targets[3], reinterpret_cast<void *>(lcpatch::hookedReadTextAsync), reinterpret_cast<void **>(&managed.readTextAsync), "File.ReadAllTextAsync") ||
-        !installHook(targets[0], reinterpret_cast<void *>(lcpatch::hookedLoadSync), reinterpret_cast<void **>(&managed.loadSync), "LoadLocalizeFileSync") ||
-        !installHook(targets[1], reinterpret_cast<void *>(lcpatch::hookedLoadAsync), reinterpret_cast<void **>(&managed.loadAsync), "TextAssetAsyncLoader.ProcessLoadAsync")) {
-        managed.installing.store(false, std::memory_order_release);
-        gLocalizeState.store(3, std::memory_order_release);
-        breadcrumb("ERROR", "core.localize.unsupported", "reason=hook_install_failed; original files retained");
-        return;
+    const auto *strings = reinterpret_cast<const char *>(stringsAt);
+    const auto *symbols = reinterpret_cast<const Elf64_Sym *>(symbolsAt);
+    const auto *relocations = reinterpret_cast<const Elf64_Rela *>(jumpsAt);
+    const size_t relocationCount = jumpBytes / sizeof(Elf64_Rela);
+    size_t fopenPatched = 0, openPatched = 0, openAtPatched = 0;
+    const long pageSizeValue = sysconf(_SC_PAGESIZE);
+    if (pageSizeValue <= 0) return false;
+    const uintptr_t pageSize = static_cast<uintptr_t>(pageSizeValue);
+    for (size_t i = 0; i < relocationCount; ++i) {
+        const size_t symbolIndex = ELF64_R_SYM(relocations[i].r_info);
+        const uintptr_t symbolAddress = symbolsAt + symbolIndex * sizeof(Elf64_Sym);
+        if (!rangeContains(image.readable, image.readableCount, symbolAddress, sizeof(Elf64_Sym))) continue;
+        if (symbols[symbolIndex].st_name >= stringBytes) continue;
+        const char *name = strings + symbols[symbolIndex].st_name;
+        void *replacement = nullptr; void **originalStorage = nullptr; size_t *counter = nullptr;
+        if (std::strcmp(name, "fopen") == 0 || std::strcmp(name, "fopen64") == 0) {
+            replacement = reinterpret_cast<void *>(hookedFopen); originalStorage = reinterpret_cast<void **>(&gFopenOriginal); counter = &fopenPatched;
+        } else if (std::strcmp(name, "open") == 0 || std::strcmp(name, "open64") == 0 || std::strcmp(name, "__open_2") == 0) {
+            replacement = reinterpret_cast<void *>(hookedOpen); originalStorage = reinterpret_cast<void **>(&gOpenOriginal); counter = &openPatched;
+        } else if (std::strcmp(name, "openat") == 0 || std::strcmp(name, "openat64") == 0 || std::strcmp(name, "__openat_2") == 0) {
+            replacement = reinterpret_cast<void *>(hookedOpenAt); originalStorage = reinterpret_cast<void **>(&gOpenAtOriginal); counter = &openAtPatched;
+        } else continue;
+        const uintptr_t slotAddress = loadedAddress(image, relocations[i].r_offset, sizeof(void *));
+        if (!slotAddress) continue;
+        auto **slot = reinterpret_cast<void **>(slotAddress);
+        void *original = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+        if (!original || original == replacement) continue;
+        const uintptr_t page = slotAddress & ~(pageSize - 1U);
+        const int originalProtection = protectionAt(image, slotAddress);
+        if (!originalProtection || mprotect(reinterpret_cast<void *>(page), pageSize, originalProtection | PROT_WRITE) != 0) continue;
+        if (!*originalStorage) *originalStorage = original;
+        __atomic_store_n(slot, replacement, __ATOMIC_RELEASE);
+        mprotect(reinterpret_cast<void *>(page), pageSize, originalProtection);
+        ++*counter;
     }
-    managed.ready.store(true, std::memory_order_release);
-    managed.installing.store(false, std::memory_order_release);
-    gLocalizeState.store(2, std::memory_order_release);
-    breadcrumb("INFO", "core.localize.hooked", "managed text loaders ready; filesystem reads unmodified");
-}
-
-void *hookedRuntimeInvoke(const void *method, void *object, void **arguments, void **exception) {
-    while (!gInvokeReady.load(std::memory_order_acquire)) std::this_thread::yield();
-    if (gLocalizeState.load(std::memory_order_acquire) == 0) tryInstallLocalize();
-    return gInvokeOriginal(method, object, arguments, exception);
-}
-
-void *startLocalizeHook(void *) {
-    UnitySearch image;
-    for (unsigned attempt = 0; attempt < 120 && !image.base; ++attempt) {
-        image = findImage(kIl2CppName);
-        if (!image.base) usleep(250000);
-    }
-    if (!image.base || !loadLocalizeApi(image, gLocalizeApi)) {
-        breadcrumb("WARN", "core.localize.unsupported", "reason=il2cpp_api_unavailable; original files retained");
-        return nullptr;
-    }
-    gLocalizeImage = image;
-    void *invoke = imageExport(image, "il2cpp_runtime_invoke");
-    if (!installHook(invoke, reinterpret_cast<void *>(hookedRuntimeInvoke),
-                     reinterpret_cast<void **>(&gInvokeOriginal), "il2cpp_runtime_invoke")) {
-        breadcrumb("WARN", "core.localize.unsupported", "reason=runtime_entry_unavailable; original files retained");
-        return nullptr;
-    }
-    gInvokeReady.store(true, std::memory_order_release);
-    return nullptr;
+    const size_t total = fopenPatched + openPatched + openAtPatched;
+    breadcrumb(total ? "INFO" : "WARN", "core.io.result", "module=%s mode=plt fopen=%zu open=%zu openat=%zu",
+               moduleName, fopenPatched, openPatched, openAtPatched);
+    return total > 0;
 }
 
 bool validElfAndNote(const UnitySearch &image) {
@@ -617,6 +546,14 @@ void *startFontHook(void *) {
         breadcrumb("WARN", "core.unity.timeout", "libunity.so unavailable after 30 seconds");
         return nullptr;
     }
+    UnitySearch il2cpp;
+    for (unsigned attempt = 0; attempt < 40 && !il2cpp.base; ++attempt) {
+        il2cpp = findImage(kIl2CppName);
+        if (!il2cpp.base) usleep(50000);
+    }
+    if (il2cpp.base) patchFileImports(il2cpp, kIl2CppName);
+    else breadcrumb("WARN", "core.io.result", "%s not loaded; imports not patched", kIl2CppName);
+    patchFileImports(image, kUnityName);
     uintptr_t target = 0;
     const char *mode = "known";
     if (!validElfAndNote(image)) {
@@ -654,10 +591,7 @@ void *startFontHook(void *) {
 
 void start() {
     if (gStarted.exchange(true)) return;
-    breadcrumb("INFO", "core.start", "source core constructor entered");
-    pthread_t localize{};
-    if (pthread_create(&localize, nullptr, startLocalizeHook, nullptr) == 0) pthread_detach(localize);
-    else breadcrumb("ERROR", "core.localize.unsupported", "reason=worker_creation_failed");
+    breadcrumb("INFO", "core.start", "recovery core: beta.1 loading flow; beta.2 managed hooks removed");
     pthread_t thread{};
     if (pthread_create(&thread, nullptr, startFontHook, nullptr) != 0) {
         LOGE("font worker creation failed"); breadcrumb("ERROR", "core.thread.failed", "pthread_create failed"); return;

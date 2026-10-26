@@ -30,10 +30,7 @@ class LogRepository(private val context: Context) {
     }
 
     fun clear() {
-        context.contentResolver.call(uri, "clear", null, null)
-        if (TranslationRepository(context).rootMode()) {
-            Thread({ RootShell.run("truncate -s 0 '$NATIVE_LOG'", timeoutMs = 8_000L) }, "LCPatch-clear-native-log").start()
-        }
+        CrashDiagnostics.clear(context) { context.contentResolver.call(uri, "clear", null, null) }
     }
 
     fun observe(onChange: () -> Unit): ContentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
@@ -71,14 +68,18 @@ class LogRepository(private val context: Context) {
             appendLine("裝置：${Build.MANUFACTURER} ${Build.MODEL} / ${Build.DEVICE}")
             appendLine("系統：Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
             appendLine("ABI：${Build.SUPPORTED_ABIS.joinToString()}")
+            appendLine(GameDiagnosticParser.render(CrashDiagnostics.latest(context)))
             appendLine("--- events (${events.size}) ---")
             events.asReversed().forEach { appendLine("${it.time} [${it.level}] ${it.code}: ${it.message}${if (it.process.isBlank()) "" else " (${it.process})"}") }
         }
     }
 
-    fun saveDiagnostic(events: List<LogEvent>): Uri {
+    fun saveDiagnostic(): Uri {
+        // Called on an IO dispatcher. Force a fresh, completed collection so
+        // sharing immediately after a crash cannot export the old UI snapshot.
+        CrashDiagnostics.capture(context, force = true)
         val name = "LCPatch-log-${System.currentTimeMillis()}.txt"
-        val bytes = diagnosticText(events).toByteArray()
+        val bytes = diagnosticText(read()).toByteArray()
         val tree = selectedFolder()
         if (tree != null) {
             val folder = DocumentFile.fromTreeUri(context, tree) ?: error("無法開啟已選資料夾")
@@ -91,8 +92,8 @@ class LogRepository(private val context: Context) {
         return FileProvider.getUriForFile(context, "com.lcpatch.files", file)
     }
 
-    fun shareIntent(events: List<LogEvent>): Intent {
-        val output = saveDiagnostic(events)
+    fun shareIntent(): Intent {
+        val output = saveDiagnostic()
         return Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, "LCPatch 日誌")
@@ -103,10 +104,10 @@ class LogRepository(private val context: Context) {
     }
 
     companion object {
-        private const val NATIVE_LOG = "/storage/emulated/0/Android/data/com.ProjectMoon.LimbusCompany/cache/lcpatch-native.log"
-        fun append(context: Context, level: String, code: String, message: String, process: String = "") {
+        fun append(context: Context, level: String, code: String, message: String, process: String = "", timeMillis: Long? = null) {
             context.contentResolver.call(Uri.parse("content://${LogProvider.AUTHORITY}"), "append", null, Bundle().apply {
                 putString("level", level); putString("code", code); putString("message", message); putString("process", process)
+                if (timeMillis != null) putLong("timeMillis", timeMillis)
             })
         }
     }

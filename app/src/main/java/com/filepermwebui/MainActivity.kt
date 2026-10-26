@@ -142,7 +142,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumeRevision++
-        Thread({ CrashDiagnostics.capture(this) }, "LCPatch-resume-diagnostics").start()
+        Thread({
+            try { CrashDiagnostics.capture(this) }
+            catch (error: Exception) { android.util.Log.e("LCPatch", "Background diagnostic collection failed", error) }
+        }, "LCPatch-resume-diagnostics").start()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -180,6 +183,7 @@ class MainActivity : ComponentActivity() {
         var topNavigationTarget by rememberSaveable { mutableIntStateOf(pagerState.currentPage) }
         var topNavigationTransaction by rememberSaveable { mutableIntStateOf(0) }
         var revision by remember { mutableIntStateOf(0) }
+        var diagnosticBusy by remember { mutableStateOf(false) }
         var notice by taskState.notice
         var latestRelease by taskState.latestRelease
         var checkingUpdate by taskState.checkingUpdate
@@ -260,6 +264,23 @@ class MainActivity : ComponentActivity() {
         val displayScrollBehavior = MiuixScrollBehavior()
         val conversionScrollBehavior = MiuixScrollBehavior()
         val scope = rememberCoroutineScope()
+        fun exportDiagnostic(share: Boolean) {
+            if (diagnosticBusy) return
+            diagnosticBusy = true
+            scope.launch {
+                try {
+                    val intent: Intent? = withContext(Dispatchers.IO) {
+                        if (share) logs.shareIntent() else { logs.saveDiagnostic(); null }
+                    }
+                    revision++
+                    if (intent != null) startActivity(intent)
+                    else taskState.success(if (logs.selectedFolder() == null) "診斷文件已存至 App 暫存區，請使用分享功能取得" else "診斷文件已儲存至所選資料夾")
+                } catch (error: Exception) {
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    taskState.error("診斷匯出失敗：${error.message}")
+                } finally { diagnosticBusy = false }
+            }
+        }
         LaunchedEffect(topNavigationTransaction, topNavigationTarget) {
             if (pagerState.currentPage != topNavigationTarget || pagerState.currentPageOffsetFraction != 0f) {
                 pagerState.animateScrollToPage(
@@ -752,18 +773,21 @@ class MainActivity : ComponentActivity() {
                             )
                             LOGS -> logPage(
                                 events,
-                                save = {
-                                    try {
-                                        logs.saveDiagnostic(events)
-                                        taskState.success(if (logs.selectedFolder() == null) "診斷文件已存至 App 暫存區，請使用分享功能取得" else "診斷文件已儲存至所選資料夾")
+                                busy = diagnosticBusy,
+                                save = { exportDiagnostic(false) },
+                                share = { exportDiagnostic(true) },
+                                clear = {
+                                    if (!diagnosticBusy) scope.launch {
+                                        diagnosticBusy = true
+                                        try {
+                                            withContext(Dispatchers.IO) { logs.clear() }
+                                            revision++; taskState.success("日誌與診斷快照已清除")
+                                        } catch (error: Exception) {
+                                            if (error is kotlinx.coroutines.CancellationException) throw error
+                                            taskState.error("清除失敗：${error.message}")
+                                        } finally { diagnosticBusy = false }
                                     }
-                                    catch (error: Throwable) { taskState.error("儲存失敗：${error.message}") }
-                                },
-                                share = {
-                                    try { startActivity(logs.shareIntent(events)) }
-                                    catch (error: Throwable) { taskState.error("分享失敗：${error.message}") }
-                                },
-                                clear = { logs.clear(); revision++; taskState.success("日誌已清除") }
+                                }
                             )
                             ABOUT -> aboutPage(game)
                             UPDATE -> updatePage(
@@ -1216,18 +1240,19 @@ class MainActivity : ComponentActivity() {
         item { InfoCard("顯示效果", "背景模糊只影響頂欄；底欄使用實色背景。") }
     }
 
-    private fun LazyListScope.logPage(events: List<LogEvent>, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
+    private fun LazyListScope.logPage(events: List<LogEvent>, busy: Boolean, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
         item {
             Card(insideMargin = PaddingValues(16.dp)) {
-                Button(modifier = Modifier.fillMaxWidth(), onClick = share) { Text("分享診斷文件") }
+                Button(modifier = Modifier.fillMaxWidth(), enabled = !busy, onClick = share) { Text(if (busy) "正在收集遊戲診斷…" else "分享診斷文件") }
                 Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(modifier = Modifier.weight(1f), text = "儲存", onClick = save)
-                    TextButton(modifier = Modifier.weight(1f), text = "清除", enabled = events.isNotEmpty(), onClick = clear)
+                    TextButton(modifier = Modifier.weight(1f), text = "儲存", enabled = !busy, onClick = save)
+                    TextButton(modifier = Modifier.weight(1f), text = "清除", enabled = !busy, onClick = clear)
                 }
             }
         }
-        if (events.isEmpty()) item { InfoCard("尚無日誌", "啟用模組並啟動一次遊戲後，再回到這裡匯出診斷文件。") }
+        item { InfoCard("遊戲閃退診斷", "分享或儲存時會重新收集遊戲相關系統記錄。文件會標示每項資料是否取得、逾時或權限不足；沒有模組事件時也可以匯出。") }
+        if (events.isEmpty()) item { InfoCard("尚無模組事件", "這不代表遊戲沒有閃退，仍可分享診斷文件取得系統收集結果。") }
         else items(events) { LogCard(it) }
     }
 
