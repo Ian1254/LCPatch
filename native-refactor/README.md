@@ -29,6 +29,26 @@ are excluded; only the two game libraries' import slots are changed.
 Process-wide signal, timer,
 exit, abort, wait, ptrace and AppSealing patches are not included.
 
+The beta.4 candidate exempts resource-verification reads from the existing
+redirect. Android 1.117.1 IL2CPP Build ID
+`be4db35ad4d06a2c2b9f2a79b41b29df0c34d2d2` and the exact 32-byte entry
+fingerprint must match before a bounded, read-only unwind can identify a caller
+inside `TextAssetPatchInfoManager.CreatePatchFileInfo` (RVA 0x52e2a58–0x52e2c44).
+Android 1.118.0 is also supported using Build ID
+`b304464dbb7a4a55410a0f52eccc558a9b1bb779`, exact entry fingerprint,
+and RVA 0x5326908–0x5326af4. That function constructs the FileStream used to compute local resource hashes.
+Matching reads keep the original path; text reads retain the beta.3 translation
+path. The walk stops when it leaves the IL2CPP executable image after entering it.
+Unknown builds/signatures retain beta.3 behavior. No new Dobby hook or managed API
+call is added. `core.io.verify_guard.ready` and `core.io.verify_read` distinguish
+profile validation from actual verification-read exemptions.
+
+Standalone x86_64 and ARM64 Android fixtures passed 13 read-isolation checks.
+The ARM64 fixture also passed on the Android 17 physical phone.
+The 1.118.0 physical-game test observed both original-file verification reads
+and translated UI loading. See validation/verification-read-guard.json for
+restart results and coverage limits. The 1.117.1 game runtime is not verified.
+
 The Dobby source is pinned at commit `5dfc8546954ce3b3198132ab13fddb89ee92cdd7`
 under `app/src/main/cpp/third_party/Dobby` and remains Apache-2.0 licensed.
 The vendored commit carries a small Android/NDK 27 compatibility patch: an ELF
