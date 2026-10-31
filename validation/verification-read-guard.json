@@ -1,0 +1,60 @@
+{
+  "version": "1.2.3-beta.4",
+  "target": "Android ARM64 Limbus Company 1.117.1 and 1.118.0",
+  "evidence": {
+    "il2cpp_build_id": "be4db35ad4d06a2c2b9f2a79b41b29df0c34d2d2",
+    "il2cpp_file_sha256": "fbfc653607f48c2abfe4330eab784867104b80d2ff60a91684bb18bfa09ce097",
+    "verification_method": "TextAssetPatch.TextAssetPatchInfoManager.CreatePatchFileInfo",
+    "entry_rva": "0x52e2a58",
+    "end_rva": "0x52e2c44",
+    "entry_fingerprint": "ff4301d1fe5f02a9f65703a9f44f04a9b7cd0290169502f0f403022ae84a7139",
+    "download_check_calls": "CheckLocalizeDownloadSizeAsync.MoveNext calls CreatePatchInfo, CalculateMissingFiles and CalculateUpdatedFiles",
+    "hash_file_read": "CreatePatchFileInfo calls FileStream constructor at RVA 0x52e2ae0 before CreateNormalizedHash/CreateHash"
+  },
+  "checks": {
+    "arm64_core_build": "passed",
+    "release_apk_build": "passed",
+    "lintVitalRelease": "passed",
+    "x86_64_android_standalone": "13 checks passed",
+    "arm64_android_jni": "13 checks passed through NativeBridge on an Android 15 x86_64 emulator",
+    "tested_behavior": "Separate verifier/text byte reads across three synthetic cycles and concurrent threads; original bytes unchanged; invalid ranges disabled",
+    "testDebugUnitTest": {
+      "tests": 50,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1
+    },
+    "physical_phone": {
+      "date": "2026-10-31",
+      "model": "2412DPC0AG (rodin)",
+      "android": "17",
+      "game": "1.118.0 (487)",
+      "deployment": "beta.4 native core temporarily installed into beta.3; exact native SHA256 verified",
+      "native_sha256": "2ec5c50e347619f3cc5a79415a58d1227d4d97931ef0fef8747f97e949e6692a",
+      "baseline": "beta.3 repeats 25.59 MB prompt after completing download and entering translated home",
+      "candidate": "three cold launches, including two full force-stop/restart cycles, reach translated home without download confirmation",
+      "pids": [
+        25266,
+        26533,
+        27536
+      ],
+      "runtime_evidence": "each PID has verify_guard.ready, original verification reads, and normal translation redirects",
+      "official_localization_files_unchanged": 2426,
+      "arm64_fixture": "13 checks passed natively; test app removed"
+    }
+  },
+  "limits": [
+    "1.117.1 profile has offline evidence and synthetic coverage but no physical game launch test",
+    "Phone validation covers launch, resource checking and translated home; battles and long sessions were not tested",
+    "Unknown Build IDs or entry fingerprints preserve beta.3 behavior",
+    "Normal downloads for actual official updates remain enabled"
+  ],
+  "evidence_1_118_0": {
+    "il2cpp_build_id": "b304464dbb7a4a55410a0f52eccc558a9b1bb779",
+    "il2cpp_file_sha256": "25e9a8a0d08c8d83366c993e16a9d9ef3f7ce5dd444aa540f689317a31f99593",
+    "entry_rva": "0x5326908",
+    "end_rva": "0x5326af4",
+    "entry_fingerprint": "ff4301d1fe5f02a9f65703a9f44f04a957cd02d0b69402d0f403022ae87a7139",
+    "file_stream_ctor_call_rva": "0x5326990"
+  }
+}

@@ -19,6 +19,7 @@
 #include <cstring>
 
 #include "dobby.h"
+#include "verification_read_guard.h"
 
 namespace {
 
@@ -83,6 +84,39 @@ std::atomic<unsigned> gSwapCount{0};
 std::atomic<unsigned> gRedirectCount{0};
 std::atomic<bool> gStarted{false};
 pthread_mutex_t gLogLock = PTHREAD_MUTEX_INITIALIZER;
+lcpatch::VerificationRange gVerificationRange{};
+lcpatch::VerificationRange gVerificationImage{};
+std::atomic<bool> gVerificationProfile{false};
+std::atomic<bool> gVerificationReady{false};
+std::atomic<unsigned> gVerificationReads{0};
+struct VerificationProfile {
+    const char *name;
+    std::array<uint8_t, 20> buildId;
+    uintptr_t begin;
+    uintptr_t end;
+    std::array<uint8_t, 32> entry;
+};
+const VerificationProfile *gVerificationSelected = nullptr;
+constexpr VerificationProfile kVerificationProfiles[] = {
+    {"limbus-1.117.1", {
+    0xbe, 0x4d, 0xb3, 0x5a, 0xd4, 0xd0, 0x6a, 0x2c, 0x2b, 0x9f,
+    0x2a, 0x79, 0xb4, 0x1b, 0x29, 0xdf, 0x0c, 0x34, 0xd2, 0xd2,
+    }, 0x52e2a58, 0x52e2c44, {
+    0xff, 0x43, 0x01, 0xd1, 0xfe, 0x5f, 0x02, 0xa9,
+    0xf6, 0x57, 0x03, 0xa9, 0xf4, 0x4f, 0x04, 0xa9,
+    0xb7, 0xcd, 0x02, 0x90, 0x16, 0x95, 0x02, 0xf0,
+    0xf4, 0x03, 0x02, 0x2a, 0xe8, 0x4a, 0x71, 0x39,
+    }},
+    {"limbus-1.118.0", {
+        0xb3, 0x04, 0x46, 0x4d, 0xbb, 0x7a, 0x4a, 0x55, 0x41, 0x0a,
+        0x0f, 0x52, 0xec, 0xcc, 0x55, 0x8a, 0x9b, 0x1b, 0xb7, 0x79,
+    }, 0x5326908, 0x5326af4, {
+        0xff, 0x43, 0x01, 0xd1, 0xfe, 0x5f, 0x02, 0xa9,
+        0xf6, 0x57, 0x03, 0xa9, 0xf4, 0x4f, 0x04, 0xa9,
+        0x57, 0xcd, 0x02, 0xd0, 0xb6, 0x94, 0x02, 0xd0,
+        0xf4, 0x03, 0x02, 0x2a, 0xe8, 0x7a, 0x71, 0x39,
+    }},
+};
 
 void breadcrumb(const char *level, const char *code, const char *format, ...) {
     char message[1024]{};
@@ -132,6 +166,23 @@ bool buildLocalizeRedirect(const char *path, char *output, size_t outputSize) {
 
 const char *redirectReadPath(const char *path, char *buffer, size_t size) {
     if (!buildLocalizeRedirect(path, buffer, size)) return path;
+    if (gVerificationProfile.load(std::memory_order_acquire)) {
+        // Protected code can become readable before it is decrypted. Validate
+        // the exact entry lazily on a real localization read, never call it.
+        if (!gVerificationReady.load(std::memory_order_acquire) &&
+            std::memcmp(reinterpret_cast<const void *>(gVerificationRange.begin),
+                        gVerificationSelected->entry.data(), gVerificationSelected->entry.size()) == 0) {
+            if (!gVerificationReady.exchange(true, std::memory_order_acq_rel))
+                breadcrumb("INFO", "core.io.verify_guard.ready", "profile=%s; read-only stack guard", gVerificationSelected->name);
+        }
+        if (gVerificationReady.load(std::memory_order_acquire) &&
+            lcpatch::isResourceVerificationRead(gVerificationRange, gVerificationImage)) {
+            const unsigned count = gVerificationReads.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (count <= 6 || count % 128 == 0)
+                breadcrumb("INFO", "core.io.verify_read", "original retained count=%u path=%s", count, path);
+            return path;
+        }
+    }
     const unsigned count = gRedirectCount.fetch_add(1, std::memory_order_relaxed);
     if (count < 12) {
         LOGI("localize redirected: %s -> %s", path, buffer);
@@ -264,6 +315,49 @@ bool rangeContains(const Segment *segments, size_t count, uintptr_t address, siz
         if (address >= segments[i].begin && address + length <= segments[i].end) return true;
     }
     return false;
+}
+
+void configureVerificationGuard(const UnitySearch &image) {
+    const auto *elf = reinterpret_cast<const Elf64_Ehdr *>(image.base);
+    const auto *headers = reinterpret_cast<const Elf64_Phdr *>(image.base + elf->e_phoff);
+    const VerificationProfile *identified = nullptr;
+    for (Elf64_Half i = 0; i < elf->e_phnum && !identified; ++i) {
+        if (headers[i].p_type != PT_NOTE) continue;
+        const uintptr_t begin = image.base + headers[i].p_vaddr;
+        if (!rangeContains(image.readable, image.readableCount, begin, headers[i].p_memsz)) continue;
+        size_t offset = 0;
+        while (offset + sizeof(Elf64_Nhdr) <= headers[i].p_memsz) {
+            const auto *note = reinterpret_cast<const Elf64_Nhdr *>(begin + offset);
+            const size_t names = (static_cast<size_t>(note->n_namesz) + 3) & ~size_t(3);
+            const size_t data = (static_cast<size_t>(note->n_descsz) + 3) & ~size_t(3);
+            const size_t remaining = headers[i].p_memsz - offset - sizeof(Elf64_Nhdr);
+            if (names > remaining || data > remaining - names) break;
+            const auto *name = reinterpret_cast<const uint8_t *>(note + 1);
+            if (note->n_type == NT_GNU_BUILD_ID && note->n_namesz == 4 &&
+                note->n_descsz == 20 && std::memcmp(name, "GNU\0", 4) == 0) {
+                for (const auto &profile : kVerificationProfiles) {
+                    if (std::memcmp(name + names, profile.buildId.data(), profile.buildId.size()) == 0) {
+                        identified = &profile;
+                        break;
+                    }
+                }
+            }
+            offset += sizeof(Elf64_Nhdr) + names + data;
+        }
+    }
+    const uintptr_t begin = identified ? image.base + identified->begin : 0;
+    const uintptr_t end = identified ? image.base + identified->end : 0;
+    if (identified && rangeContains(image.executable, image.count, begin, end - begin)) {
+        gVerificationRange = {begin, end};
+        gVerificationSelected = identified;
+        gVerificationImage = {image.executable[0].begin, image.executable[0].end};
+        for (size_t i = 1; i < image.count; ++i) {
+            if (image.executable[i].begin < gVerificationImage.begin) gVerificationImage.begin = image.executable[i].begin;
+            if (image.executable[i].end > gVerificationImage.end) gVerificationImage.end = image.executable[i].end;
+        }
+        gVerificationProfile.store(true, std::memory_order_release);
+        breadcrumb("INFO", "core.io.verify_guard.profile", "%s identified; awaiting exact entry signature", identified->name);
+    } else breadcrumb("WARN", "core.io.verify_guard.unsupported", "unknown IL2CPP build; beta.3 read behavior retained");
 }
 
 uintptr_t loadedAddress(const UnitySearch &image, Elf64_Addr value, size_t length) {
@@ -551,7 +645,10 @@ void *startFontHook(void *) {
         il2cpp = findImage(kIl2CppName);
         if (!il2cpp.base) usleep(50000);
     }
-    if (il2cpp.base) patchFileImports(il2cpp, kIl2CppName);
+    if (il2cpp.base) {
+        configureVerificationGuard(il2cpp);
+        patchFileImports(il2cpp, kIl2CppName);
+    }
     else breadcrumb("WARN", "core.io.result", "%s not loaded; imports not patched", kIl2CppName);
     patchFileImports(image, kUnityName);
     uintptr_t target = 0;

@@ -31,3 +31,10 @@ target_link_options(lcpatch_core PRIVATE
     "-Wl,-z,common-page-size=16384"
 )
 target_link_libraries(lcpatch_core PRIVATE dobby_static log dl)
+
+option(LCPATCH_BUILD_VERIFY_TESTS "Build isolated native read-guard test fixtures" OFF)
+if(LCPATCH_BUILD_VERIFY_TESTS)
+    add_library(verification_guard_test SHARED tests/verification_guard_jni.cpp)
+    target_include_directories(verification_guard_test PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+    target_compile_options(verification_guard_test PRIVATE -O2 -funwind-tables -fno-optimize-sibling-calls -Wall -Wextra -Werror)
+endif()
