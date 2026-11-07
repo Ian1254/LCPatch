@@ -45,6 +45,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -422,7 +423,9 @@ internal fun EnvironmentStatusOverlayHost(
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(RoundedCornerShape(corner))
-                        .background(latestRequest.cardColor)
+                        .background(
+                            lerp(latestRequest.cardColor, MiuixTheme.colorScheme.surface, fraction)
+                        )
                         .clickable(
                             interactionSource = panelInteraction,
                             indication = null,
@@ -489,8 +492,10 @@ private fun EnvironmentStatusExpandedContent(
     modifier: Modifier = Modifier
 ) {
     val titleTop = statusInset + 22.dp
-    val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
-    val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
+    // Use opaque theme-aware containers; low-alpha surfaces disappear on a
+    // fully expanded sheet, especially when the app uses a neutral accent.
+    val detailSurface = MiuixTheme.colorScheme.surfaceContainer
+    val actionSurface = MiuixTheme.colorScheme.surfaceContainer
     val actionsAlpha = smoothIntervalProgress(contentAlpha, 0.42f, 0.88f)
 
     Column(modifier = modifier
