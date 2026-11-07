@@ -90,6 +90,9 @@ lcpatch::VerificationRange gVerificationRange{};
 lcpatch::VerificationRange gVerificationImage{};
 std::atomic<bool> gVerificationProfile{false};
 std::atomic<bool> gVerificationReady{false};
+bool gVerificationMasked = false; // Published before gVerificationProfile.store(release).
+lcpatch::SignatureScanRange gVerificationCodeRanges[kMaxSegments]{};
+size_t gVerificationCodeRangeCount = 0;
 std::atomic<unsigned> gVerificationReads{0};
 struct VerificationProfile {
     const char *name;
@@ -99,6 +102,15 @@ struct VerificationProfile {
     std::array<uint8_t, 32> entry;
 };
 const VerificationProfile *gVerificationSelected = nullptr;
+// Match complete prologue plus ADRP opcode/rd and LDRB opcode/registers.
+// Mask only relocatable page immediates and the validated LDRB field offset.
+constexpr std::array<uint8_t, 32> kVerificationEntryMask = {
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0x1f, 0x00, 0x00, 0x9f, 0x1f, 0x00, 0x00, 0x9f,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0x03, 0xc0, 0xff,
+};
+constexpr size_t kVerificationFileCallOffset = 0x88;
 constexpr VerificationProfile kVerificationProfiles[] = {
     {"limbus-1.117.1", {
     0xbe, 0x4d, 0xb3, 0x5a, 0xd4, 0xd0, 0x6a, 0x2c, 0x2b, 0x9f,
@@ -150,6 +162,7 @@ void breadcrumb(const char *level, const char *code, const char *format, ...) {
 }
 
 bool installHook(void *target, void *replacement, void **original, const char *name);
+bool verificationEntryReady();
 
 bool buildLocalizeRedirect(const char *path, char *output, size_t outputSize) {
     if (!path || !*path || !output || outputSize == 0 ||
@@ -172,13 +185,12 @@ const char *redirectReadPath(const char *path, char *buffer, size_t size) {
     // same path is opened by both the game verifier and the text loader.
     const bool profileMatched = gVerificationProfile.load(std::memory_order_acquire);
     if (!profileMatched) return path;
-    // Protected code can become readable after initialization. Validate the
-    // exact entry lazily on a read, without executing game code.
-    if (!gVerificationReady.load(std::memory_order_acquire) &&
-        std::memcmp(reinterpret_cast<const void *>(gVerificationRange.begin),
-                    gVerificationSelected->entry.data(), gVerificationSelected->entry.size()) == 0) {
+    // Revalidate using the SAME exact/masked policy as initial discovery.
+    // A masked discovery must never be followed by an exact-byte comparison.
+    if (!gVerificationReady.load(std::memory_order_acquire) && verificationEntryReady()) {
         if (!gVerificationReady.exchange(true, std::memory_order_acq_rel))
-            breadcrumb("INFO", "core.io.verify_guard.ready", "profile=%s; read-only stack guard", gVerificationSelected->name);
+            breadcrumb("INFO", "core.io.verify_guard.ready", "reference=%s mode=%s; read-only stack guard",
+                       gVerificationSelected->name, gVerificationMasked ? "masked_signature" : "build_id");
     }
     const bool signatureReady = gVerificationReady.load(std::memory_order_acquire);
     if (!lcpatch::shouldRedirectLocalizationRead(profileMatched, signatureReady, false))
@@ -332,6 +344,30 @@ bool readSelfCode(uintptr_t address, uint8_t *destination, size_t bytes) {
            static_cast<ssize_t>(bytes);
 }
 
+bool verificationEntryReady() {
+    if (!gVerificationSelected || !gVerificationRange.begin ||
+        gVerificationRange.end <= gVerificationRange.begin) return false;
+    const auto &profile = *gVerificationSelected;
+    constexpr size_t kReadSpan = kVerificationFileCallOffset + sizeof(uint32_t);
+    uint8_t bytes[kReadSpan]{};
+    const size_t count = gVerificationMasked ? sizeof(bytes) : profile.entry.size();
+    if (!readSelfCode(gVerificationRange.begin, bytes, count)) return false;
+
+    const lcpatch::VerificationSignature signature{
+        profile.entry.data(), profile.entry.size(),
+        profile.end - profile.begin, kVerificationFileCallOffset,
+        gVerificationMasked ? kVerificationEntryMask.data() : nullptr,
+    };
+    if (!gVerificationMasked)
+        return lcpatch::matchesVerificationEntry(bytes, signature);
+
+    // The masked path must pass both the opcode/register mask AND the BL
+    // call-target check each time before redirection is first enabled.
+    return lcpatch::validatesVerificationCandidate(
+        gVerificationCodeRanges, gVerificationCodeRangeCount,
+        gVerificationRange.begin, signature, bytes, sizeof(bytes));
+}
+
 void configureVerificationGuard(const UnitySearch &image) {
     if (!image.base || image.count == 0 ||
         !rangeContains(image.readable, image.readableCount, image.base, sizeof(Elf64_Ehdr))) {
@@ -380,30 +416,29 @@ void configureVerificationGuard(const UnitySearch &image) {
     uintptr_t end = identified ? image.base + identified->end : 0;
     const char *mode = "build_id";
     if (!identified) {
-        // Unknown build: identify only *existing, already verified* implementations.
-        // Exact 32-byte signature + BL at +0x88 must be unique in readable code.
-        // Never guess an RVA, infer from a generic prologue, or scan by executing code.
+        // The two analyzed versions share one masked 8-instruction prologue.
+        // New Build IDs may reuse it after ADRP/field-offset relocation; the
+        // BL caller must still resolve to executable code outside this method.
+        // A unique candidate is required. We do not guess when code changes.
         lcpatch::SignatureScanRange ranges[kMaxSegments]{};
         for (size_t i = 0; i < image.count; ++i)
             ranges[i] = {image.executable[i].begin, image.executable[i].end};
-        lcpatch::VerificationSignature signatures[sizeof(kVerificationProfiles) /
-                                                  sizeof(kVerificationProfiles[0])]{};
-        for (size_t i = 0; i < sizeof(kVerificationProfiles) / sizeof(kVerificationProfiles[0]); ++i) {
-            const auto &profile = kVerificationProfiles[i];
-            signatures[i] = {profile.entry.data(), profile.entry.size(),
-                             profile.end - profile.begin, 0x88};
-        }
+        const auto &reference = kVerificationProfiles[0];
+        const lcpatch::VerificationSignature signature{
+            reference.entry.data(), reference.entry.size(),
+            reference.end - reference.begin,
+            kVerificationFileCallOffset, kVerificationEntryMask.data(),
+        };
         const auto match = lcpatch::findUniqueVerificationSignature(
-            ranges, image.count, signatures, sizeof(signatures) / sizeof(signatures[0]),
-            readSelfCode);
+            ranges, image.count, &signature, 1, readSelfCode);
         if (match.scanComplete && match.candidateCount == 1) {
-            identified = &kVerificationProfiles[match.signatureIndex];
+            identified = &reference;
             begin = match.address;
             end = begin + identified->end - identified->begin;
-            mode = "exact_signature";
+            mode = "masked_signature";
         } else {
             breadcrumb("WARN", "core.io.verify_guard.discovery",
-                       "exact signature scan=%s candidates=%u; original file reads preserved",
+                       "masked signature scan=%s candidates=%u; official file reads preserved",
                        match.scanComplete ? "complete" : "incomplete", match.candidateCount);
         }
     }
@@ -418,6 +453,12 @@ void configureVerificationGuard(const UnitySearch &image) {
                 gVerificationImage.begin = image.executable[i].begin;
             if (image.executable[i].end > gVerificationImage.end)
                 gVerificationImage.end = image.executable[i].end;
+        }
+        gVerificationMasked = std::strcmp(mode, "masked_signature") == 0;
+        if (gVerificationMasked) {
+            gVerificationCodeRangeCount = image.count;
+            for (size_t i = 0; i < image.count; ++i)
+                gVerificationCodeRanges[i] = {image.executable[i].begin, image.executable[i].end};
         }
         gVerificationProfile.store(true, std::memory_order_release);
         breadcrumb("INFO", "core.io.verify_guard.profile",
