@@ -131,7 +131,6 @@ import dev.chrisbanes.haze.rememberHazeState
 import com.kyant.backdrop.backdrops.layerBackdrop
 import rikka.shizuku.Shizuku
 
-private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
 private data class PageScrollPosition(val index: Int, val offset: Int)
@@ -674,8 +673,8 @@ class MainActivity : ComponentActivity() {
                         state = visibleListState,
                         modifier = listModifier,
                         contentPadding = PaddingValues(
-                            start = 12.dp,
-                            end = 12.dp,
+                            start = AppUi.PageGutter,
+                            end = AppUi.PageGutter,
                             top = padding.calculateTopPadding() +
                                 if (visiblePage in topPages) {
                                     WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp
@@ -683,11 +682,11 @@ class MainActivity : ComponentActivity() {
                             bottom = padding.calculateBottomPadding() +
                                 if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp
                         ),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(AppUi.PageGap)
                     ) {
                         if (visiblePage == SETTINGS) item { SectionLabel("運作環境") }
                         if (visiblePage == SETTINGS || visiblePage == ONBOARDING) item {
-                            Card(insideMargin = PaddingValues(18.dp)) {
+                            AppPanel {
                                 OverlayDropdownPreference(
                                     title = "運作模式",
                                     items = listOf("無 root", "Root ＋ LSPosed"),
@@ -739,19 +738,33 @@ class MainActivity : ComponentActivity() {
                                         fontSize = 13.sp,
                                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
                                     )
-                                    Spacer(Modifier.height(8.dp))
-                                    if (nativeBackend == "shizuku") {
-                                        TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
-                                            text = "授權／檢查 Shizuku", onClick = ::requestShizuku)
-                                        TextButton(modifier = Modifier.fillMaxWidth(), text = "Shizuku 啟動說明", onClick = {
-                                            runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/guide/setup/"))) }
-                                                .onFailure { taskState.error("無法開啟說明連結") }
-                                        })
-                                    } else {
-                                    TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
-                                        text = if (gameFolder == null) "授權遊戲 Localize 資料夾" else "重新選擇遊戲資料夾",
-                                        onClick = { gameFolderPicker.launch(gameFolder) })
-                                    Text("位置：Android/data/com.ProjectMoon.LimbusCompany/files/Assets/Resources_moved/Localize\n若系統限制選取 Android/data，可從已下載漢化匯出 ZIP，交由具權限的檔案管理器套用。", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    Spacer(Modifier.height(AppUi.ActionTopGap))
+                                    AppActionStack {
+                                        if (nativeBackend == "shizuku") {
+                                            AppSecondaryAction(
+                                                text = "授權／檢查 Shizuku",
+                                                enabled = !applying && installingEntryKey == null,
+                                                onClick = ::requestShizuku
+                                            )
+                                            AppSecondaryAction(
+                                                text = "Shizuku 啟動說明",
+                                                onClick = {
+                                                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/guide/setup/"))) }
+                                                        .onFailure { taskState.error("無法開啟說明連結") }
+                                                }
+                                            )
+                                        } else {
+                                            AppSecondaryAction(
+                                                text = if (gameFolder == null) "授權遊戲 Localize 資料夾" else "重新選擇遊戲資料夾",
+                                                enabled = !applying && installingEntryKey == null,
+                                                onClick = { gameFolderPicker.launch(gameFolder) }
+                                            )
+                                            Text(
+                                                "位置：Android/data/com.ProjectMoon.LimbusCompany/files/Assets/Resources_moved/Localize\n若系統限制選取 Android/data，可從已下載漢化匯出 ZIP，交由具權限的檔案管理器套用。",
+                                                fontSize = 13.sp,
+                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1109,9 +1122,9 @@ class MainActivity : ComponentActivity() {
             )
             if (showClearLogDialog) {
                 Dialog(onDismissRequest = { showClearLogDialog = false }) {
-                    Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(22.dp)) {
+                    AppPanel(modifier = Modifier.fillMaxWidth()) {
                         Text("清除所有日誌？", style = MiuixTheme.textStyles.title2)
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(AppUi.ContentGap))
                         Text(
                             "將一併清除 App 日誌與已保存的遊戲診斷快照，此操作無法復原。",
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -1120,7 +1133,7 @@ class MainActivity : ComponentActivity() {
                         Spacer(Modifier.height(20.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(AppUi.ActionGap)
                         ) {
                             TextButton(
                                 modifier = Modifier.weight(1f),
@@ -1152,12 +1165,13 @@ class MainActivity : ComponentActivity() {
         onDownload: () -> Unit, onDownloaded: () -> Unit
     ) {
         if (!rootMode) item {
-            Card(insideMargin = PaddingValues(18.dp)) {
+            AppPanel {
                 Text("無 root · 原生文件載入", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(AppUi.ContentGap))
                 Text(loadStatus)
                 Text("使用遊戲原有字型。請先下載對應語言資源，並在套用、停用前完全關閉遊戲。", fontSize = 14.sp)
-                TextButton(modifier = Modifier.fillMaxWidth(), text = loadAction, enabled = !busy, onClick = onGameFolder)
+                Spacer(Modifier.height(AppUi.ActionTopGap))
+                AppSecondaryAction(text = loadAction, enabled = !busy, onClick = onGameFolder)
             }
         }
         if (rootMode) item {
@@ -1172,7 +1186,7 @@ class MainActivity : ComponentActivity() {
             )
         }
         item {
-            Card(insideMargin = PaddingValues(18.dp)) {
+            AppPanel {
                 Text("當前漢化", style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -1196,34 +1210,29 @@ class MainActivity : ComponentActivity() {
                 Text("遊戲內語言需設為 ${targetLanguage.label}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
                 Spacer(Modifier.height(6.dp))
                 SwitchPreference(
-                    modifier = PreferenceItemModifier,
+                    modifier = AppPreferenceModifier,
                     title = if (rootMode) "應用漢化" else "原生漢化（關閉以還原）",
                     enabled = !busy && (rootMode || translationEnabled),
                     summary = if (translationEnabled) "已啟用，重新啟動遊戲後載入" else "已停用，下載內容仍會保留",
                     checked = translationEnabled,
                     onCheckedChange = onTranslationEnabled
                 )
-                Spacer(Modifier.height(14.dp))
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
+                Spacer(Modifier.height(AppUi.ActionTopGap))
+                AppPrimaryAction(
+                    text = if (game.installed) "啟動 Limbus Company" else "尚未安裝 Limbus Company",
                     enabled = game.installed && !busy,
                     onClick = ::launchGame
-                ) {
-                    Text(if (game.installed) "啟動 Limbus Company" else "尚未安裝 Limbus Company")
-                }
+                )
                 Spacer(Modifier.height(5.dp))
                 Text(
                     "遊戲版本：${game.version}",
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     fontSize = 12.sp
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TextButton(modifier = Modifier.weight(1f), text = "下載漢化", onClick = onDownload)
-                    TextButton(modifier = Modifier.weight(1f), text = "已下載漢化", onClick = onDownloaded)
+                Spacer(Modifier.height(AppUi.SectionGap))
+                AppActionStack {
+                    AppSecondaryAction(text = "下載漢化", onClick = onDownload)
+                    AppSecondaryAction(text = "已下載漢化", onClick = onDownloaded)
                 }
             }
         }
@@ -1238,10 +1247,10 @@ class MainActivity : ComponentActivity() {
     ) {
         item { SectionLabel("漢化") }
         item {
-            Card {
+            AppPreferencePanel {
                 OverlayDropdownPreference(
                     title = if (changingTargetLanguage) "正在切換覆蓋語言…" else "覆蓋語言文件",
-                    modifier = PreferenceItemModifier,
+                    modifier = AppPreferenceModifier,
                     enabled = !applying,
                     items = TranslationRepository.LANGUAGES.filter { rootMode || it.id != "en" }.map { it.label },
                     selectedIndex = TranslationRepository.LANGUAGES.indexOf(targetLanguage).coerceAtLeast(0),
@@ -1252,20 +1261,20 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
                         progress = applyProgress?.fraction
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(AppUi.ContentGap))
                 }
-                ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入自訂漢化文件", summary = "從本機加入 ZIP 漢化包", onClick = onImport)
-                if (rootMode) ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "更換字型", summary = fontName, onClick = onFont)
+                ArrowPreference(modifier = AppPreferenceModifier, enabled = !applying, title = "匯入自訂漢化文件", summary = "從本機加入 ZIP 漢化包", onClick = onImport)
+                if (rootMode) ArrowPreference(modifier = AppPreferenceModifier, enabled = !applying, title = "更換字型", summary = fontName, onClick = onFont)
             }
         }
         if (rootMode && hasCustomFont) item { TextButton(modifier = Modifier.fillMaxWidth(), text = "移除自訂字型", onClick = onClearFont) }
         item { SectionLabel("應用程式") }
         item {
-            Card {
-                ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "主題、模糊效果與底欄", onClick = onDisplay)
-                ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", summary = logs.selectedFolderLabel(), onClick = onFolder)
-                ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
-                ArrowPreference(modifier = PreferenceItemModifier, title = "關於", summary = "版本與元件", onClick = onAbout)
+            AppPreferencePanel {
+                ArrowPreference(modifier = AppPreferenceModifier, title = "介面與顯示", summary = "主題、模糊效果與底欄", onClick = onDisplay)
+                ArrowPreference(modifier = AppPreferenceModifier, title = "診斷文件儲存位置", summary = logs.selectedFolderLabel(), onClick = onFolder)
+                ArrowPreference(modifier = AppPreferenceModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
+                ArrowPreference(modifier = AppPreferenceModifier, title = "關於", summary = "版本與元件", onClick = onAbout)
             }
         }
         if (logs.selectedFolder() != null) item { TextButton(modifier = Modifier.fillMaxWidth(), text = "改回預設暫存位置", onClick = onReset) }
@@ -1282,30 +1291,30 @@ class MainActivity : ComponentActivity() {
         onThemeMode: (String) -> Unit
     ) {
         item {
-            Card {
+            AppPreferencePanel {
                 OverlayDropdownPreference(
-                    modifier = PreferenceItemModifier,
+                    modifier = AppPreferenceModifier,
                     title = "深淺模式",
                     items = listOf("跟隨系統", "淺色", "深色"),
                     selectedIndex = when (themeMode) { "light" -> 1; "dark" -> 2; else -> 0 },
                     onSelectedIndexChange = { onThemeMode(when (it) { 1 -> "light"; 2 -> "dark"; else -> "system" }) }
                 )
                 OverlayDropdownPreference(
-                    modifier = PreferenceItemModifier,
+                    modifier = AppPreferenceModifier,
                     title = "底欄樣式",
                     items = listOf("標準底欄", "懸浮底欄"),
                     selectedIndex = if (navigationStyle == "floating") 1 else 0,
                     onSelectedIndexChange = { onNavigationStyle(if (it == 1) "floating" else "standard") }
                 )
                 SwitchPreference(
-                    modifier = PreferenceItemModifier,
+                    modifier = AppPreferenceModifier,
                     title = "背景模糊",
                     summary = if (blurEnabled) "頂欄使用背景模糊" else "頂欄使用半透明背景",
                     checked = blurEnabled,
                     onCheckedChange = onBlurEnabled
                 )
                 SwitchPreference(
-                    modifier = PreferenceItemModifier,
+                    modifier = AppPreferenceModifier,
                     title = "Haze 2.1 漸進模糊（測試）",
                     summary = if (hazeRendererEnabled) "使用 Haze 2.1，關閉可切回原本的 AGSL 效果"
                         else "使用原本的 AGSL；可啟用 Haze 2.1 比較效果",
@@ -1319,12 +1328,16 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.logPage(events: List<LogEvent>, busy: Boolean, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
         item {
-            Card(insideMargin = PaddingValues(16.dp)) {
-                Button(modifier = Modifier.fillMaxWidth(), enabled = !busy, onClick = share) { Text(if (busy) "正在收集遊戲診斷…" else "分享診斷文件") }
-                Spacer(Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(modifier = Modifier.weight(1f), text = "儲存", enabled = !busy, onClick = save)
-                    TextButton(modifier = Modifier.weight(1f), text = "清除", enabled = !busy, onClick = clear)
+            AppPanel {
+                AppPrimaryAction(
+                    text = if (busy) "正在收集遊戲診斷…" else "分享診斷文件",
+                    enabled = !busy,
+                    onClick = share
+                )
+                Spacer(Modifier.height(AppUi.ActionGap))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUi.ActionGap)) {
+                    TextButton(modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight), text = "儲存", enabled = !busy, onClick = save)
+                    TextButton(modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight), text = "清除", enabled = !busy, onClick = clear)
                 }
             }
         }
@@ -1343,28 +1356,28 @@ class MainActivity : ComponentActivity() {
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painter = painterResource(R.drawable.ic_launcher), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(96.dp).clip(CircleShape))
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(AppUi.ActionTopGap))
                 Text("LCPatch", fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(3.dp))
                 Text("Limbus Company 漢化與字型修正", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 14.sp)
             }
         }
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUi.SectionGap)) {
+                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(AppUi.CardPadding), colors = translucentAboutCardColors()) {
                     Text("LCPatch 版本", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                    Spacer(Modifier.height(8.dp)); Text(BuildConfig.VERSION_NAME, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(AppUi.ContentGap)); Text(BuildConfig.VERSION_NAME, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 }
-                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
+                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(AppUi.CardPadding), colors = translucentAboutCardColors()) {
                     Text("遊戲版本", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                    Spacer(Modifier.height(8.dp)); Text(game.version.substringBefore(" ("), fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(AppUi.ContentGap)); Text(game.version.substringBefore(" ("), fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
         item {
-            Card(insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
+            Card(insideMargin = PaddingValues(AppUi.CardPadding), colors = translucentAboutCardColors()) {
                 Text("詳細資訊", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(AppUi.SectionGap))
                 Detail("核心元件", "LSPosed API 102")
                 Detail("使用者介面", "Miuix 0.9.3")
                 Detail("文字轉換", "opencc4j 1.14.0")
@@ -1373,9 +1386,9 @@ class MainActivity : ComponentActivity() {
             }
         }
         item {
-            Card(insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
+            Card(insideMargin = PaddingValues(AppUi.CardPadding), colors = translucentAboutCardColors()) {
                 Text("裝置資訊", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(AppUi.ContentGap))
                 Detail("機型", "${Build.MANUFACTURER} ${Build.MODEL}")
                 Detail("裝置", Build.DEVICE)
                 Detail("系統版本", "Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}")
@@ -1401,11 +1414,11 @@ class MainActivity : ComponentActivity() {
             val newer = release?.let {
                 updates.isNewer(it.version, BuildConfig.VERSION_NAME)
             } == true
-            Card(insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
+            Card(insideMargin = PaddingValues(AppUi.CardPadding), colors = translucentAboutCardColors()) {
                 Text("應用程式更新", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(AppUi.ContentGap))
                 OverlayDropdownPreference(
-                    modifier = PreferenceItemModifier,
+                    modifier = AppPreferenceModifier,
                     title = "更新渠道",
                     summary = if (updateChannel == "beta") "測試版與正式版" else "僅正式版",
                     items = listOf("穩定版", "測試版"),
@@ -1427,14 +1440,14 @@ class MainActivity : ComponentActivity() {
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
                 if (newer && !release?.notes.isNullOrBlank()) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(AppUi.ContentGap))
                     Text(
                         release!!.notes,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         fontSize = 13.sp
                     )
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(AppUi.SectionGap))
                 when {
                     updateReady -> Button(modifier = Modifier.fillMaxWidth(), onClick = installUpdate) {
                         Text("安裝更新")
@@ -1475,26 +1488,26 @@ class MainActivity : ComponentActivity() {
         if (!rootMode) item { InfoCard("無 root 使用方式", "選擇無 root 日文字形漢化包，保留原始文字與 JP_／KR_ 檔名，直接寫入遊戲的原生語言目錄。不需要模組或自訂字型。") }
         if (rootMode) item { InfoCard("歡迎使用 LCPatch", "完成模組作用域與 Root 權限設定後，即可在 App 內下載並套用漢化。") }
         if (rootMode) item {
-            Card(insideMargin = PaddingValues(18.dp)) {
+            AppPanel {
                 Text("1 · 模組作用域", style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.height(6.dp))
                 Text("檢查 LCPatch 模組與 Limbus Company 作用域，不會跳轉至其他 App。\n目前狀態：$scopeStatus", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(14.dp))
-                Button(modifier = Modifier.fillMaxWidth(), onClick = onCheckScope) { Text("重新檢查") }
+                Spacer(Modifier.height(AppUi.ActionTopGap))
+                AppPrimaryAction(text = "重新檢查", onClick = onCheckScope)
             }
         }
         if (rootMode) item {
-            Card(insideMargin = PaddingValues(18.dp)) {
+            AppPanel {
                 Text("2 · Root 權限", style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.height(6.dp))
                 Text("檢查 LCPatch 是否能使用 Root 權限，不會開啟其他 App。\n目前狀態：$rootStatus", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(14.dp))
-                Button(modifier = Modifier.fillMaxWidth(), enabled = rootStatus != "正在請求", onClick = onRequestRoot) { Text(if (rootStatus == "正在請求") "正在檢查…" else "檢查 Root 權限") }
+                Spacer(Modifier.height(AppUi.ActionTopGap))
+                AppPrimaryAction(text = if (rootStatus == "正在請求") "正在檢查…" else "檢查 Root 權限", enabled = rootStatus != "正在請求", onClick = onRequestRoot)
             }
         }
         item {
-            Button(modifier = Modifier.fillMaxWidth(), onClick = onDone) { Text("完成設定") }
-            Spacer(Modifier.height(8.dp))
+            AppPrimaryAction(text = "完成設定", onClick = onDone)
+            Spacer(Modifier.height(AppUi.ContentGap))
             if (rootMode) Text("若模組尚未回報狀態，可先完成設定；重新啟動遊戲後，概觀頁會自動更新。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
         }
     }
@@ -1535,7 +1548,7 @@ class MainActivity : ComponentActivity() {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .heightIn(min = AppUi.ActionMinHeight)
                 .clip(shape)
                 .background(trackColor)
                 .clickable(enabled = enabled && !busy, onClick = onClick),
@@ -1561,7 +1574,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable private fun InfoCard(title: String, body: String, translucent: Boolean = false) {
         Card(
-            insideMargin = PaddingValues(18.dp),
+            insideMargin = PaddingValues(AppUi.CardPadding),
             colors = if (translucent) translucentAboutCardColors() else CardDefaults.defaultColors()
         ) {
             Text(title, style = MiuixTheme.textStyles.title2); Spacer(Modifier.height(6.dp)); Text(body, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -1622,7 +1635,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable private fun LogCard(event: LogEvent) {
-        Card(insideMargin = PaddingValues(16.dp)) {
+        AppPanel {
             Text("${event.level} · ${event.code}", fontWeight = FontWeight.SemiBold,
                 color = when (event.level) { "ERROR" -> Color(0xFFE5484D); "WARN" -> Color(0xFFF59E0B); else -> MiuixTheme.colorScheme.primary })
             Spacer(Modifier.height(4.dp)); Text(event.message); Spacer(Modifier.height(6.dp))
@@ -1666,19 +1679,19 @@ class MainActivity : ComponentActivity() {
         refresh: () -> Unit, install: (TranslationEntry) -> Unit
     ) {
         item {
-            Card(insideMargin = PaddingValues(18.dp)) {
+            AppPanel {
                 Text("漢化資源", style = MiuixTheme.textStyles.title1)
                 Spacer(Modifier.height(6.dp))
                 Text(when { loading -> "正在取得可用漢化…"; error != null -> error; entries.isEmpty() -> "目前沒有可用項目"; else -> "已找到 ${entries.size} 個漢化版本" }, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                if (!loading) { Spacer(Modifier.height(8.dp)); TextButton(modifier = Modifier.fillMaxWidth(), text = "重新整理", onClick = refresh) }
+                if (!loading) { Spacer(Modifier.height(AppUi.ContentGap)); TextButton(modifier = Modifier.fillMaxWidth(), text = "重新整理", onClick = refresh) }
             }
         }
         items(entries) { entry ->
-            Card(insideMargin = PaddingValues(18.dp)) {
+            AppPanel {
                 Text(entry.name, style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.height(4.dp)); Text(entry.author, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(6.dp)); Text(entry.description, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(AppUi.SectionGap))
                 val ownsTask = installingEntryKey == entry.url
                 val downloadFraction = transfer?.takeIf { ownsTask }?.let { value ->
                     value.total.takeIf { it > 0 }?.let {
@@ -1724,9 +1737,9 @@ class MainActivity : ComponentActivity() {
                     mutableIntStateOf(if (entry.script == "簡體") 1 else 0)
                 }
                 LaunchedEffect(entry.script) { conversionIndex = if (entry.script == "簡體") 1 else 0 }
-                Card(insideMargin = PaddingValues(16.dp), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)) {
+                Card(insideMargin = PaddingValues(AppUi.CardPadding), colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer)) {
                     Text(entry.name, style = MiuixTheme.textStyles.title2)
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(AppUi.ContentGap))
                     val buttonText = when {
                         applyingPackPath == entry.path -> "正在套用…"
                         processingPackPath == entry.path -> "正在轉換…"
@@ -1743,7 +1756,7 @@ class MainActivity : ComponentActivity() {
                     )
                     Spacer(Modifier.height(6.dp))
                     if (rootMode) OverlayDropdownPreference(
-                        modifier = PreferenceItemModifier,
+                        modifier = AppPreferenceModifier,
                         title = "繁簡轉換",
                         enabled = processingPackPath != entry.path,
                         items = TranslationRepository.CONVERSIONS.map { it.label.removePrefix("轉為") },
@@ -1754,7 +1767,7 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                     if (processingPackPath == entry.path) applyProgress?.let { value ->
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(AppUi.ContentGap))
                         Text("${value.stage}：${entry.name}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.height(7.dp))
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = value.fraction)
@@ -1792,13 +1805,13 @@ class MainActivity : ComponentActivity() {
                     mutableIntStateOf(if (entry.script == "簡體") 1 else 0)
                 }
                 LaunchedEffect(entry.script) { conversionIndex = if (entry.script == "簡體") 1 else 0 }
-                Card(insideMargin = PaddingValues(18.dp)) {
+                AppPanel {
                     Text(entry.name, style = MiuixTheme.textStyles.title2)
                     Spacer(Modifier.height(5.dp))
                     Text(entry.path, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(AppUi.SectionGap))
                     OverlayDropdownPreference(
-                        modifier = PreferenceItemModifier,
+                        modifier = AppPreferenceModifier,
                         title = if (processingPackPath == entry.path) "正在轉換…" else "繁簡轉換",
                         enabled = processingPackPath != entry.path,
                         items = TranslationRepository.CONVERSIONS.map { it.label.removePrefix("轉為") },
@@ -1809,7 +1822,7 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                     if (processingPackPath == entry.path) progress?.let { value ->
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(AppUi.ContentGap))
                         Text("${value.stage}：${entry.name}", color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.height(7.dp))
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = value.fraction)
