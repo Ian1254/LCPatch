@@ -1131,18 +1131,18 @@ class MainActivity : ComponentActivity() {
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             fontSize = 14.sp
                         )
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(AppUi.ActionTopGap))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(AppUi.ActionGap)
                         ) {
                             TextButton(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight),
                                 text = "取消",
                                 onClick = { showClearLogDialog = false }
                             )
                             Button(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight),
                                 onClick = {
                                     showClearLogDialog = false
                                     clearDiagnostics()
@@ -1268,7 +1268,7 @@ class MainActivity : ComponentActivity() {
                 if (rootMode) ArrowPreference(modifier = AppPreferenceModifier, enabled = !applying, title = "更換字型", summary = fontName, onClick = onFont)
             }
         }
-        if (rootMode && hasCustomFont) item { TextButton(modifier = Modifier.fillMaxWidth(), text = "移除自訂字型", onClick = onClearFont) }
+        if (rootMode && hasCustomFont) item { AppSecondaryAction(text = "移除自訂字型", onClick = onClearFont) }
         item { SectionLabel("應用程式") }
         item {
             AppPreferencePanel {
@@ -1278,7 +1278,7 @@ class MainActivity : ComponentActivity() {
                 ArrowPreference(modifier = AppPreferenceModifier, title = "關於", summary = "版本與元件", onClick = onAbout)
             }
         }
-        if (logs.selectedFolder() != null) item { TextButton(modifier = Modifier.fillMaxWidth(), text = "改回預設暫存位置", onClick = onReset) }
+        if (logs.selectedFolder() != null) item { AppSecondaryAction(text = "改回預設暫存位置", onClick = onReset) }
     }
 
     private fun LazyListScope.displaySettings(
@@ -1594,7 +1594,9 @@ class MainActivity : ComponentActivity() {
             insideMargin = PaddingValues(AppUi.CardPadding),
             colors = if (translucent) translucentAboutCardColors() else CardDefaults.defaultColors()
         ) {
-            Text(title, style = MiuixTheme.textStyles.title2); Spacer(Modifier.height(6.dp)); Text(body, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Text(title, style = MiuixTheme.textStyles.title2)
+            Spacer(Modifier.height(AppUi.ContentGap))
+            Text(body, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
 
@@ -1605,7 +1607,7 @@ class MainActivity : ComponentActivity() {
     @Composable private fun SectionLabel(text: String) {
         Text(
             text = text,
-            modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 2.dp),
+            modifier = Modifier.padding(start = AppUi.PageGutter, top = AppUi.ContentGap, bottom = 4.dp),
             color = MiuixTheme.colorScheme.primary,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold
@@ -1700,7 +1702,10 @@ class MainActivity : ComponentActivity() {
                 Text("漢化資源", style = MiuixTheme.textStyles.title1)
                 Spacer(Modifier.height(6.dp))
                 Text(when { loading -> "正在取得可用漢化…"; error != null -> error; entries.isEmpty() -> "目前沒有可用項目"; else -> "已找到 ${entries.size} 個漢化版本" }, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                if (!loading) { Spacer(Modifier.height(AppUi.ContentGap)); TextButton(modifier = Modifier.fillMaxWidth(), text = "重新整理", onClick = refresh) }
+                if (!loading) {
+                    Spacer(Modifier.height(AppUi.ActionTopGap))
+                    AppSecondaryAction(text = "重新整理", onClick = refresh)
+                }
             }
         }
         items(entries) { entry ->
@@ -1795,7 +1800,10 @@ class MainActivity : ComponentActivity() {
                             fontSize = 13.sp
                         )
                     }
-                    if (!rootMode) TextButton(modifier = Modifier.fillMaxWidth(), text = "匯出原生漢化 ZIP", enabled = !applying, onClick = { export(entry) })
+                    if (!rootMode) {
+                        Spacer(Modifier.height(AppUi.ActionGap))
+                        AppSecondaryAction(text = "匯出原生漢化 ZIP", enabled = !applying, onClick = { export(entry) })
+                    }
                     Text(
                         if (!rootMode) "日文字形 · 保留來源文字，不使用 PUA" else "文字類型：${entry.script} · ${if (entry.puaPrepared) "PUA 已完成" else "首次套用時轉換 PUA"}",
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
