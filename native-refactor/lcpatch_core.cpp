@@ -364,7 +364,7 @@ void configureVerificationGuard(const UnitySearch &image) {
             if (names > remaining || data > remaining - names) break;
             const auto *name = reinterpret_cast<const uint8_t *>(note + 1);
             if (note->n_type == NT_GNU_BUILD_ID && note->n_namesz == 4 &&
-                note->n_descsz == 20 && std::memcmp(name, "GNU\\0", 4) == 0) {
+                note->n_descsz == 20 && std::memcmp(name, "GNU", 4) == 0) {
                 for (const auto &profile : kVerificationProfiles) {
                     if (std::memcmp(name + names, profile.buildId.data(), profile.buildId.size()) == 0) {
                         identified = &profile;
