@@ -348,21 +348,23 @@ bool verificationEntryReady() {
     if (!gVerificationSelected || !gVerificationRange.begin ||
         gVerificationRange.end <= gVerificationRange.begin) return false;
     const auto &profile = *gVerificationSelected;
+    // Preserve beta.4's proven exact check for recognized Build IDs. Their
+    // verified executable mapping is already used by the original code path;
+    // introducing a syscall dependency here would regress known-good builds.
+    if (!gVerificationMasked)
+        return std::memcmp(reinterpret_cast<const void *>(gVerificationRange.begin),
+                           profile.entry.data(), profile.entry.size()) == 0;
+
     constexpr size_t kReadSpan = kVerificationFileCallOffset + sizeof(uint32_t);
     uint8_t bytes[kReadSpan]{};
-    const size_t count = gVerificationMasked ? sizeof(bytes) : profile.entry.size();
-    if (!readSelfCode(gVerificationRange.begin, bytes, count)) return false;
-
+    if (!readSelfCode(gVerificationRange.begin, bytes, sizeof(bytes))) return false;
     const lcpatch::VerificationSignature signature{
         profile.entry.data(), profile.entry.size(),
         profile.end - profile.begin, kVerificationFileCallOffset,
-        gVerificationMasked ? kVerificationEntryMask.data() : nullptr,
+        kVerificationEntryMask.data(),
     };
-    if (!gVerificationMasked)
-        return lcpatch::matchesVerificationEntry(bytes, signature);
-
     // The masked path must pass both the opcode/register mask AND the BL
-    // call-target check each time before redirection is first enabled.
+    // call-target check before redirection is first enabled.
     return lcpatch::validatesVerificationCandidate(
         gVerificationCodeRanges, gVerificationCodeRangeCount,
         gVerificationRange.begin, signature, bytes, sizeof(bytes));
