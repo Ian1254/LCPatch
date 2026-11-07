@@ -1147,29 +1147,27 @@ class MainActivity : ComponentActivity() {
                     onCheckedChange = onTranslationEnabled
                 )
                 Spacer(Modifier.height(14.dp))
-                Button(modifier = Modifier.fillMaxWidth(), onClick = onDownload) { Text("下載漢化") }
-                Spacer(Modifier.height(8.dp))
-                TextButton(modifier = Modifier.fillMaxWidth(), text = "選擇已下載漢化", onClick = onDownloaded)
-            }
-        }
-        item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("遊戲", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
-                Detail("Limbus Company", if (game.installed) "已安裝" else "未安裝")
-                Detail("版本", game.version)
-                Spacer(Modifier.height(14.dp))
-                Button(modifier = Modifier.fillMaxWidth(), enabled = game.installed, onClick = ::launchGame) { Text("啟動 Limbus Company") }
-            }
-        }
-        item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("裝置資訊", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
-                Detail("機型", "${Build.MANUFACTURER} ${Build.MODEL}")
-                Detail("裝置", Build.DEVICE)
-                Detail("系統版本", "Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}")
-                Detail("架構", Build.SUPPORTED_ABIS.joinToString())
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = game.installed && !busy,
+                    onClick = ::launchGame
+                ) {
+                    Text(if (game.installed) "啟動 Limbus Company" else "尚未安裝 Limbus Company")
+                }
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    "遊戲版本：${game.version}",
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    fontSize = 12.sp
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(modifier = Modifier.weight(1f), text = "下載漢化", onClick = onDownload)
+                    TextButton(modifier = Modifier.weight(1f), text = "已下載漢化", onClick = onDownloaded)
+                }
             }
         }
     }
@@ -1265,8 +1263,14 @@ class MainActivity : ComponentActivity() {
             }
         }
         item { InfoCard("遊戲閃退診斷", "分享或儲存時會重新收集遊戲相關系統記錄。文件會標示每項資料是否取得、逾時或權限不足；沒有模組事件時也可以匯出。") }
-        if (events.isEmpty()) item { InfoCard("尚無模組事件", "這不代表遊戲沒有閃退，仍可分享診斷文件取得系統收集結果。") }
-        else items(events) { LogCard(it) }
+        if (events.isEmpty()) {
+            item { InfoCard("尚無模組事件", "這不代表遊戲沒有閃退，仍可分享診斷文件取得系統收集結果。") }
+        } else {
+            val errorCount = events.count { it.level == "ERROR" }
+            val warningCount = events.count { it.level == "WARN" }
+            item { SectionLabel("最近事件 · ${events.size} 筆（錯誤 $errorCount · 警告 $warningCount）") }
+            items(events) { LogCard(it) }
+        }
     }
 
     private fun LazyListScope.aboutPage(game: GameInfo) {
@@ -1300,6 +1304,16 @@ class MainActivity : ComponentActivity() {
                 Detail("文字轉換", "opencc4j 1.14.0")
                 Detail("目標架構", "arm64-v8a")
                 Detail("儲存目錄", if (translations.rootMode()) "/sdcard/LCPatch" else "App 私有儲存空間")
+            }
+        }
+        item {
+            Card(insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
+                Text("裝置資訊", style = MiuixTheme.textStyles.title2)
+                Spacer(Modifier.height(8.dp))
+                Detail("機型", "${Build.MANUFACTURER} ${Build.MODEL}")
+                Detail("裝置", Build.DEVICE)
+                Detail("系統版本", "Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}")
+                Detail("架構", Build.SUPPORTED_ABIS.joinToString())
             }
         }
         item { InfoCard("關於 LCPatch", "LCPatch 用於管理社群與自訂漢化、字型以及語言覆蓋設定。", translucent = true) }
@@ -1440,6 +1454,7 @@ class MainActivity : ComponentActivity() {
         val fraction = progress?.coerceIn(0f, 1f)
         val trackColor = when {
             busy -> primary.copy(alpha = 0.16f)
+                .compositeOver(MiuixTheme.colorScheme.surfaceContainer)
             enabled -> primary
             else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
                 .copy(alpha = 0.16f)
@@ -1447,6 +1462,7 @@ class MainActivity : ComponentActivity() {
         }
         val textColor = when {
             !enabled && !busy -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+            busy -> if (MiuixTheme.colorScheme.surface.luminance() < 0.5f) Color.White else Color(0xFF151518)
             primary.luminance() > 0.56f -> Color(0xFF151518)
             else -> Color.White
         }
@@ -1465,7 +1481,7 @@ class MainActivity : ComponentActivity() {
                         .align(Alignment.CenterStart)
                         .fillMaxHeight()
                         .fillMaxWidth(fraction)
-                        .background(primary)
+                        .background(primary.copy(alpha = 0.28f))
                 )
             }
             Text(
