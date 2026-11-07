@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -184,6 +185,7 @@ class MainActivity : ComponentActivity() {
         var topNavigationTransaction by rememberSaveable { mutableIntStateOf(0) }
         var revision by remember { mutableIntStateOf(0) }
         var diagnosticBusy by remember { mutableStateOf(false) }
+        var showClearLogDialog by rememberSaveable { mutableStateOf(false) }
         var notice by taskState.notice
         var latestRelease by taskState.latestRelease
         var checkingUpdate by taskState.checkingUpdate
@@ -279,6 +281,22 @@ class MainActivity : ComponentActivity() {
                     if (error is kotlinx.coroutines.CancellationException) throw error
                     taskState.error("診斷匯出失敗：${error.message}")
                 } finally { diagnosticBusy = false }
+            }
+        }
+        fun clearDiagnostics() {
+            if (diagnosticBusy) return
+            diagnosticBusy = true
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) { logs.clear() }
+                    revision++
+                    taskState.success("日誌與診斷快照已清除")
+                } catch (error: Exception) {
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    taskState.error("清除失敗：${error.message}")
+                } finally {
+                    diagnosticBusy = false
+                }
             }
         }
         LaunchedEffect(topNavigationTransaction, topNavigationTarget) {
@@ -669,7 +687,6 @@ class MainActivity : ComponentActivity() {
                             Card(insideMargin = PaddingValues(18.dp)) {
                                 OverlayDropdownPreference(
                                     title = "運作模式",
-                                    summary = if (rootMode) "Root ＋ LSPosed · 支援自訂字型" else "無 root · 原生語言文件覆蓋",
                                     items = listOf("無 root", "Root ＋ LSPosed"),
                                     enabled = !applying && installingEntryKey == null && exportPack == null && !(translationEnabled && activeName != "尚未選擇"),
                                     selectedIndex = if (rootMode) 1 else 0,
@@ -688,11 +705,17 @@ class MainActivity : ComponentActivity() {
                                         refreshCatalog()
                                     }
                                 )
-                                if (translationEnabled && activeName != "尚未選擇") Text("請先停用目前漢化，再切換運作模式。", fontSize = 13.sp)
+                                if (translationEnabled && activeName != "尚未選擇") {
+                                    Text(
+                                        "切換運作模式前，請先至概觀頁停用漢化。",
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
+                                    )
+                                }
                                 if (!rootMode) {
                                     OverlayDropdownPreference(
                                         title = "文件載入方式",
-                                        summary = if (nativeBackend == "shizuku") "Shizuku · $shizukuStatus" else "系統資料夾授權（SAF）",
                                         items = listOf("Shizuku", "系統資料夾授權（SAF）"),
                                         selectedIndex = if (nativeBackend == "shizuku") 0 else 1,
                                         enabled = !applying && installingEntryKey == null && !translationEnabled,
@@ -701,8 +724,18 @@ class MainActivity : ComponentActivity() {
                                             translations.setNativeBackend(nativeBackend)
                                         }
                                     )
-                                    Text("先在遊戲內切換至日語或韓語並下載語言資源。套用前會備份原始文件；停用時還原。切換載入方式前請先停用漢化。", fontSize = 14.sp)
-                                    Text("遊戲更新前請先停用漢化；更新語言資源後再重新套用。", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    Text(
+                                        if (nativeBackend == "shizuku") "Shizuku：$shizukuStatus" else "透過系統資料夾授權存取檔案",
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
+                                    )
+                                    Text(
+                                        "無 root 模式須先下載遊戲內的日語或韓語資源；更新遊戲前請先停用漢化。",
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
+                                    )
                                     Spacer(Modifier.height(8.dp))
                                     if (nativeBackend == "shizuku") {
                                         TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
@@ -711,7 +744,7 @@ class MainActivity : ComponentActivity() {
                                             runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/guide/setup/"))) }
                                                 .onFailure { taskState.error("無法開啟說明連結") }
                                         })
-                                        TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
+                                        if (translationEnabled) TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
                                             text = "還原原始語言文件", onClick = {
                                                 applying = true
                                                 taskState.launchTask {
@@ -790,18 +823,7 @@ class MainActivity : ComponentActivity() {
                                 busy = diagnosticBusy,
                                 save = { exportDiagnostic(false) },
                                 share = { exportDiagnostic(true) },
-                                clear = {
-                                    if (!diagnosticBusy) scope.launch {
-                                        diagnosticBusy = true
-                                        try {
-                                            withContext(Dispatchers.IO) { logs.clear() }
-                                            revision++; taskState.success("日誌與診斷快照已清除")
-                                        } catch (error: Exception) {
-                                            if (error is kotlinx.coroutines.CancellationException) throw error
-                                            taskState.error("清除失敗：${error.message}")
-                                        } finally { diagnosticBusy = false }
-                                    }
-                                }
+                                clear = { if (!diagnosticBusy) showClearLogDialog = true }
                             )
                             ABOUT -> aboutPage(game)
                             UPDATE -> updatePage(
@@ -1085,6 +1107,37 @@ class MainActivity : ComponentActivity() {
                 state = environmentOverlayState,
                 modifier = Modifier.fillMaxSize()
             )
+            if (showClearLogDialog) {
+                Dialog(onDismissRequest = { showClearLogDialog = false }) {
+                    Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(22.dp)) {
+                        Text("清除所有日誌？", style = MiuixTheme.textStyles.title2)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "將一併清除 App 日誌與已保存的遊戲診斷快照，此操作無法復原。",
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            fontSize = 14.sp
+                        )
+                        Spacer(Modifier.height(20.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            TextButton(
+                                modifier = Modifier.weight(1f),
+                                text = "取消",
+                                onClick = { showClearLogDialog = false }
+                            )
+                            Button(
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    showClearLogDialog = false
+                                    clearDiagnostics()
+                                }
+                            ) { Text("確認清除") }
+                        }
+                    }
+                }
+            }
         }
     }
 
