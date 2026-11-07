@@ -1014,8 +1014,8 @@ class MainActivity : ComponentActivity() {
                             overflow = TextOverflow.Ellipsis
                         )
                         if (currentNotice.kind == UiNoticeKind.Error) Row {
-                            if (taskState.retryAction != null) TextButton(text = "重試", onClick = taskState::retry)
-                            TextButton(text = "關閉", onClick = taskState::dismissNotice)
+                            if (taskState.retryAction != null) TextButton(modifier = Modifier.clip(RoundedCornerShape(AppUi.ActionCorner)), text = "重試", onClick = taskState::retry)
+                            TextButton(modifier = Modifier.clip(RoundedCornerShape(AppUi.ActionCorner)), text = "關閉", onClick = taskState::dismissNotice)
                         }
                         }
                     }
@@ -1162,12 +1162,12 @@ class MainActivity : ComponentActivity() {
                             horizontalArrangement = Arrangement.spacedBy(AppUi.ActionGap)
                         ) {
                             TextButton(
-                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight),
+                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight).clip(RoundedCornerShape(AppUi.ActionCorner)),
                                 text = "取消",
                                 onClick = { pendingModeSwitch = null }
                             )
                             Button(
-                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight),
+                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight).clip(RoundedCornerShape(AppUi.ActionCorner)),
                                 onClick = {
                                     pendingModeSwitch = null
                                     switchRootMode(requestedMode)
@@ -1193,12 +1193,12 @@ class MainActivity : ComponentActivity() {
                             horizontalArrangement = Arrangement.spacedBy(AppUi.ActionGap)
                         ) {
                             TextButton(
-                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight),
+                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight).clip(RoundedCornerShape(AppUi.ActionCorner)),
                                 text = "取消",
                                 onClick = { showClearLogDialog = false }
                             )
                             Button(
-                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight),
+                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight).clip(RoundedCornerShape(AppUi.ActionCorner)),
                                 onClick = {
                                     showClearLogDialog = false
                                     clearDiagnostics()
@@ -1393,8 +1393,8 @@ class MainActivity : ComponentActivity() {
                 )
                 Spacer(Modifier.height(AppUi.ActionGap))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUi.ActionGap)) {
-                    TextButton(modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight), text = "儲存", enabled = !busy, onClick = save)
-                    TextButton(modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight), text = "清除", enabled = !busy, onClick = clear)
+                    TextButton(modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight).clip(RoundedCornerShape(AppUi.ActionCorner)), text = "儲存", enabled = !busy, onClick = save)
+                    TextButton(modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight).clip(RoundedCornerShape(AppUi.ActionCorner)), text = "清除", enabled = !busy, onClick = clear)
                 }
             }
         }
