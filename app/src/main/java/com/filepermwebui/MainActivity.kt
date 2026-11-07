@@ -416,24 +416,28 @@ class MainActivity : ComponentActivity() {
                 taskState.info("模組狀態已更新")
             }
         }
-        suspend fun refreshRootStatus(showNotice: Boolean = false) {
+        fun refreshRootStatus(showNotice: Boolean) {
             if (!rootMode || rootStatus == "正在請求") return
+            // Mark the check as running synchronously, and use the composition
+            // scope so an onResume effect restart cannot cancel the Root prompt.
             rootStatus = "正在請求"
-            val granted = withContext(Dispatchers.IO) { requestRoot() }
-            rootStatus = if (granted) "已授權" else "未取得授權"
-            if (showNotice) {
-                if (granted) taskState.success("Root 權限已授予")
-                else taskState.error("未取得 Root 權限，套用漢化時將無法寫入遊戲資料")
+            scope.launch {
+                val granted = withContext(Dispatchers.IO) { requestRoot() }
+                rootStatus = if (granted) "已授權" else "未取得授權"
+                if (showNotice) {
+                    if (granted) taskState.success("Root 權限已授予")
+                    else taskState.error("未取得 Root 權限，套用漢化時將無法寫入遊戲資料")
+                }
             }
         }
         fun checkRootStatus() {
-            scope.launch { refreshRootStatus(showNotice = true) }
+            refreshRootStatus(showNotice = true)
         }
         LaunchedEffect(Unit) { refreshCatalog() }
         LaunchedEffect(page, resumeRevision, rootMode) {
             if (rootMode && (page == OVERVIEW || page == ONBOARDING)) {
                 // Restore accurate state after launch/resume without spamming notices.
-                refreshRootStatus()
+                refreshRootStatus(showNotice = false)
                 refreshScopeStatus()
             } else if (!rootMode) {
                 rootStatus = "未檢查"
