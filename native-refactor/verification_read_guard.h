@@ -4,6 +4,12 @@
 #include <unwind.h>
 
 namespace lcpatch {
+// Fail closed until an exact verification profile and entry signature are
+// validated. Otherwise text redirects can contaminate official hash checks.
+inline bool shouldRedirectLocalizationRead(bool profileMatched, bool signatureReady, bool verificationRead) {
+    return profileMatched && signatureReady && !verificationRead;
+}
+
 struct VerificationRange {
     uintptr_t begin = 0;
     uintptr_t end = 0;
