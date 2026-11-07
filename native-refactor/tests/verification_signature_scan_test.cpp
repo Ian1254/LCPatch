@@ -128,6 +128,8 @@ int main() {
     place(0x400, knownMethodB);
     match = scan();
     CHECK(match.candidateCount == 2 && match.address == 0);
+    CHECK(match.diagnosticCandidates[0] == base + 0x100);
+    CHECK(match.diagnosticCandidates[1] == base + 0x400);
 
     // Method extent must fit the executable segment.
     std::memset(bytes, 0, sizeof(memory));
