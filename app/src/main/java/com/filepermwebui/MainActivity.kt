@@ -664,6 +664,7 @@ class MainActivity : ComponentActivity() {
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        if (visiblePage == SETTINGS) item { SectionLabel("運作環境") }
                         if (visiblePage == SETTINGS || visiblePage == ONBOARDING) item {
                             Card(insideMargin = PaddingValues(18.dp)) {
                                 OverlayDropdownPreference(
@@ -1121,7 +1122,10 @@ class MainActivity : ComponentActivity() {
             Card(insideMargin = PaddingValues(18.dp)) {
                 Text("當前漢化", style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.height(6.dp))
-                Text("$activeName · $activeScript", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Text(
+                    if (activeName == "尚未選擇") "尚未選擇漢化" else "$activeName · $activeScript",
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
                 Spacer(Modifier.height(5.dp))
                 Text(
                     if (!rootMode) {
