@@ -449,6 +449,15 @@ void configureVerificationGuard(const UnitySearch &image) {
             const auto *name = reinterpret_cast<const uint8_t *>(note + 1);
             if (note->n_type == NT_GNU_BUILD_ID && note->n_namesz == 4 &&
                 note->n_descsz == 20 && std::memcmp(name, "GNU", 4) == 0) {
+                // Confirm the running ELF matches the uploaded split APK.
+                char buildIdHex[41]{};
+                static constexpr char kHex[] = "0123456789abcdef";
+                for (size_t n = 0; n < 20; ++n) {
+                    const uint8_t byte = name[names + n];
+                    buildIdHex[2 * n] = kHex[byte >> 4];
+                    buildIdHex[2 * n + 1] = kHex[byte & 0xf];
+                }
+                breadcrumb("INFO", "core.io.verify_guard.build_id", "%s", buildIdHex);
                 for (const auto &profile : kVerificationProfiles) {
                     if (std::memcmp(name + names, profile.buildId.data(), profile.buildId.size()) == 0) {
                         identified = &profile;
