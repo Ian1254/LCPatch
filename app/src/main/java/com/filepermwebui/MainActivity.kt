@@ -747,19 +747,6 @@ class MainActivity : ComponentActivity() {
                                             runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/guide/setup/"))) }
                                                 .onFailure { taskState.error("無法開啟說明連結") }
                                         })
-                                        if (translationEnabled) TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
-                                            text = "還原原始語言文件", onClick = {
-                                                applying = true
-                                                taskState.launchTask {
-                                                    try {
-                                                        translations.setTranslationEnabled(false)
-                                                        translationEnabled = false
-                                                        activeName = translations.activeName()
-                                                        taskState.success("已還原原始語言文件")
-                                                    } catch (error: Exception) { taskState.error("還原失敗：${error.message}") }
-                                                    finally { applying = false }
-                                                }
-                                            })
                                     } else {
                                     TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
                                         text = if (gameFolder == null) "授權遊戲 Localize 資料夾" else "重新選擇遊戲資料夾",
@@ -1268,7 +1255,6 @@ class MainActivity : ComponentActivity() {
                     )
                     Spacer(Modifier.height(8.dp))
                 }
-                if (rootMode) ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "繁簡轉換", summary = "轉換已下載漢化目錄內的 JSON 文件", onClick = onConversion)
                 ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入自訂漢化文件", summary = "從本機加入 ZIP 漢化包", onClick = onImport)
                 if (rootMode) ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "更換字型", summary = fontName, onClick = onFont)
             }
@@ -1330,7 +1316,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        item { InfoCard("顯示效果", "兩種模糊只作用於頂欄。Haze 2.1 目前是可選的實驗效果；底欄仍使用實色背景。") }
     }
 
     private fun LazyListScope.logPage(events: List<LogEvent>, busy: Boolean, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
