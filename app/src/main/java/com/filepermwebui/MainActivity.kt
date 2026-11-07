@@ -739,10 +739,11 @@ class MainActivity : ComponentActivity() {
                                         fontSize = 13.sp,
                                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
                                     )
-                                    Spacer(Modifier.height(8.dp))
+                                    Spacer(Modifier.height(16.dp))
                                     if (nativeBackend == "shizuku") {
                                         TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
                                             text = "授權／檢查 Shizuku", onClick = ::requestShizuku)
+                                        Spacer(Modifier.height(12.dp))
                                         TextButton(modifier = Modifier.fillMaxWidth(), text = "Shizuku 啟動說明", onClick = {
                                             runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/guide/setup/"))) }
                                                 .onFailure { taskState.error("無法開啟說明連結") }
@@ -1157,6 +1158,7 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(8.dp))
                 Text(loadStatus)
                 Text("使用遊戲原有字型。請先下載對應語言資源，並在套用、停用前完全關閉遊戲。", fontSize = 14.sp)
+                Spacer(Modifier.height(14.dp))
                 TextButton(modifier = Modifier.fillMaxWidth(), text = loadAction, enabled = !busy, onClick = onGameFolder)
             }
         }
