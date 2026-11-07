@@ -119,6 +119,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Home
@@ -721,7 +722,7 @@ class MainActivity : ComponentActivity() {
                         if (visiblePage == SETTINGS) item { SectionLabel("運作環境") }
                         if (visiblePage == SETTINGS || visiblePage == ONBOARDING) item {
                             AppPanel {
-                                AppDropdownPreference(
+                                OverlayDropdownPreference(
                                     title = "運作模式",
                                     items = listOf("無 root", "Root ＋ LSPosed"),
                                     enabled = !applying && installingEntryKey == null && exportPack == null,
@@ -738,7 +739,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                                 if (!rootMode) {
-                                    AppDropdownPreference(
+                                    OverlayDropdownPreference(
                                         title = "文件載入方式",
                                         items = listOf("Shizuku", "系統資料夾授權（SAF）"),
                                         selectedIndex = if (nativeBackend == "shizuku") 0 else 1,
@@ -1305,7 +1306,7 @@ class MainActivity : ComponentActivity() {
         item { SectionLabel("漢化") }
         item {
             AppPreferencePanel {
-                AppDropdownPreference(
+                OverlayDropdownPreference(
                     title = if (changingTargetLanguage) "正在切換覆蓋語言…" else "覆蓋語言文件",
                     modifier = AppPreferenceModifier,
                     enabled = !applying,
@@ -1349,14 +1350,14 @@ class MainActivity : ComponentActivity() {
     ) {
         item {
             AppPreferencePanel {
-                AppDropdownPreference(
+                OverlayDropdownPreference(
                     modifier = AppPreferenceModifier,
                     title = "深淺模式",
                     items = listOf("跟隨系統", "淺色", "深色"),
                     selectedIndex = when (themeMode) { "light" -> 1; "dark" -> 2; else -> 0 },
                     onSelectedIndexChange = { onThemeMode(when (it) { 1 -> "light"; 2 -> "dark"; else -> "system" }) }
                 )
-                AppDropdownPreference(
+                OverlayDropdownPreference(
                     modifier = AppPreferenceModifier,
                     title = "底欄樣式",
                     items = listOf("標準底欄", "懸浮底欄"),
@@ -1478,7 +1479,7 @@ class MainActivity : ComponentActivity() {
             Card(insideMargin = PaddingValues(AppUi.CardPadding), colors = translucentAboutCardColors()) {
                 Text("應用程式更新", style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.height(AppUi.ContentGap))
-                AppDropdownPreference(
+                OverlayDropdownPreference(
                     modifier = AppPreferenceModifier,
                     title = "更新渠道",
                     summary = if (updateChannel == "beta") "測試版與正式版" else "僅正式版",
@@ -1830,7 +1831,7 @@ class MainActivity : ComponentActivity() {
                         onClick = { apply(entry) }
                     )
                     Spacer(Modifier.height(6.dp))
-                    if (rootMode) AppDropdownPreference(
+                    if (rootMode) OverlayDropdownPreference(
                         modifier = AppPreferenceModifier,
                         title = "繁簡轉換",
                         enabled = processingPackPath != entry.path,
@@ -1888,7 +1889,7 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.height(5.dp))
                     Text(entry.path, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
                     Spacer(Modifier.height(AppUi.SectionGap))
-                    AppDropdownPreference(
+                    OverlayDropdownPreference(
                         modifier = AppPreferenceModifier,
                         title = if (processingPackPath == entry.path) "正在轉換…" else "繁簡轉換",
                         enabled = processingPackPath != entry.path,
