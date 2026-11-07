@@ -1171,6 +1171,27 @@ class MainActivity : ComponentActivity() {
                 onRequestRoot = onRequestRoot
             )
         }
+        // Primary action is isolated from the translation toggle and secondary
+        // navigation, so narrow layouts and larger font scales do not bunch them.
+        item {
+            Card(insideMargin = PaddingValues(18.dp)) {
+                Text("遊戲", style = MiuixTheme.textStyles.title2)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Limbus Company · ${game.version}",
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    fontSize = 13.sp
+                )
+                Spacer(Modifier.height(14.dp))
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = game.installed && !busy,
+                    onClick = ::launchGame
+                ) {
+                    Text(if (game.installed) "啟動 Limbus Company" else "尚未安裝 Limbus Company")
+                }
+            }
+        }
         item {
             Card(insideMargin = PaddingValues(18.dp)) {
                 Text("當前漢化", style = MiuixTheme.textStyles.title2)
@@ -1194,7 +1215,7 @@ class MainActivity : ComponentActivity() {
                 )
                 Spacer(Modifier.height(3.dp))
                 Text("遊戲內語言需設為 ${targetLanguage.label}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 SwitchPreference(
                     modifier = PreferenceItemModifier,
                     title = if (rootMode) "應用漢化" else "原生漢化（關閉以還原）",
@@ -1203,28 +1224,22 @@ class MainActivity : ComponentActivity() {
                     checked = translationEnabled,
                     onCheckedChange = onTranslationEnabled
                 )
-                Spacer(Modifier.height(14.dp))
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = game.installed && !busy,
-                    onClick = ::launchGame
-                ) {
-                    Text(if (game.installed) "啟動 Limbus Company" else "尚未安裝 Limbus Company")
-                }
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    "遊戲版本：${game.version}",
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 12.sp
+            }
+        }
+        item {
+            Card {
+                ArrowPreference(
+                    modifier = PreferenceItemModifier,
+                    title = "下載漢化",
+                    summary = "瀏覽可用漢化資源",
+                    onClick = onDownload
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TextButton(modifier = Modifier.weight(1f), text = "下載漢化", onClick = onDownload)
-                    TextButton(modifier = Modifier.weight(1f), text = "已下載漢化", onClick = onDownloaded)
-                }
+                ArrowPreference(
+                    modifier = PreferenceItemModifier,
+                    title = "已下載漢化",
+                    summary = "查看與套用本機漢化",
+                    onClick = onDownloaded
+                )
             }
         }
     }
