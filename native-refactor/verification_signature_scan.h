@@ -21,6 +21,9 @@ struct VerificationSignature {
     // nullptr is an exact match for known Build IDs. A mask is permitted only
     // for read-only discovery of a previously analyzed method in unknown builds.
     const uint8_t *entryMask = nullptr;
+    // Extra conservative verifier-body evidence for unknown game builds.
+    // This is NOT proof of the method identity; keep fail-closed on changes.
+    bool requireLongBody = false;
 };
 
 struct VerificationSignatureMatch {
@@ -83,6 +86,40 @@ inline bool validVerificationCall(const SignatureScanRange *ranges, size_t range
            containsVerificationRange(ranges, rangeCount, target, sizeof(uint32_t));
 }
 
+// The 1.118.1 runtime dump exposed a false positive: a short method that
+// shares the 32-byte prologue and a BL at +0x88, but returns at +0x9c.
+// The presumed verifier returns at +0x188, has 11 BLs and a backward
+// conditional loop. Require all three independent features on unknown builds.
+// Future recompilations that change the structure safely fall back.
+inline bool hasVerificationBodyEvidence(const VerificationSignature &signature,
+                                        const uint8_t *bytes, size_t available) {
+    if (!signature.requireLongBody) return true;
+    constexpr size_t kMinimumReturnOffset = 0x160;
+    constexpr unsigned kMinimumCalls = 6;
+    if (!bytes || signature.methodSize < kMinimumReturnOffset + 4 ||
+        available < signature.methodSize) return false;
+    unsigned calls = 0;
+    bool backwardConditionalBranch = false;
+    for (size_t offset = 0; offset + sizeof(uint32_t) <= signature.methodSize;
+         offset += sizeof(uint32_t)) {
+        uint32_t insn = 0;
+        std::memcpy(&insn, bytes + offset, sizeof(insn));
+        if (insn == 0xd65f03c0U) { // AArch64 RET X30
+            return offset >= kMinimumReturnOffset &&
+                   calls >= kMinimumCalls && backwardConditionalBranch;
+        }
+        if ((insn & 0xfc000000U) == 0x94000000U) ++calls; // BL
+        if ((insn & 0xff000010U) == 0x54000000U) { // B.cond
+            int32_t relative = static_cast<int32_t>((insn >> 5) & 0x7ffffU);
+            if (relative & 0x40000) relative -= 0x80000;
+            if (relative < 0 &&
+                static_cast<size_t>(-relative) * 4 <= offset)
+                backwardConditionalBranch = true;
+        }
+    }
+    return false; // No valid return within the analyzed method extent.
+}
+
 inline bool validatesVerificationCandidate(const SignatureScanRange *ranges,
                                            size_t rangeCount, uintptr_t entry,
                                            const VerificationSignature &signature,
@@ -93,7 +130,8 @@ inline bool validatesVerificationCandidate(const SignatureScanRange *ranges,
         signature.entrySize > 512U || available < signature.entrySize) return false;
     return containsVerificationRange(ranges, rangeCount, entry, signature.methodSize) &&
            matchesVerificationEntry(candidateBytes, signature) &&
-           validVerificationCall(ranges, rangeCount, entry, signature, candidateBytes, available);
+           validVerificationCall(ranges, rangeCount, entry, signature, candidateBytes, available) &&
+           hasVerificationBodyEvidence(signature, candidateBytes, available);
 }
 
 // Reader(address, destination, length) returns false on inaccessible pages.
@@ -118,7 +156,8 @@ VerificationSignatureMatch findUniqueVerificationSignature(
         if (!sig.entryBytes || !sig.entrySize || sig.entrySize > kLookahead ||
             sig.fileOpenCallOffset > kLookahead - sizeof(uint32_t) ||
             sig.methodSize < sig.entrySize ||
-            sig.methodSize < sig.fileOpenCallOffset + sizeof(uint32_t))
+            sig.methodSize < sig.fileOpenCallOffset + sizeof(uint32_t) ||
+            (sig.requireLongBody && sig.methodSize > kLookahead))
             return result;
     }
 
@@ -140,8 +179,9 @@ VerificationSignatureMatch findUniqueVerificationSignature(
                 const uintptr_t candidate = cursor + offset;
                 for (size_t s = 0; s < signatureCount; ++s) {
                     const auto &sig = signatures[s];
-                    const size_t needed = sig.fileOpenCallOffset + sizeof(uint32_t) >
-                        sig.entrySize ? sig.fileOpenCallOffset + sizeof(uint32_t) : sig.entrySize;
+                    const size_t callEnd = sig.fileOpenCallOffset + sizeof(uint32_t);
+                    size_t needed = callEnd > sig.entrySize ? callEnd : sig.entrySize;
+                    if (sig.requireLongBody) needed = sig.methodSize;
                     if (requested - offset < needed ||
                         !validatesVerificationCandidate(
                             ranges, rangeCount, candidate, sig,
