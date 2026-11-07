@@ -1454,9 +1454,7 @@ class MainActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.height(AppUi.SectionGap))
                 when {
-                    updateReady -> Button(modifier = Modifier.fillMaxWidth(), onClick = installUpdate) {
-                        Text("安裝更新")
-                    }
+                    updateReady -> AppPrimaryAction(text = "安裝更新", onClick = installUpdate)
                     newer -> {
                         val fraction = updateProgress?.let { progress ->
                             progress.total.takeIf { it > 0 }?.let {
@@ -1471,8 +1469,7 @@ class MainActivity : ComponentActivity() {
                             onClick = downloadUpdate
                         )
                     }
-                    else -> TextButton(
-                        modifier = Modifier.fillMaxWidth(),
+                    else -> AppSecondaryAction(
                         text = if (checkingUpdate) "正在檢查…" else "檢查更新",
                         enabled = !checkingUpdate,
                         onClick = checkUpdate
