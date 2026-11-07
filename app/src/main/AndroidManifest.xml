@@ -12,7 +12,8 @@
         android:name=".ModernApp"
         android:allowBackup="false"
         android:description="@string/module_description"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:theme="@style/AppTheme">
         <meta-data android:name="moe.shizuku.client.V3_SUPPORT" android:value="true" />
