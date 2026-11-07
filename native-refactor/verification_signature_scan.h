@@ -27,6 +27,8 @@ struct VerificationSignatureMatch {
     uintptr_t address = 0;
     size_t signatureIndex = 0;
     unsigned candidateCount = 0;
+    // First two distinct entries for bounded, read-only diagnostics on ambiguity.
+    uintptr_t diagnosticCandidates[2]{};
     bool scanComplete = false;
 };
 
@@ -145,6 +147,8 @@ VerificationSignatureMatch findUniqueVerificationSignature(
                             ranges, rangeCount, candidate, sig,
                             buffer + offset, requested - offset)) continue;
                     if (result.address == candidate) continue; // two equivalent profiles
+                    if (result.candidateCount < 2)
+                        result.diagnosticCandidates[result.candidateCount] = candidate;
                     if (++result.candidateCount != 1) {
                         result.address = 0; // Ambiguous: fail closed.
                         return result;
