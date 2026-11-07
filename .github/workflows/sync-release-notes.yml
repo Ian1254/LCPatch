@@ -1,0 +1,33 @@
+name: Sync published release notes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'RELEASE_NOTES.md'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Update notes if the version is already published
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^VERSION_NAME=//p' version.properties | head -n1 | tr -d '\r')"
+          test -n "$VERSION"
+          RELEASE_TAG="v$VERSION"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file RELEASE_NOTES.md
+            echo "Updated release notes for $RELEASE_TAG"
+          else
+            echo "$RELEASE_TAG is not published yet; the release workflow owns initial notes."
+          fi
