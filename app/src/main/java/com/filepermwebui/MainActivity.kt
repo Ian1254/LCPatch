@@ -214,6 +214,7 @@ class MainActivity : ComponentActivity() {
         var scopeStatus by rememberSaveable { mutableStateOf("正在連接") }
         var rootStatus by rememberSaveable { mutableStateOf("尚未授權") }
         var navigationStyle by remember { mutableStateOf(appPrefs.getString("navigation_style", "floating") ?: "floating") }
+        var uiStyle by remember { mutableStateOf(UiStyle.fromKey(appPrefs.getString("ui_style", null))) }
         var blurEnabled by remember { mutableStateOf(appPrefs.getBoolean("blur_enabled", true)) }
         val environmentOverlayState = rememberEnvironmentStatusOverlayState()
         var updateChannel by remember { mutableStateOf(appPrefs.getString("update_channel", "stable") ?: "stable") }
@@ -720,37 +721,53 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         when (visiblePage) {
-                            OVERVIEW -> overview(
-                                rootMode = rootMode,
-                                busy = applying || installingEntryKey != null,
-                                loadStatus = if (nativeBackend == "shizuku") "Shizuku · $shizukuStatus" else if (gameFolder == null) "尚未授權遊戲資料夾" else "已選擇遊戲 Localize 資料夾",
-                                loadAction = if (nativeBackend == "shizuku") "授權／檢查 Shizuku" else "授權載入位置",
-                                onGameFolder = { if (nativeBackend == "shizuku") requestShizuku() else gameFolderPicker.launch(gameFolder) },
-                                overlayState = environmentOverlayState,
-                                game = game,
-                                events = events,
-                                activeName = activeName,
-                                activeScript = activeScript,
-                                scopeStatus = scopeStatus,
-                                rootStatus = rootStatus,
-                                onCheckScope = ::checkScopeStatus,
-                                onRequestRoot = ::checkRootStatus,
-                                translationEnabled = translationEnabled,
-                                onTranslationEnabled = { enabled ->
-                                    if (!applying && installingEntryKey == null) {
-                                    applying = true
-                                    taskState.launchTask {
-                                        runCatching { translations.setTranslationEnabled(enabled) }
-                                            .onSuccess { translationEnabled = enabled; activeName = translations.activeName(); taskState.success("設定已更新，重啟遊戲後生效") }
-                                            .onFailure { taskState.error("切換失敗：${it.message}") }
-                                        applying = false
+                            OVERVIEW -> overviewRoute(
+                                style = uiStyle,
+                                state = OverviewUiState(
+                                    rootMode = rootMode,
+                                    busy = applying || installingEntryKey != null,
+                                    rootlessAccess = RootlessAccessUiState(
+                                        status = if (nativeBackend == "shizuku") "Shizuku · $shizukuStatus"
+                                            else if (gameFolder == null) "尚未授權遊戲資料夾"
+                                            else "已選擇遊戲 Localize 資料夾",
+                                        actionLabel = if (nativeBackend == "shizuku") "授權／檢查 Shizuku" else "授權載入位置"
+                                    ),
+                                    game = GameOverviewUiState(game.installed, game.version),
+                                    activeName = activeName,
+                                    activeScript = activeScript,
+                                    scopeStatus = scopeStatus,
+                                    rootStatus = rootStatus,
+                                    translationEnabled = translationEnabled,
+                                    targetLanguage = LanguageOverviewUiState(targetLanguage.label, targetLanguage.prefix),
+                                    runtime = RuntimeOverviewUiState.from(runtimeInspection)
+                                ),
+                                actions = OverviewActions(
+                                    onLaunchGame = ::launchGame,
+                                    onDownload = { navigateTo(DOWNLOAD) },
+                                    onDownloaded = { navigateTo(DOWNLOADED) },
+                                    onGameFolder = {
+                                        if (nativeBackend == "shizuku") requestShizuku()
+                                        else gameFolderPicker.launch(gameFolder)
+                                    },
+                                    onCheckScope = ::checkScopeStatus,
+                                    onRequestRoot = ::checkRootStatus,
+                                    onTranslationEnabled = { enabled ->
+                                        if (!applying && installingEntryKey == null) {
+                                            applying = true
+                                            taskState.launchTask {
+                                                runCatching { translations.setTranslationEnabled(enabled) }
+                                                    .onSuccess {
+                                                        translationEnabled = enabled
+                                                        activeName = translations.activeName()
+                                                        taskState.success("設定已更新，重啟遊戲後生效")
+                                                    }
+                                                    .onFailure { taskState.error("切換失敗：${it.message}") }
+                                                applying = false
+                                            }
+                                        }
                                     }
-                                    }
-                                },
-                                targetLanguage = targetLanguage,
-                                runtimeInspection = runtimeInspection,
-                                onDownload = { navigateTo(DOWNLOAD) },
-                                onDownloaded = { navigateTo(DOWNLOADED) }
+                                ),
+                                overlayState = environmentOverlayState
                             )
                             SETTINGS -> settings(
                                 rootMode = rootMode,
@@ -809,6 +826,11 @@ class MainActivity : ComponentActivity() {
                                 themeMode = themeMode,
                                 navigationStyle = navigationStyle,
                                 onNavigationStyle = { navigationStyle = it; appPrefs.edit().putString("navigation_style", it).apply() },
+                                uiStyle = uiStyle,
+                                onUiStyle = { selected ->
+                                    uiStyle = selected
+                                    appPrefs.edit().putString("ui_style", selected.key).apply()
+                                },
                                 blurEnabled = blurEnabled,
                                 onBlurEnabled = { enabled -> blurEnabled = enabled; appPrefs.edit().putBoolean("blur_enabled", enabled).apply() },
                                 onThemeMode = onThemeMode
@@ -1014,7 +1036,14 @@ class MainActivity : ComponentActivity() {
                     },
                     bottomBar = {
                         if (topLevelScreen) {
-                            if (navigationStyle == "floating") {
+                            if (uiStyle == UiStyle.COLOR_OS_17) {
+                                ColorBottomBar(
+                                    selectedIndex = pagerState.currentPage,
+                                    onTargetSelected = { index ->
+                                        topPages.getOrNull(index)?.let(::navigateTo)
+                                    }
+                                )
+                            } else if (navigationStyle == "floating") {
                                 SukiFloatingBottomBar(
                                     currentIndex = pagerState.settledPage,
                                     targetIndex = topNavigationTarget,
@@ -1074,93 +1103,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun LazyListScope.overview(
-        rootMode: Boolean, busy: Boolean, loadStatus: String, loadAction: String, onGameFolder: () -> Unit,
-        overlayState: EnvironmentStatusOverlayState,
-        game: GameInfo, events: List<LogEvent>, activeName: String, activeScript: String,
-        scopeStatus: String, rootStatus: String,
-        onCheckScope: () -> Unit, onRequestRoot: () -> Unit,
-        translationEnabled: Boolean, onTranslationEnabled: (Boolean) -> Unit,
-        targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection,
-        onDownload: () -> Unit, onDownloaded: () -> Unit
-    ) {
-        if (!rootMode) item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("無 root · 原生文件載入", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
-                Text(loadStatus)
-                Text("使用遊戲原有字型。請先下載對應語言資源，並在套用、停用前完全關閉遊戲。", fontSize = 14.sp)
-                TextButton(modifier = Modifier.fillMaxWidth(), text = loadAction, enabled = !busy, onClick = onGameFolder)
-            }
-        }
-        if (rootMode) item {
-            EnvironmentStatusOverviewCard(
-                overlayState = overlayState,
-                scopeStatus = scopeStatus,
-                rootStatus = rootStatus,
-                gameInstalled = game.installed,
-                gameVersion = game.version,
-                onCheckScope = onCheckScope,
-                onRequestRoot = onRequestRoot
-            )
-        }
-        item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("當前漢化", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(6.dp))
-                Text("$activeName · $activeScript", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    if (!rootMode) {
-                        if (translationEnabled) "已寫入原生語言文件；停用可還原備份" else "尚未套用；可先下載或匯入無 root 專用漢化"
-                    } else if (runtimeInspection.ready && runtimeInspection.fontReady) {
-                        "遊戲快取已就緒 · ${runtimeInspection.jsonFiles} 個 JSON · ${runtimeInspection.matchingFiles} 個 ${targetLanguage.prefix} 文件 · 字型 ${formatBytes(runtimeInspection.fontBytes)}"
-                    } else {
-                        "遊戲快取未就緒 · JSON ${runtimeInspection.jsonFiles} · ${targetLanguage.prefix} 文件 ${runtimeInspection.matchingFiles} · ${if (runtimeInspection.fontReady) "字型已寫入" else "缺少中文字型"}"
-                    },
-                    color = if (!rootMode || runtimeInspection.ready && runtimeInspection.fontReady) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.error,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(Modifier.height(3.dp))
-                Text("遊戲內語言需設為 ${targetLanguage.label}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                Spacer(Modifier.height(6.dp))
-                SwitchPreference(
-                    modifier = PreferenceItemModifier,
-                    title = if (rootMode) "應用漢化" else "原生漢化（關閉以還原）",
-                    enabled = !busy && (rootMode || translationEnabled),
-                    summary = if (translationEnabled) "已啟用，重新啟動遊戲後載入" else "已停用，下載內容仍會保留",
-                    checked = translationEnabled,
-                    onCheckedChange = onTranslationEnabled
-                )
-                Spacer(Modifier.height(14.dp))
-                Button(modifier = Modifier.fillMaxWidth(), onClick = onDownload) { Text("下載漢化") }
-                Spacer(Modifier.height(8.dp))
-                TextButton(modifier = Modifier.fillMaxWidth(), text = "選擇已下載漢化", onClick = onDownloaded)
-            }
-        }
-        item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("遊戲", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
-                Detail("Limbus Company", if (game.installed) "已安裝" else "未安裝")
-                Detail("版本", game.version)
-                Spacer(Modifier.height(14.dp))
-                Button(modifier = Modifier.fillMaxWidth(), enabled = game.installed, onClick = ::launchGame) { Text("啟動 Limbus Company") }
-            }
-        }
-        item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("裝置資訊", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
-                Detail("機型", "${Build.MANUFACTURER} ${Build.MODEL}")
-                Detail("裝置", Build.DEVICE)
-                Detail("系統版本", "Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}")
-                Detail("架構", Build.SUPPORTED_ABIS.joinToString())
-            }
-        }
-    }
-
     private fun LazyListScope.settings(
         onFolder: () -> Unit, onAbout: () -> Unit, onUpdate: () -> Unit,
         onDisplay: () -> Unit, onConversion: () -> Unit, targetLanguage: OverrideLanguage,
@@ -1208,12 +1150,23 @@ class MainActivity : ComponentActivity() {
         themeMode: String,
         navigationStyle: String,
         onNavigationStyle: (String) -> Unit,
+        uiStyle: UiStyle,
+        onUiStyle: (UiStyle) -> Unit,
         blurEnabled: Boolean,
         onBlurEnabled: (Boolean) -> Unit,
         onThemeMode: (String) -> Unit
     ) {
         item {
             Card {
+                OverlayDropdownPreference(
+                    modifier = PreferenceItemModifier,
+                    title = "介面風格",
+                    items = UiStyle.entries.map { it.label },
+                    selectedIndex = UiStyle.entries.indexOf(uiStyle),
+                    onSelectedIndexChange = { index ->
+                        UiStyle.entries.getOrNull(index)?.let(onUiStyle)
+                    }
+                )
                 OverlayDropdownPreference(
                     modifier = PreferenceItemModifier,
                     title = "深淺模式",
