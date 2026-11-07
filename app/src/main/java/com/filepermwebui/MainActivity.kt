@@ -212,7 +212,7 @@ class MainActivity : ComponentActivity() {
         var fontName by remember { mutableStateOf(translations.fontName()) }
         var runtimeInspection by remember { mutableStateOf(RuntimeInspection()) }
         var scopeStatus by rememberSaveable { mutableStateOf("正在連接") }
-        var rootStatus by rememberSaveable { mutableStateOf("尚未授權") }
+        var rootStatus by remember { mutableStateOf("未檢查") }
         var navigationStyle by remember { mutableStateOf(appPrefs.getString("navigation_style", "floating") ?: "floating") }
         var blurEnabled by remember { mutableStateOf(appPrefs.getBoolean("blur_enabled", true)) }
         val environmentOverlayState = rememberEnvironmentStatusOverlayState()
@@ -416,19 +416,28 @@ class MainActivity : ComponentActivity() {
                 taskState.info("模組狀態已更新")
             }
         }
-        fun checkRootStatus() {
+        suspend fun refreshRootStatus(showNotice: Boolean = false) {
             if (!rootMode || rootStatus == "正在請求") return
             rootStatus = "正在請求"
-            scope.launch {
-                val granted = withContext(Dispatchers.IO) { requestRoot() }
-                rootStatus = if (granted) "已授權" else "未取得授權"
+            val granted = withContext(Dispatchers.IO) { requestRoot() }
+            rootStatus = if (granted) "已授權" else "未取得授權"
+            if (showNotice) {
                 if (granted) taskState.success("Root 權限已授予")
                 else taskState.error("未取得 Root 權限，套用漢化時將無法寫入遊戲資料")
             }
         }
+        fun checkRootStatus() {
+            scope.launch { refreshRootStatus(showNotice = true) }
+        }
         LaunchedEffect(Unit) { refreshCatalog() }
         LaunchedEffect(page, resumeRevision, rootMode) {
-            if (rootMode && (page == OVERVIEW || page == ONBOARDING)) refreshScopeStatus()
+            if (rootMode && (page == OVERVIEW || page == ONBOARDING)) {
+                // Restore accurate state after launch/resume without spamming notices.
+                refreshRootStatus()
+                refreshScopeStatus()
+            } else if (!rootMode) {
+                rootStatus = "未檢查"
+            }
         }
         val onboardingDone = appPrefs.getBoolean("onboarding_done", false)
         fun applyNavigation(next: NavigationState) {
@@ -1559,7 +1568,10 @@ class MainActivity : ComponentActivity() {
         }, "LCPatch-game-restart").start()
     }
 
-    private fun requestRoot(): Boolean = RootShell.run("id", timeoutMs = 15_000L).success
+    private fun requestRoot(): Boolean {
+        val result = RootShell.run("id -u", timeoutMs = 15_000L)
+        return result.success && result.output.lineSequence().any { it.trim() == "0" }
+    }
 
     private fun LazyListScope.downloadPage(
         entries: List<TranslationEntry>, loading: Boolean, error: String?, transfer: TransferProgress?,
