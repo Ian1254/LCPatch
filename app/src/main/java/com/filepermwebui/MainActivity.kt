@@ -721,8 +721,9 @@ class MainActivity : ComponentActivity() {
                     ) {
                         if (visiblePage == SETTINGS) item { SectionLabel("運作環境") }
                         if (visiblePage == SETTINGS || visiblePage == ONBOARDING) item {
-                            AppPanel {
+                            AppPreferencePanel {
                                 OverlayDropdownPreference(
+                                    modifier = AppPreferenceModifier,
                                     title = "運作模式",
                                     items = listOf("無 root", "Root ＋ LSPosed"),
                                     enabled = !applying && installingEntryKey == null && exportPack == null,
@@ -740,6 +741,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 if (!rootMode) {
                                     OverlayDropdownPreference(
+                                        modifier = AppPreferenceModifier,
                                         title = "文件載入方式",
                                         items = listOf("Shizuku", "系統資料夾授權（SAF）"),
                                         selectedIndex = if (nativeBackend == "shizuku") 0 else 1,
@@ -762,7 +764,13 @@ class MainActivity : ComponentActivity() {
                                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
                                     )
                                     Spacer(Modifier.height(AppUi.ActionTopGap))
-                                    AppActionStack {
+                                    AppActionStack(
+                                        modifier = Modifier.padding(
+                                            start = AppUi.CardPadding,
+                                            end = AppUi.CardPadding,
+                                            bottom = AppUi.CardPadding,
+                                        ),
+                                    ) {
                                         if (nativeBackend == "shizuku") {
                                             AppSecondaryAction(
                                                 text = "授權／檢查 Shizuku",
