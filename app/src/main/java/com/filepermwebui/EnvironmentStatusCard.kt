@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -555,24 +556,17 @@ private fun EnvironmentStatusExpandedContent(
 
             Spacer(Modifier.height(24.dp))
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { alpha = actionsAlpha }
-            ) {
-                Button(
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
+            AppActionStack(modifier = Modifier.graphicsLayer { alpha = actionsAlpha }) {
+                AppPrimaryAction(
+                    text = "重新檢查模組作用域",
                     enabled = actionsEnabled,
                     onClick = request.onCheckScope
-                ) {
-                    Text("重新檢查模組作用域")
-                }
-                Spacer(Modifier.height(10.dp))
+                )
                 TextButton(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(54.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .heightIn(min = AppUi.ActionMinHeight)
+                        .clip(RoundedCornerShape(AppUi.PreferenceCorner))
                         .background(actionSurface),
                     text = if (request.rootStatus == "正在請求") {
                         "正在檢查 Root…"
@@ -582,12 +576,11 @@ private fun EnvironmentStatusExpandedContent(
                     enabled = actionsEnabled && request.rootStatus != "正在請求",
                     onClick = request.onRequestRoot
                 )
-                Spacer(Modifier.height(10.dp))
                 TextButton(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(54.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .heightIn(min = AppUi.ActionMinHeight)
+                        .clip(RoundedCornerShape(AppUi.PreferenceCorner))
                         .background(actionSurface),
                     text = "完成",
                     enabled = actionsEnabled,
