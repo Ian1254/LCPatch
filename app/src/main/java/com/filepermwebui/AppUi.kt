@@ -59,7 +59,11 @@ internal fun AppPreferencePanel(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(modifier = modifier, content = content)
+    Card(
+        modifier = modifier,
+        insideMargin = PaddingValues(AppUi.CardPadding),
+        content = content,
+    )
 }
 
 /** Stacks actions with a reliable visible gap, even under large font scaling. */
