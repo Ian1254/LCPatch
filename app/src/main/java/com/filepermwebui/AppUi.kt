@@ -35,7 +35,6 @@ internal object AppUi {
     val ActionMinHeight = 52.dp
     val PreferenceCorner = 18.dp
     val ActionCorner = 16.dp
-    val DropdownItemCorner = 12.dp
 }
 
 internal val AppPreferenceModifier: Modifier =
@@ -59,11 +58,7 @@ internal fun AppPreferencePanel(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(
-        modifier = modifier,
-        insideMargin = PaddingValues(AppUi.CardPadding),
-        content = content,
-    )
+    Card(modifier = modifier, content = content)
 }
 
 /** Stacks actions with a reliable visible gap, even under large font scaling. */
