@@ -691,7 +691,7 @@ class MainActivity : ComponentActivity() {
                                 OverlayDropdownPreference(
                                     title = "運作模式",
                                     items = listOf("無 root", "Root ＋ LSPosed"),
-                                    enabled = !applying && installingEntryKey == null && exportPack == null && !(translationEnabled && activeName != "尚未選擇"),
+                                    enabled = !applying && installingEntryKey == null && exportPack == null && !translationEnabled,
                                     selectedIndex = if (rootMode) 1 else 0,
                                     onSelectedIndexChange = { index ->
                                         rootMode = index == 1
@@ -708,7 +708,7 @@ class MainActivity : ComponentActivity() {
                                         refreshCatalog()
                                     }
                                 )
-                                if (translationEnabled && activeName != "尚未選擇") {
+                                if (translationEnabled) {
                                     Text(
                                         "切換運作模式前，請先至概觀頁停用漢化。",
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -798,7 +798,6 @@ class MainActivity : ComponentActivity() {
                                 onAbout = { navigateTo(ABOUT) },
                                 onUpdate = { navigateTo(UPDATE) },
                                 onDisplay = { navigateTo(DISPLAY) },
-                                onConversion = { navigateTo(CONVERSION) },
                                 targetLanguage = targetLanguage,
                                 fontName = fontName,
                                 onLanguage = ::changeTargetLanguage,
@@ -1232,7 +1231,7 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.settings(
         onFolder: () -> Unit, onAbout: () -> Unit, onUpdate: () -> Unit,
-        onDisplay: () -> Unit, onConversion: () -> Unit, targetLanguage: OverrideLanguage,
+        onDisplay: () -> Unit, targetLanguage: OverrideLanguage,
         rootMode: Boolean, applyProgress: ApplyProgress?, applying: Boolean, changingTargetLanguage: Boolean,
         fontName: String, hasCustomFont: Boolean, onLanguage: (OverrideLanguage) -> Unit,
         onFont: () -> Unit, onClearFont: () -> Unit, onImport: () -> Unit, onReset: () -> Unit
