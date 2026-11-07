@@ -206,14 +206,14 @@ internal fun EnvironmentStatusOverviewCard(
         else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
     }
     val statusTitle = when {
-        healthy -> "已啟用"
+        healthy -> "環境已就緒"
         !gameInstalled -> "尚未安裝遊戲"
         rootStatus != "已授權" -> "待確認 Root 權限"
         hasError -> "尚未設定作用域"
         else -> "尚未連接模組"
     }
     val statusSubtitle = when {
-        healthy -> "LCPatch " + BuildConfig.VERSION_NAME
+        healthy -> "Root 與模組作用域正常"
         hasError -> "請授予 Limbus Company 作用域"
         else -> "請確認模組與作用域狀態"
     }
@@ -546,6 +546,12 @@ private fun EnvironmentStatusExpandedContent(
                     if (request.gameInstalled) "已安裝 · " + request.gameVersion else "未安裝"
                 )
             }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "此頁只檢查 Root、模組作用域與遊戲安裝。實際漢化是否生效，仍需進入遊戲確認。",
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 13.sp
+            )
 
             Spacer(Modifier.height(24.dp))
 
