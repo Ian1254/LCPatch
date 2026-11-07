@@ -21,8 +21,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -118,8 +116,6 @@ private fun AppDropdownOption(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val selectedBackground = MiuixTheme.colorScheme.primary.copy(alpha = 0.13f)
-        .compositeOver(MiuixTheme.colorScheme.surfaceContainer)
     val selectedColor = if (selected) MiuixTheme.colorScheme.primary
         else MiuixTheme.colorScheme.onSurface
     Row(
@@ -128,7 +124,6 @@ private fun AppDropdownOption(
             .fillMaxWidth()
             .padding(horizontal = 6.dp, vertical = 3.dp)
             .clip(RoundedCornerShape(AppUi.DropdownItemCorner))
-            .background(if (selected) selectedBackground else Color.Transparent)
             .selectable(
                 selected = selected,
                 role = Role.RadioButton,
