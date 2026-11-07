@@ -17,6 +17,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -55,6 +57,7 @@ internal fun AppDropdownPreference(
     onSelectedIndexChange: (Int) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
     val canOpen = enabled && items.isNotEmpty()
     val muted = if (canOpen) {
         MiuixTheme.colorScheme.onSurfaceVariantActions
@@ -68,7 +71,10 @@ internal fun AppDropdownPreference(
         summary = summary,
         enabled = canOpen,
         role = Role.DropdownList,
-        onClick = { expanded = !expanded },
+        onClick = {
+            expanded = !expanded
+            if (expanded) haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+        },
         endActions = {
             items.getOrNull(selectedIndex)?.let { current ->
                 Text(
@@ -94,6 +100,7 @@ internal fun AppDropdownPreference(
                             label = label,
                             selected = index == selectedIndex,
                             onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                                 expanded = false
                                 onSelectedIndexChange(index)
                             },
