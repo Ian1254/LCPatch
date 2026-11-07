@@ -38,6 +38,10 @@ int main() {
     const lcpatch::VerificationSignature alternate{
         knownMethodB.data(), knownMethodB.size(), kMethodSize, kFileStreamCall, mask.data()
     };
+    const lcpatch::VerificationSignature structural{
+        knownMethodA.data(), knownMethodA.size(), kMethodSize, kFileStreamCall,
+        mask.data(), true
+    };
 
     // This is the regression: known 1.117.1 and 1.118.0 must map to the same
     // masked instructions, while their exact fingerprints are different.
@@ -130,6 +134,63 @@ int main() {
     CHECK(match.candidateCount == 2 && match.address == 0);
     CHECK(match.diagnosticCandidates[0] == base + 0x100);
     CHECK(match.diagnosticCandidates[1] == base + 0x400);
+
+    // Regression for the *shapes* recorded from running 1.118.1, without
+    // embedding proprietary game code: the likely verifier returns late and
+    // contains a backward branch and many calls; the false positive returns
+    // near +0x9c. Exact prologue and executable BL alone match both.
+    auto writeWord = [&](size_t offset, uint32_t instruction) {
+        std::memcpy(bytes + offset, &instruction, sizeof(instruction));
+    };
+    auto populateBody = [&](size_t at, size_t returnOffset, bool loop) {
+        for (size_t offset = 0x20; offset < kMethodSize; offset += 4)
+            writeWord(at + offset, 0xd503201fU); // NOP
+        for (size_t i = 0; i < 5; ++i)
+            writeWord(at + 0x30 + i * 8, 0x94000001U); // Synthetic BL
+        if (loop)
+            writeWord(at + 0x144, 0x54ffff61U); // B.cond back 20 bytes
+        writeWord(at + returnOffset, 0xd65f03c0U); // RET
+        writeCall(at, 0xf00); // Still verify the existing external call
+    };
+    std::memset(bytes, 0, sizeof(memory));
+    place(0x100, knownMethodA);
+    place(0x400, knownMethodB);
+    populateBody(0x100, 0x188, true);
+    populateBody(0x400, 0x9c, false);
+    auto structuralMatch = lcpatch::findUniqueVerificationSignature(
+        executable, 1, &structural, 1, reader);
+    CHECK(structuralMatch.scanComplete && structuralMatch.candidateCount == 1);
+    CHECK(structuralMatch.address == base + 0x100);
+    CHECK(lcpatch::validatesVerificationCandidate(
+        executable, 1, base + 0x100, structural,
+        bytes + 0x100, sizeof(memory) - 0x100));
+    CHECK(!lcpatch::validatesVerificationCandidate(
+        executable, 1, base + 0x400, structural,
+        bytes + 0x400, sizeof(memory) - 0x400));
+
+    // A premature return, missing backward loop, or too few calls must fail.
+    writeWord(0x100 + 0x9c, 0xd65f03c0U);
+    structuralMatch = lcpatch::findUniqueVerificationSignature(
+        executable, 1, &structural, 1, reader);
+    CHECK(structuralMatch.candidateCount == 0);
+    writeWord(0x100 + 0x9c, 0xd503201fU);
+    writeWord(0x100 + 0x144, 0xd503201fU);
+    structuralMatch = lcpatch::findUniqueVerificationSignature(
+        executable, 1, &structural, 1, reader);
+    CHECK(structuralMatch.candidateCount == 0);
+    writeWord(0x100 + 0x144, 0x54ffff61U);
+    for (size_t i = 0; i < 5; ++i)
+        writeWord(0x100 + 0x30 + i * 8, 0xd503201fU);
+    structuralMatch = lcpatch::findUniqueVerificationSignature(
+        executable, 1, &structural, 1, reader);
+    CHECK(structuralMatch.candidateCount == 0);
+
+    // Two long verifier-shaped functions remain ambiguous (fail closed).
+    populateBody(0x100, 0x188, true);
+    populateBody(0x400, 0x188, true);
+    structuralMatch = lcpatch::findUniqueVerificationSignature(
+        executable, 1, &structural, 1, reader);
+    CHECK(structuralMatch.candidateCount == 2 && structuralMatch.address == 0);
 
     // Method extent must fit the executable segment.
     std::memset(bytes, 0, sizeof(memory));
