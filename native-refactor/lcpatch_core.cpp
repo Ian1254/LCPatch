@@ -356,19 +356,21 @@ bool verificationEntryReady() {
         return std::memcmp(reinterpret_cast<const void *>(gVerificationRange.begin),
                            profile.entry.data(), profile.entry.size()) == 0;
 
-    constexpr size_t kReadSpan = kVerificationFileCallOffset + sizeof(uint32_t);
-    uint8_t bytes[kReadSpan]{};
-    if (!readSelfCode(gVerificationRange.begin, bytes, sizeof(bytes))) return false;
+    constexpr size_t kMaxReadSpan = 512;
+    uint8_t bytes[kMaxReadSpan]{};
+    const size_t methodSize = profile.end - profile.begin;
+    if (!methodSize || methodSize > sizeof(bytes) ||
+        !readSelfCode(gVerificationRange.begin, bytes, methodSize)) return false;
     const lcpatch::VerificationSignature signature{
         profile.entry.data(), profile.entry.size(),
-        profile.end - profile.begin, kVerificationFileCallOffset,
-        kVerificationEntryMask.data(),
+        methodSize, kVerificationFileCallOffset,
+        kVerificationEntryMask.data(), true,
     };
-    // The masked path must pass both the opcode/register mask AND the BL
-    // call-target check before redirection is first enabled.
+    // The masked path must pass the same entry, call-target AND body-shape
+    // checks used during discovery. Never re-enable from a weaker check.
     return lcpatch::validatesVerificationCandidate(
         gVerificationCodeRanges, gVerificationCodeRangeCount,
-        gVerificationRange.begin, signature, bytes, sizeof(bytes));
+        gVerificationRange.begin, signature, bytes, methodSize);
 }
 
 // Diagnostic only: capture the first two ambiguous verifier candidates from
@@ -485,6 +487,7 @@ void configureVerificationGuard(const UnitySearch &image) {
             reference.entry.data(), reference.entry.size(),
             reference.end - reference.begin,
             kVerificationFileCallOffset, kVerificationEntryMask.data(),
+            true, // 1.118.1: reject early-RET short-function collisions.
         };
         const auto match = lcpatch::findUniqueVerificationSignature(
             ranges, image.count, &signature, 1, readSelfCode);
