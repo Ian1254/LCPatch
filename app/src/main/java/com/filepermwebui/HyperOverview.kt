@@ -140,7 +140,7 @@ private fun OverviewDetail(label: String, value: String) {
 }
 
 private fun formatOverviewBytes(value: Long): String = when {
-    value < 1024 -> "$"+"value B"
+    value < 1024 -> "$value B"
     value < 1024 * 1024 -> "%.1f KB".format(value / 1024.0)
     else -> "%.1f MB".format(value / 1024.0 / 1024.0)
 }
