@@ -436,11 +436,11 @@ class MainActivity : ComponentActivity() {
                 catalog = emptyList()
                 runtimeInspection = RuntimeInspection()
                 applying = false
+                refreshCatalog()
                 result.onSuccess {
-                    refreshCatalog()
                     taskState.success("已切換至${if (rootMode) "Root ＋ LSPosed" else "無 root"}；原模式漢化已停用")
                 }.onFailure { error ->
-                    taskState.error("切換模式失敗：${error.message ?: "請檢查存取權限"}。目前模式未變更。")
+                    taskState.error("切換模式失敗：${error.message ?: "請檢查存取權限"}。請檢查目前模式及漢化狀態。")
                 }
             }
         }
