@@ -51,6 +51,15 @@ internal fun AppPanel(
     )
 }
 
+/** Keeps MIUIX preference-group spacing while centralizing its usage. */
+@Composable
+internal fun AppPreferencePanel(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(modifier = modifier, content = content)
+}
+
 /** Stacks actions with a reliable visible gap, even under large font scaling. */
 @Composable
 internal fun AppActionStack(
