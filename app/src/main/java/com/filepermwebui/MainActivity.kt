@@ -188,6 +188,7 @@ class MainActivity : ComponentActivity() {
         var revision by remember { mutableIntStateOf(0) }
         var diagnosticBusy by remember { mutableStateOf(false) }
         var showClearLogDialog by rememberSaveable { mutableStateOf(false) }
+        var pendingModeSwitch by remember { mutableStateOf<Boolean?>(null) }
         var notice by taskState.notice
         var latestRelease by taskState.latestRelease
         var checkingUpdate by taskState.checkingUpdate
@@ -408,6 +409,39 @@ class MainActivity : ComponentActivity() {
                     }
                 catalogLoading = false
                 if (requestedMode != translations.rootMode() || requestedLanguage != translations.targetLanguage().id) refreshCatalog()
+            }
+        }
+        fun switchRootMode(requestedMode: Boolean) {
+            if (rootMode == requestedMode || applying || installingEntryKey != null || exportPack != null) return
+            applying = true
+            taskState.launchTask {
+                // Restore or disable the current mode before changing its persistence flag.
+                // A failed restore must never leave the UI switched to a different backend.
+                val result = runCatching {
+                    val wasRootMode = translations.rootMode()
+                    val hasActiveTranslation = translations.translationEnabled() &&
+                        (!wasRootMode || translations.activeName() != "尚未選擇")
+                    if (hasActiveTranslation) translations.setTranslationEnabled(false)
+                    translations.setRootMode(requestedMode)
+                    if (!requestedMode && translations.targetLanguage().id == "en") {
+                        translations.setTargetLanguage(TranslationRepository.LANGUAGES.first())
+                    }
+                }
+                rootMode = translations.rootMode()
+                targetLanguage = translations.targetLanguage()
+                activeName = translations.activeName()
+                activeScript = translations.activeScript()
+                translationEnabled = translations.translationEnabled()
+                downloadedPacks = emptyList()
+                catalog = emptyList()
+                runtimeInspection = RuntimeInspection()
+                applying = false
+                result.onSuccess {
+                    refreshCatalog()
+                    taskState.success("已切換至${if (rootMode) "Root ＋ LSPosed" else "無 root"}；原模式漢化已停用")
+                }.onFailure { error ->
+                    taskState.error("切換模式失敗：${error.message ?: "請檢查存取權限"}。目前模式未變更。")
+                }
             }
         }
         LaunchedEffect(page) {
@@ -691,31 +725,19 @@ class MainActivity : ComponentActivity() {
                                 OverlayDropdownPreference(
                                     title = "運作模式",
                                     items = listOf("無 root", "Root ＋ LSPosed"),
-                                    enabled = !applying && installingEntryKey == null && exportPack == null && !translationEnabled,
+                                    enabled = !applying && installingEntryKey == null && exportPack == null,
                                     selectedIndex = if (rootMode) 1 else 0,
                                     onSelectedIndexChange = { index ->
-                                        rootMode = index == 1
-                                        translations.setRootMode(rootMode)
-                                        if (!rootMode && targetLanguage.id == "en") {
-                                            targetLanguage = TranslationRepository.LANGUAGES.first()
-                                            translations.setTargetLanguage(targetLanguage)
+                                        val selectedMode = index == 1
+                                        if (selectedMode != rootMode) {
+                                            if (translationEnabled && (!rootMode || activeName != "尚未選擇")) {
+                                                pendingModeSwitch = selectedMode
+                                            } else {
+                                                switchRootMode(selectedMode)
+                                            }
                                         }
-                                        activeName = translations.activeName()
-                                        activeScript = translations.activeScript()
-                                        translationEnabled = translations.translationEnabled()
-                                        downloadedPacks = emptyList()
-                                        catalog = emptyList()
-                                        refreshCatalog()
                                     }
                                 )
-                                if (translationEnabled) {
-                                    Text(
-                                        "切換運作模式前，請先至概觀頁停用漢化。",
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
-                                    )
-                                }
                                 if (!rootMode) {
                                     OverlayDropdownPreference(
                                         title = "文件載入方式",
@@ -1121,6 +1143,41 @@ class MainActivity : ComponentActivity() {
                 state = environmentOverlayState,
                 modifier = Modifier.fillMaxSize()
             )
+            pendingModeSwitch?.let { requestedMode ->
+                Dialog(onDismissRequest = { pendingModeSwitch = null }) {
+                    AppPanel(modifier = Modifier.fillMaxWidth()) {
+                        Text("停用漢化並切換模式？", style = MiuixTheme.textStyles.title2)
+                        Spacer(Modifier.height(AppUi.ContentGap))
+                        Text(
+                            if (rootMode) {
+                                "將先停用目前的 Root 漢化，然後切換至無 root 模式。遊戲會先被關閉，原漢化不會在新模式自動套用。"
+                            } else {
+                                "將先還原已備份的原始語言檔案，再切換至 Root ＋ LSPosed。請先完全關閉遊戲，原漢化不會在新模式自動套用。"
+                            },
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            fontSize = 14.sp
+                        )
+                        Spacer(Modifier.height(AppUi.ActionTopGap))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(AppUi.ActionGap)
+                        ) {
+                            TextButton(
+                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight),
+                                text = "取消",
+                                onClick = { pendingModeSwitch = null }
+                            )
+                            Button(
+                                modifier = Modifier.weight(1f).heightIn(min = AppUi.ActionMinHeight),
+                                onClick = {
+                                    pendingModeSwitch = null
+                                    switchRootMode(requestedMode)
+                                }
+                            ) { Text("停用並切換") }
+                        }
+                    }
+                }
+            }
             if (showClearLogDialog) {
                 Dialog(onDismissRequest = { showClearLogDialog = false }) {
                     AppPanel(modifier = Modifier.fillMaxWidth()) {
