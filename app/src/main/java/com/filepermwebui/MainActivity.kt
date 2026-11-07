@@ -748,7 +748,6 @@ class MainActivity : ComponentActivity() {
                                             runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/guide/setup/"))) }
                                                 .onFailure { taskState.error("無法開啟說明連結") }
                                         })
-                                        Spacer(Modifier.height(12.dp))
                                     } else {
                                     TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
                                         text = if (gameFolder == null) "授權遊戲 Localize 資料夾" else "重新選擇遊戲資料夾",
