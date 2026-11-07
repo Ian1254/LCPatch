@@ -11,6 +11,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdarg>
