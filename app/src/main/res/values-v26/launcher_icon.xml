@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API 26+ resolves the manifest's drawable alias to an adaptive icon. -->
+    <item name="lcpatch_launcher" type="drawable">@drawable/lcpatch_launcher_adaptive</item>
+</resources>

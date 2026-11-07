@@ -45,6 +45,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -205,14 +206,14 @@ internal fun EnvironmentStatusOverviewCard(
         else -> MiuixTheme.colorScheme.primary.copy(alpha = 0.62f)
     }
     val statusTitle = when {
-        healthy -> "已啟用"
+        healthy -> "環境已就緒"
         !gameInstalled -> "尚未安裝遊戲"
         rootStatus != "已授權" -> "待確認 Root 權限"
         hasError -> "尚未設定作用域"
         else -> "尚未連接模組"
     }
     val statusSubtitle = when {
-        healthy -> "LCPatch " + BuildConfig.VERSION_NAME
+        healthy -> "Root 與模組作用域正常"
         hasError -> "請授予 Limbus Company 作用域"
         else -> "請確認模組與作用域狀態"
     }
@@ -422,7 +423,9 @@ internal fun EnvironmentStatusOverlayHost(
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(RoundedCornerShape(corner))
-                        .background(latestRequest.cardColor)
+                        .background(
+                            lerp(latestRequest.cardColor, MiuixTheme.colorScheme.surface, fraction)
+                        )
                         .clickable(
                             interactionSource = panelInteraction,
                             indication = null,
@@ -489,8 +492,10 @@ private fun EnvironmentStatusExpandedContent(
     modifier: Modifier = Modifier
 ) {
     val titleTop = statusInset + 22.dp
-    val detailSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.12f)
-    val actionSurface = MiuixTheme.colorScheme.surface.copy(alpha = 0.14f)
+    // Use opaque theme-aware containers; low-alpha surfaces disappear on a
+    // fully expanded sheet, especially when the app uses a neutral accent.
+    val detailSurface = MiuixTheme.colorScheme.surfaceContainer
+    val actionSurface = MiuixTheme.colorScheme.surfaceContainer
     val actionsAlpha = smoothIntervalProgress(contentAlpha, 0.42f, 0.88f)
 
     Column(modifier = modifier
@@ -541,6 +546,12 @@ private fun EnvironmentStatusExpandedContent(
                     if (request.gameInstalled) "已安裝 · " + request.gameVersion else "未安裝"
                 )
             }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "此頁只檢查 Root、模組作用域與遊戲安裝。實際漢化是否生效，仍需進入遊戲確認。",
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 13.sp
+            )
 
             Spacer(Modifier.height(24.dp))
 

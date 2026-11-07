@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
@@ -104,7 +105,7 @@ internal fun SukiFloatingBottomBar(
         else Color.Black.copy(alpha = 0.10f)
     val selectorColor = if (dark) Color(0xFF4B4B4E) else Color(0xFFDADADD)
     val textColor = if (dark) Color.White else Color(0xFF151518)
-    val mutedColor = textColor.copy(alpha = if (dark) 0.94f else 0.86f)
+    val mutedColor = textColor.copy(alpha = if (dark) 0.65f else 0.67f)
     val selectedColor = textColor
     val itemWidthPx = with(density) { ItemWidthDp.dp.toPx() }
     val paddingPx = with(density) { HorizontalPaddingDp.dp.toPx() }
@@ -201,6 +202,7 @@ internal fun SukiFloatingBottomBar(
                 semanticsIndex = safeCurrent,
                 mutedColor = mutedColor,
                 selectedColor = selectedColor,
+                onTargetSelected = currentTarget,
                 modifier = Modifier.fillMaxSize().padding(horizontal = HorizontalPaddingDp.dp)
             )
 
@@ -275,12 +277,13 @@ private fun NavigationRow(
     semanticsIndex: Int,
     mutedColor: Color,
     selectedColor: Color,
+    onTargetSelected: (Int) -> Unit,
     modifier: Modifier
 ) {
     Row(modifier) {
-        NavigationItem("概觀", MiuixIcons.Home, 0, visualPosition, semanticsIndex, mutedColor, selectedColor)
-        NavigationItem("日誌", Icons.Default.List, 1, visualPosition, semanticsIndex, mutedColor, selectedColor)
-        NavigationItem("設定", MiuixIcons.Settings, 2, visualPosition, semanticsIndex, mutedColor, selectedColor)
+        NavigationItem("概觀", MiuixIcons.Home, 0, visualPosition, semanticsIndex, mutedColor, selectedColor, onTargetSelected)
+        NavigationItem("日誌", Icons.Default.List, 1, visualPosition, semanticsIndex, mutedColor, selectedColor, onTargetSelected)
+        NavigationItem("設定", MiuixIcons.Settings, 2, visualPosition, semanticsIndex, mutedColor, selectedColor, onTargetSelected)
     }
 }
 
@@ -292,7 +295,8 @@ private fun RowScope.NavigationItem(
     visualPosition: Float,
     semanticsIndex: Int,
     mutedColor: Color,
-    selectedColor: Color
+    selectedColor: Color,
+    onTargetSelected: (Int) -> Unit
 ) {
     val selectedFraction = (1f - abs(visualPosition - index)).coerceIn(0f, 1f)
     val contentColor = lerp(mutedColor, selectedColor, selectedFraction)
@@ -304,6 +308,10 @@ private fun RowScope.NavigationItem(
             .semantics {
                 role = Role.Tab
                 selected = semanticsIndex == index
+                onClick(label = "切換至$label") {
+                    onTargetSelected(index)
+                    true
+                }
             },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)

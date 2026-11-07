@@ -24,6 +24,15 @@ runs:
       with:
         cache-provider: basic
 
+    - name: Test native verifier discovery on host
+      shell: bash
+      run: |
+        mkdir -p build/native-tests
+        c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+          native-refactor/tests/verification_signature_scan_test.cpp \
+          -o build/native-tests/verification_signature_scan_test
+        build/native-tests/verification_signature_scan_test
+
     - name: Build open-source native core
       shell: bash
       run: |
