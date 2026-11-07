@@ -126,6 +126,8 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import com.kyant.backdrop.backdrops.layerBackdrop
 import rikka.shizuku.Shizuku
 
@@ -217,6 +219,7 @@ class MainActivity : ComponentActivity() {
         var rootStatus by remember { mutableStateOf("未檢查") }
         var navigationStyle by remember { mutableStateOf(appPrefs.getString("navigation_style", "floating") ?: "floating") }
         var blurEnabled by remember { mutableStateOf(appPrefs.getBoolean("blur_enabled", true)) }
+        var hazeRendererEnabled by remember { mutableStateOf(appPrefs.getBoolean("haze_renderer_enabled", false)) }
         val environmentOverlayState = rememberEnvironmentStatusOverlayState()
         var updateChannel by remember { mutableStateOf(appPrefs.getString("update_channel", "stable") ?: "stable") }
         val overviewListState = rememberLazyListState()
@@ -847,6 +850,11 @@ class MainActivity : ComponentActivity() {
                                 onNavigationStyle = { navigationStyle = it; appPrefs.edit().putString("navigation_style", it).apply() },
                                 blurEnabled = blurEnabled,
                                 onBlurEnabled = { enabled -> blurEnabled = enabled; appPrefs.edit().putBoolean("blur_enabled", enabled).apply() },
+                                hazeRendererEnabled = hazeRendererEnabled,
+                                onHazeRendererEnabled = { enabled ->
+                                    hazeRendererEnabled = enabled
+                                    appPrefs.edit().putBoolean("haze_renderer_enabled", enabled).apply()
+                                },
                                 onThemeMode = onThemeMode
                             )
                             ONBOARDING -> onboardingPage(
@@ -1009,7 +1017,9 @@ class MainActivity : ComponentActivity() {
             // Each branch must own its recording layer so they never write into
             // the same GraphicsLayer during a transition.
             val branchBarBackdrop = rememberBarBackdrop()
-            val activeBarBackdrop = if (blurEnabled) branchBarBackdrop else null
+            val branchHazeState = rememberHazeState()
+            val activeHazeState = if (blurEnabled && hazeRendererEnabled) branchHazeState else null
+            val activeBarBackdrop = if (blurEnabled && !hazeRendererEnabled) branchBarBackdrop else null
             val topLevelScreen = animatedShell == TOP_LEVEL_CONTAINER
             val visiblePage = if (topLevelScreen) page else animatedShell
             val visibleTitle = pageTitle(visiblePage)
@@ -1031,7 +1041,7 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
                         if (!topLevelScreen) {
-                            TintedBar(activeBarBackdrop) {
+                            TintedBar(activeBarBackdrop, hazeState = activeHazeState) {
                                 val navigationIcon: @Composable () -> Unit = {
                                     if (visiblePage != ONBOARDING || onboardingDone) {
                                         IconButton(onClick = ::navigateBack) {
@@ -1074,6 +1084,9 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .then(
+                                if (activeHazeState != null) Modifier.hazeSource(activeHazeState) else Modifier
+                            )
+                            .then(
                                 if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier
                             )
                     ) {
@@ -1096,6 +1109,7 @@ class MainActivity : ComponentActivity() {
                 if (topLevelScreen) {
                     TopLevelProgressiveBar(
                         backdrop = activeBarBackdrop,
+                        hazeState = activeHazeState,
                         pageTitles = topPages.map(::pageTitle),
                         pagePosition = pagePosition
                     )
@@ -1278,6 +1292,8 @@ class MainActivity : ComponentActivity() {
         onNavigationStyle: (String) -> Unit,
         blurEnabled: Boolean,
         onBlurEnabled: (Boolean) -> Unit,
+        hazeRendererEnabled: Boolean,
+        onHazeRendererEnabled: (Boolean) -> Unit,
         onThemeMode: (String) -> Unit
     ) {
         item {
@@ -1299,13 +1315,22 @@ class MainActivity : ComponentActivity() {
                 SwitchPreference(
                     modifier = PreferenceItemModifier,
                     title = "背景模糊",
-                    summary = if (blurEnabled) "已啟用；頂欄使用背景模糊" else "已停用；頂欄使用半透明背景",
+                    summary = if (blurEnabled) "頂欄使用背景模糊" else "頂欄使用半透明背景",
                     checked = blurEnabled,
                     onCheckedChange = onBlurEnabled
                 )
+                SwitchPreference(
+                    modifier = PreferenceItemModifier,
+                    title = "Haze 2.1 漸進模糊（測試）",
+                    summary = if (hazeRendererEnabled) "使用 Haze 2.1，關閉可切回原本的 AGSL 效果"
+                        else "使用原本的 AGSL；可啟用 Haze 2.1 比較效果",
+                    enabled = blurEnabled,
+                    checked = hazeRendererEnabled,
+                    onCheckedChange = onHazeRendererEnabled
+                )
             }
         }
-        item { InfoCard("顯示效果", "背景模糊只影響頂欄；底欄使用實色背景。") }
+        item { InfoCard("顯示效果", "兩種模糊只作用於頂欄。Haze 2.1 目前是可選的實驗效果；底欄仍使用實色背景。") }
     }
 
     private fun LazyListScope.logPage(events: List<LogEvent>, busy: Boolean, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
