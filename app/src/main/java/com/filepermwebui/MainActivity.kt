@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -1363,14 +1364,18 @@ class MainActivity : ComponentActivity() {
             }
         }
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppUi.SectionGap)) {
-                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(AppUi.CardPadding), colors = translucentAboutCardColors()) {
-                    Text("LCPatch 版本", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                    Spacer(Modifier.height(AppUi.ContentGap)); Text(BuildConfig.VERSION_NAME, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                }
-                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(AppUi.CardPadding), colors = translucentAboutCardColors()) {
-                    Text("遊戲版本", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                    Spacer(Modifier.height(AppUi.ContentGap)); Text(game.version.substringBefore(" ("), fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val compact = maxWidth < 400.dp
+                if (compact) {
+                    Column(verticalArrangement = Arrangement.spacedBy(AppUi.SectionGap)) {
+                        VersionSummaryCard("LCPatch 版本", BuildConfig.VERSION_NAME, Modifier.fillMaxWidth())
+                        VersionSummaryCard("遊戲版本", game.version.substringBefore(" ("), Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(AppUi.SectionGap)) {
+                        VersionSummaryCard("LCPatch 版本", BuildConfig.VERSION_NAME, Modifier.weight(1f))
+                        VersionSummaryCard("遊戲版本", game.version.substringBefore(" ("), Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -1569,6 +1574,18 @@ class MainActivity : ComponentActivity() {
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold
             )
+        }
+    }
+
+    @Composable private fun VersionSummaryCard(label: String, value: String, modifier: Modifier = Modifier) {
+        Card(
+            modifier = modifier,
+            insideMargin = PaddingValues(AppUi.CardPadding),
+            colors = translucentAboutCardColors()
+        ) {
+            Text(label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
+            Spacer(Modifier.height(AppUi.ContentGap))
+            Text(value, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 
