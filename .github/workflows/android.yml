@@ -18,6 +18,45 @@ jobs:
       - name: Run shared Android validation
         uses: ./.github/actions/android-build
 
+
+      # Same-repo test branch only. Produce an installable APK with the existing
+      # release certificate, but do NOT create a tag or GitHub Release.
+      - name: Sign installable test APK (no publishing)
+        if: github.event_name == 'pull_request' && github.head_ref == 'test/verification-guard-adaptive-icon' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.LCPATCH_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.LCPATCH_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.LCPATCH_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.LCPATCH_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_BASE64" || { echo "Test signing secret is not configured."; exit 1; }
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+          mkdir -p build/ci-signing dist
+          trap 'rm -rf build/ci-signing' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > build/ci-signing/lcpatch.p12
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -P 16 -f 4 \
+            app/build/outputs/apk/release/app-release-unsigned.apk build/ci-signing/aligned.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" sign \
+            --ks build/ci-signing/lcpatch.p12 --ks-type PKCS12 \
+            --ks-key-alias "$KEY_ALIAS" --ks-pass "pass:$STORE_PASSWORD" --key-pass "pass:$KEY_PASSWORD" \
+            --v1-signing-enabled false --v2-signing-enabled false --v3-signing-enabled true \
+            --out dist/LCPatch-test-NO-RELEASE.apk build/ci-signing/aligned.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose dist/LCPatch-test-NO-RELEASE.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 4 dist/LCPatch-test-NO-RELEASE.apk
+
+      - name: Upload installable test APK (artifact only)
+        if: github.event_name == 'pull_request' && github.head_ref == 'test/verification-guard-adaptive-icon' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-artifact@v6
+        with:
+          name: LCPatch-test-NO-RELEASE
+          path: dist/LCPatch-test-NO-RELEASE.apk
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload unsigned APK
         uses: actions/upload-artifact@v6
         with:
