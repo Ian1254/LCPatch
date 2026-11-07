@@ -34,6 +34,8 @@ internal object AppUi {
     val ActionTopGap = 16.dp
     val ActionMinHeight = 52.dp
     val PreferenceCorner = 18.dp
+    val ActionCorner = 16.dp
+    val DropdownItemCorner = 12.dp
 }
 
 internal val AppPreferenceModifier: Modifier =
@@ -81,7 +83,8 @@ internal fun AppPrimaryAction(
     enabled: Boolean = true,
 ) {
     Button(
-        modifier = modifier.fillMaxWidth().heightIn(min = AppUi.ActionMinHeight),
+        modifier = modifier.fillMaxWidth().heightIn(min = AppUi.ActionMinHeight)
+            .clip(RoundedCornerShape(AppUi.ActionCorner)),
         enabled = enabled,
         onClick = onClick,
     ) {
@@ -97,7 +100,8 @@ internal fun AppSecondaryAction(
     enabled: Boolean = true,
 ) {
     TextButton(
-        modifier = modifier.fillMaxWidth().heightIn(min = AppUi.ActionMinHeight),
+        modifier = modifier.fillMaxWidth().heightIn(min = AppUi.ActionMinHeight)
+            .clip(RoundedCornerShape(AppUi.ActionCorner)),
         text = text,
         enabled = enabled,
         onClick = onClick,
