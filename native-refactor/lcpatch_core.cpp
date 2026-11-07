@@ -166,22 +166,26 @@ bool buildLocalizeRedirect(const char *path, char *output, size_t outputSize) {
 
 const char *redirectReadPath(const char *path, char *buffer, size_t size) {
     if (!buildLocalizeRedirect(path, buffer, size)) return path;
-    if (gVerificationProfile.load(std::memory_order_acquire)) {
-        // Protected code can become readable before it is decrypted. Validate
-        // the exact entry lazily on a real localization read, never call it.
-        if (!gVerificationReady.load(std::memory_order_acquire) &&
-            std::memcmp(reinterpret_cast<const void *>(gVerificationRange.begin),
-                        gVerificationSelected->entry.data(), gVerificationSelected->entry.size()) == 0) {
-            if (!gVerificationReady.exchange(true, std::memory_order_acq_rel))
-                breadcrumb("INFO", "core.io.verify_guard.ready", "profile=%s; read-only stack guard", gVerificationSelected->name);
-        }
-        if (gVerificationReady.load(std::memory_order_acquire) &&
-            lcpatch::isResourceVerificationRead(gVerificationRange, gVerificationImage)) {
-            const unsigned count = gVerificationReads.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (count <= 6 || count % 128 == 0)
-                breadcrumb("INFO", "core.io.verify_read", "original retained count=%u path=%s", count, path);
-            return path;
-        }
+    // Unknown builds must not inherit beta.3's low-level redirection: the
+    // same path is opened by both the game verifier and the text loader.
+    const bool profileMatched = gVerificationProfile.load(std::memory_order_acquire);
+    if (!profileMatched) return path;
+    // Protected code can become readable after initialization. Validate the
+    // exact entry lazily on a read, without executing game code.
+    if (!gVerificationReady.load(std::memory_order_acquire) &&
+        std::memcmp(reinterpret_cast<const void *>(gVerificationRange.begin),
+                    gVerificationSelected->entry.data(), gVerificationSelected->entry.size()) == 0) {
+        if (!gVerificationReady.exchange(true, std::memory_order_acq_rel))
+            breadcrumb("INFO", "core.io.verify_guard.ready", "profile=%s; read-only stack guard", gVerificationSelected->name);
+    }
+    const bool signatureReady = gVerificationReady.load(std::memory_order_acquire);
+    if (!lcpatch::shouldRedirectLocalizationRead(profileMatched, signatureReady, false))
+        return path;  // Keep official bytes while the verification guard is unavailable.
+    if (lcpatch::isResourceVerificationRead(gVerificationRange, gVerificationImage)) {
+        const unsigned count = gVerificationReads.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (count <= 6 || count % 128 == 0)
+            breadcrumb("INFO", "core.io.verify_read", "original retained count=%u path=%s", count, path);
+        return path;
     }
     const unsigned count = gRedirectCount.fetch_add(1, std::memory_order_relaxed);
     if (count < 12) {
@@ -357,7 +361,7 @@ void configureVerificationGuard(const UnitySearch &image) {
         }
         gVerificationProfile.store(true, std::memory_order_release);
         breadcrumb("INFO", "core.io.verify_guard.profile", "%s identified; awaiting exact entry signature", identified->name);
-    } else breadcrumb("WARN", "core.io.verify_guard.unsupported", "unknown IL2CPP build; beta.3 read behavior retained");
+    } else breadcrumb("WARN", "core.io.verify_guard.unsupported", "unknown IL2CPP build; text redirect disabled to preserve official verification reads");
 }
 
 uintptr_t loadedAddress(const UnitySearch &image, Elf64_Addr value, size_t length) {
