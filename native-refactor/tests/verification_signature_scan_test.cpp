@@ -5,7 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 
-#define CHECK(v) do { if (!(v)) { std::fprintf(stderr, "FAIL line %d: %s\\n", __LINE__, #v); std::exit(1); } ++checks; } while (false)
+#define CHECK(v) do { if (!(v)) { std::fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #v); std::exit(1); } ++checks; } while (false)
 
 int main() {
     unsigned checks = 0;
@@ -56,7 +56,7 @@ int main() {
     CHECK(match.address == base + 0x200 && match.signatureIndex == 1);
 
     // Never accept an invalid file-open call, near-match, or ambiguous entry.
-    bytes[0x200 + kFileStreamCall] = 0;
+    bytes[0x200 + kFileStreamCall + 3] = 0;
     match = scan();
     CHECK(match.scanComplete && match.candidateCount == 0 && match.address == 0);
 
@@ -82,6 +82,6 @@ int main() {
     match = lcpatch::findUniqueVerificationSignature(invalid, 1, signatures, 2, reader);
     CHECK(!match.scanComplete && match.address == 0);
 
-    std::printf("PASS: %u verifier-signature compatibility checks\\n", checks);
+    std::printf("PASS: %u verifier-signature compatibility checks\n", checks);
     return 0;
 }
