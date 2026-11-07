@@ -370,6 +370,51 @@ bool verificationEntryReady() {
         gVerificationRange.begin, signature, bytes, sizeof(bytes));
 }
 
+// Diagnostic only: capture the first two ambiguous verifier candidates from
+// *running* decrypted code. Disk IL2CPP sections may be protected/opaque.
+// This never chooses a candidate, installs new hooks, or changes redirection.
+void logAmbiguousVerificationCandidates(
+    const UnitySearch &image, const lcpatch::VerificationSignatureMatch &match) {
+    if (match.candidateCount < 2) return;
+    constexpr size_t kSampleLength = 0x1ec;
+    constexpr size_t kLineBytes = 64;
+    for (size_t index = 0; index < 2; ++index) {
+        const uintptr_t at = match.diagnosticCandidates[index];
+        if (!at || at < image.base ||
+            !rangeContains(image.executable, image.count, at, kSampleLength)) {
+            breadcrumb("WARN", "core.io.verify_guard.candidate", "index=%zu invalid range", index);
+            continue;
+        }
+        uint8_t sample[kSampleLength]{};
+        if (!readSelfCode(at, sample, sizeof(sample))) {
+            breadcrumb("WARN", "core.io.verify_guard.candidate", "index=%zu unavailable", index);
+            continue;
+        }
+        uint32_t bl = 0;
+        std::memcpy(&bl, sample + kVerificationFileCallOffset, sizeof(bl));
+        const int64_t displacement =
+            static_cast<int64_t>(static_cast<int32_t>(bl << 6)) >> 4;
+        const uintptr_t callSite = at + kVerificationFileCallOffset;
+        const uintptr_t target = static_cast<uintptr_t>(
+            static_cast<int64_t>(callSite) + displacement);
+        breadcrumb("INFO", "core.io.verify_guard.candidate",
+                   "index=%zu rva=+0x%lx method_bytes=%zu bl=0x%08x call_rva=+0x%lx",
+                   index, static_cast<unsigned long>(at - image.base),
+                   sizeof(sample), bl, static_cast<unsigned long>(target - image.base));
+        for (size_t offset = 0; offset < sizeof(sample); offset += kLineBytes) {
+            char hex[2 * kLineBytes + 1]{};
+            const size_t length = std::min(kLineBytes, sizeof(sample) - offset);
+            for (size_t n = 0; n < length; ++n) {
+                static constexpr char kHex[] = "0123456789abcdef";
+                hex[2 * n] = kHex[sample[offset + n] >> 4];
+                hex[2 * n + 1] = kHex[sample[offset + n] & 0xf];
+            }
+            breadcrumb("INFO", "core.io.verify_guard.candidate_bytes",
+                       "index=%zu offset=+0x%zx hex=%s", index, offset, hex);
+        }
+    }
+}
+
 void configureVerificationGuard(const UnitySearch &image) {
     if (!image.base || image.count == 0 ||
         !rangeContains(image.readable, image.readableCount, image.base, sizeof(Elf64_Ehdr))) {
@@ -442,6 +487,7 @@ void configureVerificationGuard(const UnitySearch &image) {
             breadcrumb("WARN", "core.io.verify_guard.discovery",
                        "masked signature scan=%s candidates=%u; official file reads preserved",
                        match.scanComplete ? "complete" : "incomplete", match.candidateCount);
+            logAmbiguousVerificationCandidates(image, match);
         }
     }
 
