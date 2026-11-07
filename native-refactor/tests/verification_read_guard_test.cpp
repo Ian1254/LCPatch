@@ -35,6 +35,12 @@ int main(int argc, char **argv) {
     CHECK(range.end > range.begin);
     CHECK(!lcpatch::isResourceVerificationRead({}));
     CHECK(!lcpatch::isResourceVerificationRead({2, 1}));
+    // A new or changed IL2CPP build must never fall back to beta.3 redirects.
+    CHECK(!lcpatch::shouldRedirectLocalizationRead(false, false, false));
+    CHECK(!lcpatch::shouldRedirectLocalizationRead(false, true, false));
+    CHECK(!lcpatch::shouldRedirectLocalizationRead(true, false, false));
+    CHECK(!lcpatch::shouldRedirectLocalizationRead(true, true, true));
+    CHECK(lcpatch::shouldRedirectLocalizationRead(true, true, false));
     for (unsigned restart = 0; restart < 3; ++restart) {
         CHECK(verificationRead() == "official data used for integrity verification");
         CHECK(selectedRead() == "translated text with different bytes and length");

@@ -7,9 +7,11 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdarg>
@@ -20,6 +22,7 @@
 
 #include "dobby.h"
 #include "verification_read_guard.h"
+#include "verification_signature_scan.h"
 
 namespace {
 
@@ -88,6 +91,9 @@ lcpatch::VerificationRange gVerificationRange{};
 lcpatch::VerificationRange gVerificationImage{};
 std::atomic<bool> gVerificationProfile{false};
 std::atomic<bool> gVerificationReady{false};
+bool gVerificationMasked = false; // Published before gVerificationProfile.store(release).
+lcpatch::SignatureScanRange gVerificationCodeRanges[kMaxSegments]{};
+size_t gVerificationCodeRangeCount = 0;
 std::atomic<unsigned> gVerificationReads{0};
 struct VerificationProfile {
     const char *name;
@@ -97,6 +103,15 @@ struct VerificationProfile {
     std::array<uint8_t, 32> entry;
 };
 const VerificationProfile *gVerificationSelected = nullptr;
+// Match complete prologue plus ADRP opcode/rd and LDRB opcode/registers.
+// Mask only relocatable page immediates and the validated LDRB field offset.
+constexpr std::array<uint8_t, 32> kVerificationEntryMask = {
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0x1f, 0x00, 0x00, 0x9f, 0x1f, 0x00, 0x00, 0x9f,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0x03, 0xc0, 0xff,
+};
+constexpr size_t kVerificationFileCallOffset = 0x88;
 constexpr VerificationProfile kVerificationProfiles[] = {
     {"limbus-1.117.1", {
     0xbe, 0x4d, 0xb3, 0x5a, 0xd4, 0xd0, 0x6a, 0x2c, 0x2b, 0x9f,
@@ -148,6 +163,7 @@ void breadcrumb(const char *level, const char *code, const char *format, ...) {
 }
 
 bool installHook(void *target, void *replacement, void **original, const char *name);
+bool verificationEntryReady();
 
 bool buildLocalizeRedirect(const char *path, char *output, size_t outputSize) {
     if (!path || !*path || !output || outputSize == 0 ||
@@ -166,22 +182,25 @@ bool buildLocalizeRedirect(const char *path, char *output, size_t outputSize) {
 
 const char *redirectReadPath(const char *path, char *buffer, size_t size) {
     if (!buildLocalizeRedirect(path, buffer, size)) return path;
-    if (gVerificationProfile.load(std::memory_order_acquire)) {
-        // Protected code can become readable before it is decrypted. Validate
-        // the exact entry lazily on a real localization read, never call it.
-        if (!gVerificationReady.load(std::memory_order_acquire) &&
-            std::memcmp(reinterpret_cast<const void *>(gVerificationRange.begin),
-                        gVerificationSelected->entry.data(), gVerificationSelected->entry.size()) == 0) {
-            if (!gVerificationReady.exchange(true, std::memory_order_acq_rel))
-                breadcrumb("INFO", "core.io.verify_guard.ready", "profile=%s; read-only stack guard", gVerificationSelected->name);
-        }
-        if (gVerificationReady.load(std::memory_order_acquire) &&
-            lcpatch::isResourceVerificationRead(gVerificationRange, gVerificationImage)) {
-            const unsigned count = gVerificationReads.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (count <= 6 || count % 128 == 0)
-                breadcrumb("INFO", "core.io.verify_read", "original retained count=%u path=%s", count, path);
-            return path;
-        }
+    // Unknown builds must not inherit beta.3's low-level redirection: the
+    // same path is opened by both the game verifier and the text loader.
+    const bool profileMatched = gVerificationProfile.load(std::memory_order_acquire);
+    if (!profileMatched) return path;
+    // Revalidate using the SAME exact/masked policy as initial discovery.
+    // A masked discovery must never be followed by an exact-byte comparison.
+    if (!gVerificationReady.load(std::memory_order_acquire) && verificationEntryReady()) {
+        if (!gVerificationReady.exchange(true, std::memory_order_acq_rel))
+            breadcrumb("INFO", "core.io.verify_guard.ready", "reference=%s mode=%s; read-only stack guard",
+                       gVerificationSelected->name, gVerificationMasked ? "masked_signature" : "build_id");
+    }
+    const bool signatureReady = gVerificationReady.load(std::memory_order_acquire);
+    if (!lcpatch::shouldRedirectLocalizationRead(profileMatched, signatureReady, false))
+        return path;  // Keep official bytes while the verification guard is unavailable.
+    if (lcpatch::isResourceVerificationRead(gVerificationRange, gVerificationImage)) {
+        const unsigned count = gVerificationReads.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (count <= 6 || count % 128 == 0)
+            breadcrumb("INFO", "core.io.verify_read", "original retained count=%u path=%s", count, path);
+        return path;
     }
     const unsigned count = gRedirectCount.fetch_add(1, std::memory_order_relaxed);
     if (count < 12) {
@@ -317,8 +336,105 @@ bool rangeContains(const Segment *segments, size_t count, uintptr_t address, siz
     return false;
 }
 
+bool readSelfCode(uintptr_t address, uint8_t *destination, size_t bytes) {
+    iovec local{destination, bytes};
+    iovec remote{reinterpret_cast<void *>(address), bytes};
+    // A failed read (e.g. code is protected or not yet available) must never
+    // fault the game process or turn into an unverified positive match.
+    return syscall(SYS_process_vm_readv, getpid(), &local, 1, &remote, 1, 0) ==
+           static_cast<ssize_t>(bytes);
+}
+
+bool verificationEntryReady() {
+    if (!gVerificationSelected || !gVerificationRange.begin ||
+        gVerificationRange.end <= gVerificationRange.begin) return false;
+    const auto &profile = *gVerificationSelected;
+    // Preserve beta.4's proven exact check for recognized Build IDs. Their
+    // verified executable mapping is already used by the original code path;
+    // introducing a syscall dependency here would regress known-good builds.
+    if (!gVerificationMasked)
+        return std::memcmp(reinterpret_cast<const void *>(gVerificationRange.begin),
+                           profile.entry.data(), profile.entry.size()) == 0;
+
+    constexpr size_t kMaxReadSpan = 512;
+    uint8_t bytes[kMaxReadSpan]{};
+    const size_t methodSize = profile.end - profile.begin;
+    if (!methodSize || methodSize > sizeof(bytes) ||
+        !readSelfCode(gVerificationRange.begin, bytes, methodSize)) return false;
+    const lcpatch::VerificationSignature signature{
+        profile.entry.data(), profile.entry.size(),
+        methodSize, kVerificationFileCallOffset,
+        kVerificationEntryMask.data(), true,
+    };
+    // The masked path must pass the same entry, call-target AND body-shape
+    // checks used during discovery. Never re-enable from a weaker check.
+    return lcpatch::validatesVerificationCandidate(
+        gVerificationCodeRanges, gVerificationCodeRangeCount,
+        gVerificationRange.begin, signature, bytes, methodSize);
+}
+
+// Diagnostic only: capture the first two ambiguous verifier candidates from
+// *running* decrypted code. Disk IL2CPP sections may be protected/opaque.
+// This never chooses a candidate, installs new hooks, or changes redirection.
+void logAmbiguousVerificationCandidates(
+    const UnitySearch &image, const lcpatch::VerificationSignatureMatch &match) {
+    if (match.candidateCount < 2) return;
+    constexpr size_t kSampleLength = 0x1ec;
+    constexpr size_t kLineBytes = 64;
+    for (size_t index = 0; index < 2; ++index) {
+        const uintptr_t at = match.diagnosticCandidates[index];
+        if (!at || at < image.base ||
+            !rangeContains(image.executable, image.count, at, kSampleLength)) {
+            breadcrumb("WARN", "core.io.verify_guard.candidate", "index=%zu invalid range", index);
+            continue;
+        }
+        uint8_t sample[kSampleLength]{};
+        if (!readSelfCode(at, sample, sizeof(sample))) {
+            breadcrumb("WARN", "core.io.verify_guard.candidate", "index=%zu unavailable", index);
+            continue;
+        }
+        uint32_t bl = 0;
+        std::memcpy(&bl, sample + kVerificationFileCallOffset, sizeof(bl));
+        const int64_t displacement =
+            static_cast<int64_t>(static_cast<int32_t>(bl << 6)) >> 4;
+        const uintptr_t callSite = at + kVerificationFileCallOffset;
+        const uintptr_t target = static_cast<uintptr_t>(
+            static_cast<int64_t>(callSite) + displacement);
+        breadcrumb("INFO", "core.io.verify_guard.candidate",
+                   "index=%zu rva=+0x%lx method_bytes=%zu bl=0x%08x call_rva=+0x%lx",
+                   index, static_cast<unsigned long>(at - image.base),
+                   sizeof(sample), bl, static_cast<unsigned long>(target - image.base));
+        for (size_t offset = 0; offset < sizeof(sample); offset += kLineBytes) {
+            char hex[2 * kLineBytes + 1]{};
+            const size_t length = std::min(kLineBytes, sizeof(sample) - offset);
+            for (size_t n = 0; n < length; ++n) {
+                static constexpr char kHex[] = "0123456789abcdef";
+                hex[2 * n] = kHex[sample[offset + n] >> 4];
+                hex[2 * n + 1] = kHex[sample[offset + n] & 0xf];
+            }
+            breadcrumb("INFO", "core.io.verify_guard.candidate_bytes",
+                       "index=%zu offset=+0x%zx hex=%s", index, offset, hex);
+        }
+    }
+}
+
 void configureVerificationGuard(const UnitySearch &image) {
+    if (!image.base || image.count == 0 ||
+        !rangeContains(image.readable, image.readableCount, image.base, sizeof(Elf64_Ehdr))) {
+        breadcrumb("WARN", "core.io.verify_guard.unsupported", "invalid ELF or executable segments");
+        return;
+    }
     const auto *elf = reinterpret_cast<const Elf64_Ehdr *>(image.base);
+    if (std::memcmp(elf->e_ident, ELFMAG, SELFMAG) != 0 ||
+        elf->e_ident[EI_CLASS] != ELFCLASS64 ||
+        elf->e_phentsize != sizeof(Elf64_Phdr) || !elf->e_phnum ||
+        elf->e_phnum > 256 || elf->e_phoff > UINTPTR_MAX - image.base ||
+        !rangeContains(image.readable, image.readableCount,
+                       image.base + elf->e_phoff,
+                       static_cast<size_t>(elf->e_phnum) * sizeof(Elf64_Phdr))) {
+        breadcrumb("WARN", "core.io.verify_guard.unsupported", "ELF program headers invalid");
+        return;
+    }
     const auto *headers = reinterpret_cast<const Elf64_Phdr *>(image.base + elf->e_phoff);
     const VerificationProfile *identified = nullptr;
     for (Elf64_Half i = 0; i < elf->e_phnum && !identified; ++i) {
@@ -334,7 +450,16 @@ void configureVerificationGuard(const UnitySearch &image) {
             if (names > remaining || data > remaining - names) break;
             const auto *name = reinterpret_cast<const uint8_t *>(note + 1);
             if (note->n_type == NT_GNU_BUILD_ID && note->n_namesz == 4 &&
-                note->n_descsz == 20 && std::memcmp(name, "GNU\0", 4) == 0) {
+                note->n_descsz == 20 && std::memcmp(name, "GNU", 4) == 0) {
+                // Confirm the running ELF matches the uploaded split APK.
+                char buildIdHex[41]{};
+                static constexpr char kHex[] = "0123456789abcdef";
+                for (size_t n = 0; n < 20; ++n) {
+                    const uint8_t byte = name[names + n];
+                    buildIdHex[2 * n] = kHex[byte >> 4];
+                    buildIdHex[2 * n + 1] = kHex[byte & 0xf];
+                }
+                breadcrumb("INFO", "core.io.verify_guard.build_id", "%s", buildIdHex);
                 for (const auto &profile : kVerificationProfiles) {
                     if (std::memcmp(name + names, profile.buildId.data(), profile.buildId.size()) == 0) {
                         identified = &profile;
@@ -345,19 +470,65 @@ void configureVerificationGuard(const UnitySearch &image) {
             offset += sizeof(Elf64_Nhdr) + names + data;
         }
     }
-    const uintptr_t begin = identified ? image.base + identified->begin : 0;
-    const uintptr_t end = identified ? image.base + identified->end : 0;
-    if (identified && rangeContains(image.executable, image.count, begin, end - begin)) {
+
+    uintptr_t begin = identified ? image.base + identified->begin : 0;
+    uintptr_t end = identified ? image.base + identified->end : 0;
+    const char *mode = "build_id";
+    if (!identified) {
+        // The two analyzed versions share one masked 8-instruction prologue.
+        // New Build IDs may reuse it after ADRP/field-offset relocation; the
+        // BL caller must still resolve to executable code outside this method.
+        // A unique candidate is required. We do not guess when code changes.
+        lcpatch::SignatureScanRange ranges[kMaxSegments]{};
+        for (size_t i = 0; i < image.count; ++i)
+            ranges[i] = {image.executable[i].begin, image.executable[i].end};
+        const auto &reference = kVerificationProfiles[0];
+        const lcpatch::VerificationSignature signature{
+            reference.entry.data(), reference.entry.size(),
+            reference.end - reference.begin,
+            kVerificationFileCallOffset, kVerificationEntryMask.data(),
+            true, // 1.118.1: reject early-RET short-function collisions.
+        };
+        const auto match = lcpatch::findUniqueVerificationSignature(
+            ranges, image.count, &signature, 1, readSelfCode);
+        if (match.scanComplete && match.candidateCount == 1) {
+            identified = &reference;
+            begin = match.address;
+            end = begin + identified->end - identified->begin;
+            mode = "masked_signature";
+        } else {
+            breadcrumb("WARN", "core.io.verify_guard.discovery",
+                       "masked signature scan=%s candidates=%u; official file reads preserved",
+                       match.scanComplete ? "complete" : "incomplete", match.candidateCount);
+            logAmbiguousVerificationCandidates(image, match);
+        }
+    }
+
+    if (identified && end > begin &&
+        rangeContains(image.executable, image.count, begin, end - begin)) {
         gVerificationRange = {begin, end};
         gVerificationSelected = identified;
         gVerificationImage = {image.executable[0].begin, image.executable[0].end};
         for (size_t i = 1; i < image.count; ++i) {
-            if (image.executable[i].begin < gVerificationImage.begin) gVerificationImage.begin = image.executable[i].begin;
-            if (image.executable[i].end > gVerificationImage.end) gVerificationImage.end = image.executable[i].end;
+            if (image.executable[i].begin < gVerificationImage.begin)
+                gVerificationImage.begin = image.executable[i].begin;
+            if (image.executable[i].end > gVerificationImage.end)
+                gVerificationImage.end = image.executable[i].end;
+        }
+        gVerificationMasked = std::strcmp(mode, "masked_signature") == 0;
+        if (gVerificationMasked) {
+            gVerificationCodeRangeCount = image.count;
+            for (size_t i = 0; i < image.count; ++i)
+                gVerificationCodeRanges[i] = {image.executable[i].begin, image.executable[i].end};
         }
         gVerificationProfile.store(true, std::memory_order_release);
-        breadcrumb("INFO", "core.io.verify_guard.profile", "%s identified; awaiting exact entry signature", identified->name);
-    } else breadcrumb("WARN", "core.io.verify_guard.unsupported", "unknown IL2CPP build; beta.3 read behavior retained");
+        breadcrumb("INFO", "core.io.verify_guard.profile",
+                   "mode=%s reference=%s target=+0x%lx awaiting exact entry signature",
+                   mode, identified->name, static_cast<unsigned long>(begin - image.base));
+    } else {
+        breadcrumb("WARN", "core.io.verify_guard.unsupported",
+                   "no verified matching method; text redirect disabled, official reads preserved");
+    }
 }
 
 uintptr_t loadedAddress(const UnitySearch &image, Elf64_Addr value, size_t length) {
