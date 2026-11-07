@@ -828,8 +828,14 @@ class MainActivity : ComponentActivity() {
                                 onNavigationStyle = { navigationStyle = it; appPrefs.edit().putString("navigation_style", it).apply() },
                                 uiStyle = uiStyle,
                                 onUiStyle = { selected ->
-                                    uiStyle = selected
-                                    appPrefs.edit().putString("ui_style", selected.key).apply()
+                                    if (uiStyle != selected) {
+                                        // The two variants have different item counts and dimensions.
+                                        // Discard old overview scroll restore positions on style switches.
+                                        pageScrollPositions.remove(OVERVIEW)
+                                        scope.launch { overviewListState.scrollToItem(0) }
+                                        uiStyle = selected
+                                        appPrefs.edit().putString("ui_style", selected.key).apply()
+                                    }
                                 },
                                 blurEnabled = blurEnabled,
                                 onBlurEnabled = { enabled -> blurEnabled = enabled; appPrefs.edit().putBoolean("blur_enabled", enabled).apply() },
@@ -1087,11 +1093,19 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (topLevelScreen) {
-                    TopLevelProgressiveBar(
-                        backdrop = activeBarBackdrop,
-                        pageTitles = topPages.map(::pageTitle),
-                        pagePosition = pagePosition
-                    )
+                    if (uiStyle == UiStyle.COLOR_OS_17) {
+                        ColorTopLevelBar(
+                            backdrop = activeBarBackdrop,
+                            pageTitles = topPages.map(::pageTitle),
+                            pagePosition = pagePosition
+                        )
+                    } else {
+                        TopLevelProgressiveBar(
+                            backdrop = activeBarBackdrop,
+                            pageTitles = topPages.map(::pageTitle),
+                            pagePosition = pagePosition
+                        )
+                    }
                 }
             }
             }
