@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Keep the existing PNG on Android 9 and any launchers using legacy icons. -->
+    <item type="mipmap" name="ic_launcher">@drawable/ic_launcher</item>
+    <item type="mipmap" name="ic_launcher_round">@drawable/ic_launcher</item>
+</resources>
