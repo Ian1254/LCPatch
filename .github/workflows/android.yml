@@ -22,7 +22,7 @@ jobs:
       # Same-repo test branch only. Produce an installable APK with the existing
       # release certificate, but do NOT create a tag or GitHub Release.
       - name: Sign installable test APK (no publishing)
-        if: github.event_name == 'pull_request' && github.head_ref == 'test/verification-guard-adaptive-icon' && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && (github.head_ref == 'test/verification-guard-adaptive-icon' || github.head_ref == 'test/localization-hyperos4-coloros17') && github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.LCPATCH_KEYSTORE_BASE64 }}
@@ -45,17 +45,26 @@ jobs:
             --ks-key-alias "$KEY_ALIAS" --ks-pass "pass:$STORE_PASSWORD" --key-pass "pass:$KEY_PASSWORD" \
             --v1-signing-enabled false --v2-signing-enabled false --v3-signing-enabled true \
             --out dist/LCPatch-test-NO-RELEASE.apk build/ci-signing/aligned.apk
-          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose dist/LCPatch-test-NO-RELEASE.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist/LCPatch-test-NO-RELEASE.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --print-certs dist/LCPatch-test-NO-RELEASE.apk |
+            grep -Fqi '95eb12495375678d3365b95f512eb79eba3ce6bcc8906702721badc52a1719a1'
           "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 4 dist/LCPatch-test-NO-RELEASE.apk
 
+      - name: Record signed test checksums
+        if: github.event_name == 'pull_request' && github.head_ref == 'test/localization-hyperos4-coloros17' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        run: |
+          sha256sum dist/LCPatch-test-NO-RELEASE.apk > dist/LCPatch-test-NO-RELEASE.apk.sha256
+          printf '%s\n' "Source: $GITHUB_SHA" "Device testing: not run (user testing)" > dist/BUILD.txt
+
       - name: Upload installable test APK (artifact only)
-        if: github.event_name == 'pull_request' && github.head_ref == 'test/verification-guard-adaptive-icon' && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && (github.head_ref == 'test/verification-guard-adaptive-icon' || github.head_ref == 'test/localization-hyperos4-coloros17') && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/upload-artifact@v6
         with:
           name: LCPatch-test-NO-RELEASE
-          path: dist/LCPatch-test-NO-RELEASE.apk
+          path: dist/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
       - name: Upload unsigned APK
         uses: actions/upload-artifact@v6
