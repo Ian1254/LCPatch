@@ -125,7 +125,7 @@ internal fun TopLevelProgressiveBar(
 
         Box(
             Modifier.fillMaxWidth().height(barHeight).clipToBounds(),
-            contentAlignment = Alignment.TopCenter
+            contentAlignment = Alignment.TopStart
         ) {
             val density = LocalDensity.current
             pageTitles.forEachIndexed { index, title ->
@@ -134,7 +134,7 @@ internal fun TopLevelProgressiveBar(
                     Text(
                         text = title,
                         modifier = Modifier
-                            .padding(top = statusInset + 20.dp)
+                            .padding(start = 24.dp, top = statusInset + 16.dp)
                             .offset {
                                 IntOffset(
                                     (delta * with(density) { 120.dp.toPx() }).roundToInt(),
@@ -142,9 +142,9 @@ internal fun TopLevelProgressiveBar(
                                 )
                             }
                             .graphicsLayer { alpha = (1f - abs(delta)).coerceIn(0f, 1f) },
-                        color = MiuixTheme.colorScheme.primary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold
+                        color = MiuixTheme.colorScheme.onSurface,
+                        fontSize = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 30.sp else 28.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
