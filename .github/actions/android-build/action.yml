@@ -47,6 +47,12 @@ runs:
         "$ANDROID_SDK_ROOT/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
           --strip-all app/src/main/jniLibs/arm64-v8a/liblcpatch_core.so
 
+    - name: Test TextAsset allowlist
+      shell: bash
+      run: |
+        g++ -std=c++17 -Wall -Wextra -Werror native-refactor/tests/text_asset_paths_test.cpp -o /tmp/lcpatch-text-assets-test
+        /tmp/lcpatch-text-assets-test
+
     - name: Test, lint and assemble
       shell: bash
       run: ./gradlew --no-daemon testDebugUnitTest lintVitalRelease assembleRelease
