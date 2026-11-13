@@ -103,8 +103,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Card
+import com.lcpatch.SystemButton as Button
+import com.lcpatch.SystemCard as Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -115,10 +115,10 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import com.lcpatch.SystemTextButton as TextButton
+import com.lcpatch.SystemArrowPreference as ArrowPreference
+import com.lcpatch.SystemSwitchPreference as SwitchPreference
+import com.lcpatch.SystemDropdownPreference as OverlayDropdownPreference
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Home
@@ -155,23 +155,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             var themeMode by remember { mutableStateOf(appPrefs.getString("theme_mode", "system") ?: "system") }
-            val controller = remember(themeMode) {
-                ThemeController(
-                    colorSchemeMode = when (themeMode) {
-                        "light" -> ColorSchemeMode.Light
-                        "dark" -> ColorSchemeMode.Dark
-                        else -> ColorSchemeMode.System
-                    }
-                )
-            }
-            MiuixTheme(controller = controller) {
-                App(themeMode) { value -> themeMode = value; appPrefs.edit().putString("theme_mode", value).apply() }
+            var systemUiStyle by remember { mutableStateOf(SystemUiStyle.fromId(appPrefs.getString("system_ui_style", null))) }
+            SystemUiTheme(systemUiStyle, themeMode) {
+                App(themeMode, systemUiStyle, { value -> systemUiStyle = value; appPrefs.edit().putString("system_ui_style", value.id).apply() }) { value -> themeMode = value; appPrefs.edit().putString("theme_mode", value).apply() }
             }
         }
     }
 
     @Composable
-    private fun App(themeMode: String, onThemeMode: (String) -> Unit) {
+    private fun App(themeMode: String, systemUiStyle: SystemUiStyle, onSystemUiStyle: (SystemUiStyle) -> Unit, onThemeMode: (String) -> Unit) {
         val taskState: MainTaskViewModel = viewModel()
         var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
         var navigationStack by rememberSaveable { mutableStateOf(intArrayOf()) }
@@ -832,6 +824,8 @@ class MainActivity : ComponentActivity() {
                             )
                             DISPLAY -> displaySettings(
                                 themeMode = themeMode,
+                                systemUiStyle = systemUiStyle,
+                                onSystemUiStyle = onSystemUiStyle,
                                 navigationStyle = navigationStyle,
                                 onNavigationStyle = { navigationStyle = it; appPrefs.edit().putString("navigation_style", it).apply() },
                                 blurEnabled = blurEnabled,
@@ -1046,22 +1040,16 @@ class MainActivity : ComponentActivity() {
                     },
                     bottomBar = {
                         if (topLevelScreen) {
-                            if (navigationStyle == "floating") {
-                                SukiFloatingBottomBar(
-                                    currentIndex = pagerState.settledPage,
-                                    targetIndex = topNavigationTarget,
-                                    transactionId = topNavigationTransaction,
-                                    pagePosition = pagePosition,
-                                    onTargetSelected = { index ->
-                                        topPages.getOrNull(index)?.let(::navigateTo)
-                                    },
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                SystemBottomNavigation(
+                                    index = pagerState.currentPage,
+                                    labels = listOf("概觀", "日誌", "設定"),
+                                    icons = listOf(MiuixIcons.Home, Icons.Default.List, MiuixIcons.Settings),
+                                    floating = navigationStyle == "floating",
+                                    backdrop = activeBarBackdrop,
+                                    hazeState = activeHazeState,
+                                    onSelected = { index -> topPages.getOrNull(index)?.let(::navigateTo) }
                                 )
-                            } else {
-                                NavigationBar(color = MiuixTheme.colorScheme.surfaceContainer) {
-                                    NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { navigateTo(OVERVIEW) }, icon = MiuixIcons.Home, label = "概觀")
-                                    NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { navigateTo(LOGS) }, icon = Icons.Default.List, label = "日誌")
-                                    NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { navigateTo(SETTINGS) }, icon = MiuixIcons.Settings, label = "設定")
-                                }
                             }
                         }
                     }
@@ -1194,6 +1182,7 @@ class MainActivity : ComponentActivity() {
                 )
                 Spacer(Modifier.height(3.dp))
                 Text("遊戲內語言需設為 ${targetLanguage.label}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
+                if (rootMode) Text(translations.pcCoverageSummary(), color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 12.sp)
                 Spacer(Modifier.height(6.dp))
                 SwitchPreference(
                     modifier = PreferenceItemModifier,
@@ -1255,7 +1244,12 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.height(8.dp))
                 }
                 ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入自訂漢化文件", summary = "從本機加入 ZIP 漢化包", onClick = onImport)
-                if (rootMode) ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "更換字型", summary = fontName, onClick = onFont)
+                if (rootMode) {
+                    var supplementEnabled by remember { mutableStateOf(translations.pcSupplementEnabled()) }
+                    SwitchPreference(title = "補齊 PC 版翻譯", summary = "套用時比對最新零協會語言包，補入缺檔與未翻譯文字；保留既有中文", enabled = !applying,
+                        checked = supplementEnabled, onCheckedChange = { value -> supplementEnabled = value; translations.setPcSupplementEnabled(value) })
+                    ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "更換字型", summary = fontName, onClick = onFont)
+                }
             }
         }
         if (rootMode && hasCustomFont) item { TextButton(modifier = Modifier.fillMaxWidth(), text = "移除自訂字型", onClick = onClearFont) }
@@ -1273,6 +1267,8 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.displaySettings(
         themeMode: String,
+        systemUiStyle: SystemUiStyle,
+        onSystemUiStyle: (SystemUiStyle) -> Unit,
         navigationStyle: String,
         onNavigationStyle: (String) -> Unit,
         blurEnabled: Boolean,
@@ -1283,6 +1279,13 @@ class MainActivity : ComponentActivity() {
     ) {
         item {
             Card {
+                OverlayDropdownPreference(
+                    modifier = PreferenceItemModifier,
+                    title = "系統介面風格",
+                    items = SystemUiStyle.entries.map { it.label },
+                    selectedIndex = SystemUiStyle.entries.indexOf(systemUiStyle),
+                    onSelectedIndexChange = { onSystemUiStyle(SystemUiStyle.entries[it]) }
+                )
                 OverlayDropdownPreference(
                     modifier = PreferenceItemModifier,
                     title = "深淺模式",
@@ -1366,7 +1369,7 @@ class MainActivity : ComponentActivity() {
                 Text("詳細資訊", style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.height(10.dp))
                 Detail("核心元件", "LSPosed API 102")
-                Detail("使用者介面", "Miuix 0.9.3")
+                Detail("介面風格", LocalSystemUiStyle.current.label)
                 Detail("文字轉換", "opencc4j 1.14.0")
                 Detail("目標架構", "arm64-v8a")
                 Detail("儲存目錄", if (translations.rootMode()) "/sdcard/LCPatch" else "App 私有儲存空間")
