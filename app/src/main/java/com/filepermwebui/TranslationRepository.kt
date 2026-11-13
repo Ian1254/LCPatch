@@ -123,6 +123,7 @@ class TranslationRepository(private val context: Context) {
             prepareCharacters(work) {}
             normalizeForLanguage(work, prepared, targetLanguage())
             if (rootMode()) {
+                writeTextAssetIndex(File(prepared, "Localize/cn"))
                 val font = File(prepared, "Localize/cn/ChineseFont.ttf")
                 customFontFile()?.copyTo(font, overwrite = true) ?: copyBundledPuaFont(font)
             }
@@ -282,7 +283,10 @@ class TranslationRepository(private val context: Context) {
         File(unpacked, ".lcpatch-script").writeText(script)
         val runtimeFont = File(unpacked, "Localize/cn/ChineseFont.ttf")
         customFontFile()?.copyTo(runtimeFont, overwrite = true) ?: copyBundledPuaFont(runtimeFont)
+        supplementPcTranslations(File(unpacked, "Localize/cn"), script, progress)
         validateJsonDirectory(File(unpacked, "Localize/cn"))
+        val indexed = writeTextAssetIndex(File(unpacked, "Localize/cn"))
+        LogRepository.append(context, "INFO", "translation.textasset.index", "$indexed 個內建文字資源名稱已建立索引")
         progress(ApplyProgress("正在寫入遊戲目錄", 0, 1))
         val nativeAction = runtimeSwapCommand(File(unpacked, "Localize/cn").absolutePath)
         val command = "am force-stop $GAME_PACKAGE && $nativeAction"
@@ -626,6 +630,55 @@ class TranslationRepository(private val context: Context) {
             }
         }
         require(File(destination, "Localize").isDirectory) { "漢化包缺少 Localize 資料夾" }
+    }
+
+    fun pcSupplementEnabled(): Boolean = prefs.getBoolean("pc_supplement", true)
+    fun setPcSupplementEnabled(value: Boolean) { prefs.edit().putBoolean("pc_supplement", value).apply() }
+    fun pcCoverageSummary(): String = prefs.getString("pc_coverage_summary", "重新套用漢化後，會比對 PC 翻譯並建立內建文字索引") ?: ""
+
+    private suspend fun supplementPcTranslations(directory: File, script: String, progress: suspend (ApplyProgress) -> Unit) {
+        if (!pcSupplementEnabled()) {
+            prefs.edit().putString("pc_coverage_summary", "PC 翻譯補齊已關閉").apply()
+            return
+        }
+        progress(ApplyProgress("正在比對 PC 版翻譯", 0, 1))
+        val reference = File(staging, "pc-reference").also { it.deleteRecursively(); it.mkdirs() }
+        val archive = File(context.cacheDir, "lcpatch-pc-reference.zip")
+        var sourceUrl = ""
+        try {
+            val entry = fetchOfficialLatest().single()
+            sourceUrl = entry.url
+            val part = File(context.cacheDir, "lcpatch-pc-reference.part")
+            downloadResumable(entry.url, part, "PC 版翻譯", {})
+            java.nio.file.Files.move(part.toPath(), archive.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            unpackLocalize(archive, reference)
+        } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            File(directory, ".lcpatch-coverage.txt").writeText("PC 比對未完成：${error.message}\n")
+            prefs.edit().putString("pc_coverage_summary", "PC 翻譯比對未完成，已保留所選漢化；詳情見日誌").apply()
+            LogRepository.append(context, "WARN", "translation.pc.supplement.failed", "PC 比對未完成，保留所選漢化：${error.message}")
+            reference.deleteRecursively()
+            archive.delete()
+            return
+        }
+        try {
+            val converter = PuaConverter.fromAssets(context)
+            val report = supplementTranslationDirectory(directory, File(reference, "Localize/cn"), targetLanguage().prefix,
+                decode = { converter.convert(decodeCjkUnicodeEscapes(decodePuaUnicodeEscapes(it)), toPua = false) },
+                encode = { value ->
+                    val converted = when (script) {
+                        "繁體" -> ZhConverterUtil.toTraditional(value)
+                        else -> value
+                    }
+                    converter.convert(converted, toPua = true)
+                })
+            File(directory, ".lcpatch-coverage.txt").writeText("來源：$sourceUrl\n$report\n")
+            prefs.edit().putString("pc_coverage_summary", "PC 翻譯：$report").apply()
+            LogRepository.append(context, "INFO", "translation.pc.supplement", report.toString())
+        } finally {
+            reference.deleteRecursively()
+            archive.delete()
+        }
     }
 
     private fun runRoot(command: String): Boolean = executeRoot(command).success
