@@ -42,7 +42,8 @@ recovered shader source are included in the app.
 - The scroll **viewport** reserves the full top- and bottom-bar regions and clips
   at those boundaries. This prevents readable/tappable content from passing underneath the
   bar, instead of relying only on final-item scroll padding. Content cannot cross into
-  the header, preventing expanded and collapsed titles from overprinting. Landscape content
+  the header. Color uses one title node that moves and changes from 32sp to 24sp
+  as the reserved 64dp heading space scrolls away, preventing overprinting. Landscape content
   is centered at a maximum 600dp width. Large-font Color values move below titles;
   navigation and header heights grow with text size.
 
@@ -59,6 +60,11 @@ one unavailable historical Unity fixture). The real PC/builder archive integrati
 ran successfully. All 32 preview cases rendered without failures, including
 320dp, landscape, 200% fonts, both last-row states, anchored/radio choices,
 progress/error states, opaque fallback and the independently captured glass scene.
+The preview shell records the same full content Box as production. Expanded and
+collapsed snapshots use settled component states: Layoutlib initial backward-fill
+from a nonzero list index otherwise omits some standalone text. Last-row fixtures
+use a taller viewport to expose the complete final card and reserved bar region;
+they are visual component fixtures, not an emulated gesture test.
 Actions must also pass and sign the APK before handoff. No device or emulator is
 used, and no main merge/tag/Release is authorized by this work.
 
