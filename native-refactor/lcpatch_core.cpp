@@ -925,7 +925,7 @@ void *startFontHook(void *) {
 
 void start() {
     if (gStarted.exchange(true)) return;
-    breadcrumb("INFO", "core.start", "recovery core: beta.1 loading flow; beta.2 managed hooks removed");
+    breadcrumb("INFO", "core.start", "file/font loading; TextAsset index diagnostics v2");
     pthread_t thread{};
     if (pthread_create(&thread, nullptr, startFontHook, nullptr) != 0) {
         LOGE("font worker creation failed"); breadcrumb("ERROR", "core.thread.failed", "pthread_create failed"); return;
