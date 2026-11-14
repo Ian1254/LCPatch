@@ -2,7 +2,6 @@ package com.lcpatch
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -26,9 +25,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -82,6 +78,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.basic.Card as MiuixCard
 import top.yukonga.miuix.kmp.basic.Button as MiuixButton
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -105,15 +103,14 @@ internal val LocalSystemUiDark = staticCompositionLocalOf { false }
 private val LocalCardInset = staticCompositionLocalOf { 0.dp }
 private val LocalGrouped = staticCompositionLocalOf { false }
 
-internal data class SystemSurfacePalette(val menu: Color,val sheet: Color,val dock: Color,val selected: Color,val actionInk: Color,val outline: Color,val secondaryButton: Color)
+internal data class SystemSurfacePalette(val menu: Color,val sheet: Color,val dock: Color,val selected: Color,val actionInk: Color,val secondaryButton: Color)
 @Composable internal fun systemSurfacePalette(): SystemSurfacePalette {
     val dark=LocalSystemUiDark.current
-    val menu=Color(if(dark) 0xFF19191C else 0xFFEDF2FA)
-    return SystemSurfacePalette(menu,Color(if(dark) 0xFF202024 else 0xFFFFFFFF),Color(if(dark) 0xFF151518 else 0xFFF1F3F7),
+    val menu=Color(if(dark) 0xFF2C2C2C else 0xFFFFFFFF)
+    return SystemSurfacePalette(menu,Color(if(dark) 0xFF242424 else 0xFFFFFFFF),Color(if(dark) 0xFF151518 else 0xFFF1F3F7),
         MiuixTheme.colorScheme.primary.copy(alpha=if(dark) .26f else .17f).compositeOver(menu),
         Color(if(dark) 0xFF9CC2FF else 0xFF1B5FC7),
-        (if(dark) Color.White else Color.Black).copy(alpha=if(dark) .18f else .14f),
-        Color(if(dark) 0xFF45454B else 0xFFE8EBF1))
+        Color(if(dark) 0xFF434343 else 0xFFF0F0F0))
 }
 
 @Composable internal fun SystemUiTheme(style: SystemUiStyle, themeMode: String, content: @Composable () -> Unit) {
@@ -169,6 +166,18 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
             color = MiuixTheme.colorScheme.onSurface)
         if (subtitle != null) Text(subtitle, modifier = Modifier.padding(top = 4.dp), fontSize = 13.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    }
+}
+
+@Composable internal fun SystemInnerTopBar(title: String,onBack: ()->Unit,showBack: Boolean=true) {
+    val status=WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    Row(Modifier.fillMaxWidth().height(status+56.dp).padding(top=status,start=18.dp,end=24.dp),
+        verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+        if(showBack) Box(Modifier.size(48.dp).shadow(3.dp,CircleShape).clip(CircleShape)
+            .background(MiuixTheme.colorScheme.surfaceContainer).clickable(role=Role.Button,onClick=onBack),Alignment.Center) {
+            Icon(MiuixIcons.Back,"返回",Modifier.size(26.dp),tint=MiuixTheme.colorScheme.onSurface)
+        }
+        Text(title,fontSize=18.sp,lineHeight=26.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
     }
 }
 
@@ -241,13 +250,13 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 
 @Composable internal fun SystemButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit) {
-    MiuixButton(onClick,modifier.heightIn(min=48.dp),enabled,colors=ButtonDefaults.buttonColorsPrimary(),content=content)
+    MiuixButton(onClick,modifier.heightIn(min=50.dp),enabled,cornerRadius=16.dp,colors=ButtonDefaults.buttonColorsPrimary(),content=content)
 }
 
 @Composable internal fun SystemSecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val palette=systemSurfacePalette()
     val shape=RoundedCornerShape(16.dp)
-    Box(modifier.heightIn(min=48.dp).clip(shape).background(palette.secondaryButton).border(.8.dp,palette.outline,shape)
+    Box(modifier.heightIn(min=50.dp).clip(shape).background(palette.secondaryButton)
         .clickable(enabled=enabled,role=Role.Button,onClick=onClick).padding(horizontal=16.dp,vertical=12.dp),Alignment.Center) {
         Text(text,fontSize=16.sp,lineHeight=24.sp,color=MiuixTheme.colorScheme.onSurface.copy(alpha=if(enabled) 1f else .38f))
     }
@@ -270,45 +279,33 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
     val scope=rememberCoroutineScope()
     var shown by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
-    var expanded by remember { mutableStateOf(true) }
-    var dragging by remember { mutableStateOf(false) }
-    var dragOffset by remember { mutableFloatStateOf(0f) }
-    val density=LocalDensity.current
-    val threshold=with(density) { 56.dp.toPx() }
-    val movement by animateFloatAsState(dragOffset,if(dragging) snap() else spring(1f,600f),label="sheet-offset")
     val latestDismiss by rememberUpdatedState(onDismiss)
+    val animate=android.animation.ValueAnimator.areAnimatorsEnabled()
     LaunchedEffect(Unit) { shown=true }
     val close: ()->Unit = {
-        if(!closing) { closing=true; scope.launch { shown=false; delay(200); latestDismiss() } }
+        if(!closing) { closing=true; scope.launch { shown=false; if(animate) delay(200); latestDismiss() } }
     }
-    val grip=Modifier.draggable(rememberDraggableState { delta ->
-        dragOffset=(dragOffset+delta).coerceIn(-threshold*1.5f,threshold*8f)
-    },Orientation.Vertical,enabled=!alert&&!closing,onDragStarted={ dragging=true; dragOffset=movement },onDragStopped={ velocity ->
-        dragging=false
-        when(sheetDragOutcome(expanded,dragOffset/threshold,velocity)) {
-            SheetDragOutcome.Expand -> expanded=true
-            SheetDragOutcome.Collapse -> expanded=false
-            SheetDragOutcome.Dismiss -> close()
-            SheetDragOutcome.Keep -> Unit
-        }
-        dragOffset=0f
-    })
     val scene=LocalSystemWindowBackdrop.current.takeIf { LocalSystemMaterialEnabled.current }
     Dialog(onDismissRequest=close,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
         val window=(LocalView.current.parent as? DialogWindowProvider)?.window
         SideEffect { window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=if(LocalSystemUiDark.current) .42f else .26f))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=if(LocalSystemUiDark.current) .50f else .32f))
             .clickable(indication=null,interactionSource=remember { MutableInteractionSource() },onClick=close)) {
-            AnimatedVisibility(shown,Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
-                .offset { IntOffset(0,movement.roundToInt()) },
-                enter=fadeIn(tween(200))+slideInVertically(tween(250)) { it/3 },
-                exit=fadeOut(tween(180))+slideOutVertically(tween(200)) { it/3 }) {
+            AnimatedVisibility(shown,Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding(),
+                enter=fadeIn(tween(if(animate) 200 else 0))+slideInVertically(tween(if(animate) 250 else 0)) { it/3 },
+                exit=fadeOut(tween(if(animate) 180 else 0))+slideOutVertically(tween(if(animate) 200 else 0)) { it/3 }) {
                 CompositionLocalProvider(LocalSystemPanelBackdrop provides scene) {
-                    SystemSheetSurface(title,Modifier.padding(12.dp),alert,expanded,
-                        onToggle={ expanded=!expanded },gripModifier=grip,onClose=close,content=content)
+                    SystemSheetSurface(title,Modifier.padding(12.dp),alert,content=content)
                 }
             }
         }
+    }
+}
+
+/** Dialog actions have their own inset and never paint a full-width footer. */
+@Composable internal fun SystemDialogDone(onClick: () -> Unit, text: String = "完成") {
+    Box(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=12.dp)) {
+        SystemButton(onClick,Modifier.fillMaxWidth()) { Text(text,fontSize=16.sp) }
     }
 }
 
@@ -323,83 +320,20 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
     }
 }
 
-/** Original portable approximation of the observed directional edge/inner-band
- * mechanisms. Screen/soft-light respond to the pixels beneath the stroke; this
- * does not sample native uniforms or claim to reproduce an OEM shader preset. */
-private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boolean = false): Modifier = drawWithCache {
-    val outline = shape.createOutline(size, layoutDirection, this)
-    val diagonal = Offset(size.width, size.height)
-    val nearBrush = Brush.linearGradient(
-        0f to Color.White.copy(alpha = if (dark) 0.27f else 0.68f),
-        0.38f to Color.White.copy(alpha = if (dark) 0.10f else 0.24f),
-        0.72f to Color.Transparent,
-        1f to Color.White.copy(alpha = if (dark) 0.06f else 0.13f),
-        start = Offset.Zero, end = diagonal
-    )
-    val farBrush = Brush.linearGradient(
-        0f to Color.Transparent,
-        0.45f to Color.Transparent,
-        1f to Color.Black.copy(alpha = if (dark) 0.22f else 0.12f),
-        start = Offset.Zero, end = diagonal
-    )
-    val innerBrush = Brush.linearGradient(
-        0f to Color.Transparent,
-        0.24f to Color.Transparent,
-        1f to Color.Black.copy(alpha = if (dark) 0.10f else 0.055f),
-        start = Offset.Zero, end = Offset(size.width * 0.32f, size.height)
-    )
-    val lowerBandBrush = Brush.verticalGradient(
-        0f to Color.Transparent,
-        0.52f to Color.Transparent,
-        1f to Color.Black.copy(alpha = if (dark) 0.075f else 0.035f)
-    )
-    fun edgePaint(brush: Brush, width: Float, mode: BlendMode) = Paint().apply {
-        style = PaintingStyle.Stroke
-        strokeWidth = width
-        blendMode = mode
-        brush.applyTo(size, this, 1f)
-    }
-    // All strokes are clipped by the surface outline. A wide, faint band and a
-    // narrow near/far rim remain independent, instead of a uniform bright border.
-    val innerPaint = edgePaint(innerBrush, (if (sheet) 6.dp else 4.dp).toPx(), BlendMode.Softlight)
-    val lowerPaint = edgePaint(lowerBandBrush, (if (sheet) 5.dp else 3.dp).toPx(), BlendMode.Multiply)
-    val nearPaint = edgePaint(nearBrush, 0.8.dp.toPx(), BlendMode.Screen)
-    val farPaint = edgePaint(farBrush, 0.7.dp.toPx(), BlendMode.Multiply)
-    onDrawWithContent {
-        drawContent()
-        drawContext.canvas.drawOutline(outline, innerPaint)
-        drawContext.canvas.drawOutline(outline, lowerPaint)
-        drawContext.canvas.drawOutline(outline, nearPaint)
-        drawContext.canvas.drawOutline(outline, farPaint)
-    }
-}
-
 @Composable internal fun SystemSheetSurface(title: String, modifier: Modifier = Modifier, alert: Boolean = false,
-    expanded: Boolean = true, onToggle: (() -> Unit)? = null, gripModifier: Modifier = Modifier, onClose: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit) {
     val palette=systemSurfacePalette()
     val available=LocalConfiguration.current.screenHeightDp.dp*.88f
-    val shape=RoundedCornerShape(32.dp)
-    val scene=LocalSystemPanelBackdrop.current.takeIf { LocalSystemMaterialEnabled.current }
-    val glass=if(scene!=null) Modifier.hyperGlassBackdrop(scene,shape,32.dp) else Modifier
-    Column(modifier.widthIn(max=480.dp).fillMaxWidth()
-        .animateContentSize(if(android.animation.ValueAnimator.areAnimatorsEnabled()) spring(1f,500f) else snap())
-        .heightIn(max=available).shadow(18.dp,shape).clip(shape).then(glass)
-        .background(palette.sheet.copy(alpha=if(scene!=null) .82f else 1f)).border(.8.dp,palette.outline,shape)
+    val shape=RoundedCornerShape(36.dp)
+    val scene=LocalSystemPanelBackdrop.current.takeIf { LocalSystemMaterialEnabled.current && android.os.Build.VERSION.SDK_INT>=31 }
+    val glass=if(scene!=null) Modifier.drawBackdrop(scene,shape={shape},effects={ blur(24.dp.toPx()) },highlight=null,shadow=null) else Modifier
+    Column(modifier.widthIn(max=480.dp).fillMaxWidth().heightIn(max=available)
+        .shadow(20.dp,shape).clip(shape).then(glass)
+        .background(palette.sheet.copy(alpha=if(scene!=null) .92f else 1f))
         .clickable(indication=null,interactionSource=remember { MutableInteractionSource() }) { }) {
-        if(!alert) Box(Modifier.fillMaxWidth().height(48.dp).then(gripModifier)
-            .then(if(onToggle!=null) Modifier.clickable(role=Role.Button,onClick=onToggle).semantics {
-                contentDescription=if(expanded) "收合面板" else "展開面板"
-                stateDescription=if(expanded) "已展開" else "已收合"
-                if(onClose!=null) customActions=listOf(CustomAccessibilityAction("關閉面板") { onClose(); true })
-            } else Modifier),Alignment.Center) {
-            Box(Modifier.size(40.dp,4.dp).background(MiuixTheme.colorScheme.onSurface.copy(alpha=.45f),CircleShape))
-        }
-        Text(title,Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=if(alert) 20.dp else 4.dp),
+        Text(title,Modifier.fillMaxWidth().padding(start=24.dp,end=24.dp,top=28.dp,bottom=16.dp),
             fontSize=20.sp,lineHeight=28.sp,fontWeight=FontWeight.SemiBold)
-        if(expanded||alert) Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(bottom=12.dp),content=content)
-        else Text("點擊橫條或向上滑動以展開",Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=12.dp),
-            fontSize=13.sp,lineHeight=20.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(bottom=12.dp),content=content)
     }
 }
 
@@ -411,10 +345,10 @@ private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boo
     val palette=systemSurfacePalette()
     val shape=RoundedCornerShape(16.dp)
     val scene=LocalSystemWindowBackdrop.current.takeIf { LocalSystemMaterialEnabled.current && android.os.Build.VERSION.SDK_INT>=31 }
-    val glass=if(scene!=null) Modifier.drawBackdrop(scene,shape={shape},effects={ blur(24.dp.toPx()) }) else Modifier
+    val glass=if(scene!=null) Modifier.drawBackdrop(scene,shape={shape},effects={ blur(24.dp.toPx()) },highlight=null,shadow=null) else Modifier
     // Only the outside of the whole group is rounded. Adjacent rows meet square.
     Column(modifier.widthIn(min=180.dp,max=320.dp).width(240.dp).clip(shape).then(glass)
-        .background(palette.menu.copy(alpha=if(scene!=null) .84f else 1f)).border(.8.dp,palette.outline,shape).selectableGroup()) {
+        .background(palette.menu.copy(alpha=if(scene!=null) .92f else 1f)).selectableGroup()) {
         items.forEachIndexed { i,label ->
             val source=remember { MutableInteractionSource() }
             val pressed by source.collectIsPressedAsState()
@@ -462,7 +396,7 @@ private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boo
 
 @Composable internal fun SystemBottomNavigation(index: Int, labels: List<String>, icons: List<ImageVector>, floating: Boolean,
     backdrop: Backdrop? = null, hazeState: HazeState? = null, targetIndex: Int = index, onSelected: (Int) -> Unit) {
-    if(!floating) { SystemStandardBottomNavigation(targetIndex,labels,icons,onSelected); return }
+    if(!floating) { SystemStandardBottomNavigation(targetIndex,labels,icons,onSelected,backdrop,hazeState); return }
     val hyper = true
     val dark = LocalSystemUiDark.current
     val density = LocalDensity.current
@@ -503,8 +437,6 @@ private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boo
     val tint = if (backdrop != null && hazeState == null) Color.Transparent else if (hazeState != null)
         (if (dark) Color(0xFF272727) else Color.White).copy(alpha = .56f)
         else Color(if (dark) 0xFF1E1E1E else 0xFFFAFAFA)
-    val rim = Brush.linearGradient(listOf(Color.White.copy(alpha = if (dark) .4f else .5f),
-        Color.White.copy(alpha = .1f), Color.White.copy(alpha = if (dark) .2f else .3f)))
     val inset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottom = if (!floating) inset else if (hyper) maxOf(24.dp,inset+8.dp) else inset+8.dp
     val sources = remember(labels.size) { List(labels.size) { MutableInteractionSource() } }
@@ -515,7 +447,7 @@ private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boo
         BoxWithConstraints(Modifier.widthIn(max = if (floating) preferredWidth else 600.dp).fillMaxWidth()
             .shadow(if (floating) 10.dp else 0.dp, shape, ambientColor = Color.Black.copy(alpha = .18f), spotColor = Color.Black.copy(alpha = .18f))
             .clip(shape).then(glass).background(tint)
-            .then(if (!floating) Modifier else if (hyper) Modifier.border(.8.dp,rim,shape) else Modifier.acrylicSurfaceEdges(shape,dark))
+
             .padding(horizontal = horizontal, vertical = vertical)) {
             val cell = (maxWidth-gap*(labels.size-1))/labels.size
             val stride = cell+gap
@@ -644,27 +576,68 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
     }
 }
 
-@Composable internal fun SystemLogEntry(event: LogEvent) {
-    val ink = when (event.level) { "ERROR" -> Color(if (LocalSystemUiDark.current) 0xFFED8891 else 0xFFB73845)
-        "WARN" -> Color(if (LocalSystemUiDark.current) 0xFFE6B469 else 0xFF8F5A13); else -> MiuixTheme.colorScheme.primary }
-    Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(event.level, Modifier.clip(RoundedCornerShape(6.dp)).background(ink.copy(alpha = 0.12f)).padding(horizontal = 7.dp, vertical = 4.dp),
-                color = ink, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-            Text(event.code, Modifier.weight(1f), fontSize = 13.sp, lineHeight = 19.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+@Composable internal fun SystemLogGuide(total: Int, errors: Int, warnings: Int) {
+    var details by remember { mutableStateOf(false) }
+    SystemCard {
+        SystemArrowPreference("診斷與記錄說明",value=if(total==0) "尚無記錄" else "共 $total 筆",onClick={details=true})
+    }
+    if(details) SystemModal("診斷與記錄說明",{details=false}) {
+        Column(Modifier.padding(horizontal=24.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            Text("分享或儲存時會重新收集遊戲相關系統記錄。文件會標示每項資料是否取得、逾時或權限不足；沒有模組事件時也可以匯出。",fontSize=14.sp,lineHeight=22.sp)
+            Text("共 $total 筆 · 錯誤 $errors · 警告 $warnings",fontSize=14.sp)
+            if(total==0) Text("尚無模組事件不代表遊戲沒有閃退，仍可分享診斷文件取得系統收集結果。",fontSize=14.sp,lineHeight=22.sp)
         }
-        Spacer(Modifier.height(10.dp))
-        Text(event.message, fontSize = 14.sp, lineHeight = 22.sp)
-        Spacer(Modifier.height(12.dp))
-        val time = remember(event.time) { runCatching {
-            java.time.Instant.parse(event.time).atZone(java.time.ZoneId.systemDefault())
-                .format(java.time.format.DateTimeFormatter.ofPattern("MM/dd HH:mm:ss"))
-        }.getOrDefault(event.time) }
-        Text(time + if (event.process.isBlank()) "" else "  ·  ${event.process}", fontSize = 11.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        Spacer(Modifier.height(14.dp))
-        Box(Modifier.fillMaxWidth().height(.5.dp).background(MiuixTheme.colorScheme.dividerLine))
+        SystemDialogDone({details=false})
+    }
+}
+
+@Composable internal fun SystemModeHelp() {
+    var details by remember { mutableStateOf(false) }
+    SystemArrowPreference("運作方式說明",onClick={details=true})
+    if(details) SystemModal("運作方式說明",{details=false}) {
+        Text("切換運作模式前，請先至概觀頁停用漢化。Root 模式透過模組載入；無 root 模式需先授權遊戲資料夾或 Shizuku。",
+            Modifier.padding(horizontal=24.dp,vertical=8.dp),fontSize=14.sp,lineHeight=22.sp)
+        SystemDialogDone({details=false})
+    }
+}
+
+@Composable internal fun SystemSecondaryEntry(title: String, value: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    var details by remember { mutableStateOf(false) }
+    SystemArrowPreference(title,value=value,onClick={details=true})
+    if(details) SystemModal(title,{details=false}) {
+        Column(Modifier.fillMaxWidth().padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp),content=content)
+        SystemDialogDone({details=false})
+    }
+}
+
+@Composable internal fun SystemLogGroup(events: List<LogEvent>) {
+    SystemCard { events.forEach { SystemLogEntry(it) } }
+}
+
+/** Compact summaries in the top-level log; technical fields live in a secondary dialog. */
+@Composable internal fun SystemLogEntry(event: LogEvent) {
+    var details by remember { mutableStateOf(false) }
+    val time = remember(event.time) { runCatching {
+        java.time.Instant.parse(event.time).atZone(java.time.ZoneId.systemDefault())
+            .format(java.time.format.DateTimeFormatter.ofPattern("MM/dd HH:mm:ss"))
+    }.getOrDefault(event.time) }
+    val ink=when(event.level) {
+        "ERROR" -> Color(if(LocalSystemUiDark.current) 0xFFED8891 else 0xFFB73845)
+        "WARN" -> Color(if(LocalSystemUiDark.current) 0xFFE6B469 else 0xFF8F5A13)
+        else -> MiuixTheme.colorScheme.onSurface
+    }
+    Column(Modifier.fillMaxWidth().clickable(role=Role.Button) { details=true }.padding(horizontal=20.dp,vertical=16.dp)) {
+        Text(event.message,fontSize=14.sp,lineHeight=22.sp,color=ink,maxLines=2,overflow=TextOverflow.Ellipsis)
+        Text(time,Modifier.padding(top=6.dp),fontSize=12.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    }
+    if(details) SystemModal("記錄詳情",{details=false}) {
+        Column(Modifier.padding(horizontal=24.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            Text(event.message,fontSize=15.sp,lineHeight=23.sp)
+            Text("等級：${event.level}\n事件：${event.code}\n時間：${event.time}"+
+                if(event.process.isBlank()) "" else "\n程序：${event.process}",fontSize=13.sp,lineHeight=21.sp,
+                color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
+        SystemDialogDone({details=false})
     }
 }
 
@@ -686,7 +659,7 @@ internal data class OverviewUiState(
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(if (selected) state.name else "尚未選擇漢化", fontSize = 18.sp, lineHeight = 26.sp,
                 fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(if (selected) "${state.script} · 覆蓋${state.language}" else "先下載或匯入語言包，再套用漢化。",
+            Text(if (selected) state.script else "先下載或匯入語言包，再套用漢化。",
                 Modifier.padding(top = 5.dp), fontSize = 13.sp, lineHeight = 20.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -713,12 +686,12 @@ internal data class OverviewUiState(
                 Text(state.coverage, fontSize = 13.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             } else Text(state.loadStatus, fontSize = 14.sp)
         }
-        SystemTextButton("完成", { showDetails = false }, Modifier.fillMaxWidth())
+        SystemDialogDone({ showDetails = false })
     }
 }
 
 @Composable internal fun SystemQuickActions(onDownload: () -> Unit, onDownloaded: () -> Unit) {
-    Column {
+    SystemCard {
         SystemArrowPreference("下載漢化", onClick = onDownload)
         SystemArrowPreference("已下載漢化", onClick = onDownloaded)
     }
@@ -726,26 +699,38 @@ internal data class OverviewUiState(
 
 @Composable internal fun SystemEnvironmentPanel(state: OverviewUiState, onCheckScope: () -> Unit,
     onRequestRoot: () -> Unit, onGameFolder: () -> Unit, loadAction: String) {
-    var expanded by remember { mutableStateOf(false) }
+    var showDetails by remember { mutableStateOf(false) }
     val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled
     SystemCard {
         SystemArrowPreference(if (state.rootMode) "環境與權限" else "文件載入方式",
-            value = if (healthy) "已就緒" else "待設定", onClick = { expanded = true })
+            value = if (healthy) "已就緒" else "待設定", onClick = { showDetails = true })
     }
-    if (expanded) SystemModal(if (state.rootMode) "環境與權限" else "文件載入", { expanded = false }) {
+    if (showDetails) SystemModal(if (state.rootMode) "環境與權限" else "文件載入", { showDetails = false }) {
+        SystemEnvironmentDialogBody(state,onCheckScope,onRequestRoot,onGameFolder,loadAction) { showDetails=false }
+    }
+}
+
+@Composable internal fun SystemEnvironmentDialogBody(state: OverviewUiState,onCheckScope: ()->Unit,onRequestRoot: ()->Unit,
+    onGameFolder: ()->Unit,loadAction: String,onClose: ()->Unit) {
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Limbus Company  ${state.gameVersion}", fontSize = 14.sp)
-            if (state.rootMode) {
-                Text("模組作用域：${state.scopeStatus}", fontSize = 14.sp)
-                Text("Root 權限：${state.rootStatus}", fontSize = 14.sp)
-            } else Text(state.loadStatus, fontSize = 14.sp)
+            if(state.rootMode) {
+                Text("模組作用域：${state.scopeStatus}",fontSize=14.sp)
+                Text("Root 權限：${state.rootStatus}",fontSize=14.sp)
+            } else Text(state.loadStatus,fontSize=14.sp)
         }
-        if (state.rootMode) {
-            SystemTextButton("檢查模組作用域", onCheckScope, Modifier.fillMaxWidth())
-            SystemTextButton("檢查 Root 權限", onRequestRoot, Modifier.fillMaxWidth())
-        } else SystemTextButton(loadAction, onGameFolder, Modifier.fillMaxWidth())
-        SystemTextButton("完成", { expanded = false }, Modifier.fillMaxWidth())
-    }
+        Column(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            if (state.rootMode) {
+                if(LocalDensity.current.fontScale<=1.4f) Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                    SystemSecondaryButton("檢查作用域",onCheckScope,Modifier.weight(1f))
+                    SystemSecondaryButton("檢查 Root",onRequestRoot,Modifier.weight(1f))
+                } else {
+                    SystemSecondaryButton("檢查模組作用域",onCheckScope,Modifier.fillMaxWidth())
+                    SystemSecondaryButton("檢查 Root 權限",onRequestRoot,Modifier.fillMaxWidth())
+                }
+            } else SystemSecondaryButton(loadAction,onGameFolder,Modifier.fillMaxWidth())
+        }
+        SystemDialogDone(onClose)
 }
 
 /** Shared action states preserve readable text at large system font sizes. */
@@ -832,23 +817,29 @@ internal data class OverviewUiState(
     }
 }
 
-/** Full-width dock: no capsule, moving pill or floating spacing. */
-@Composable internal fun SystemStandardBottomNavigation(index: Int, labels: List<String>, icons: List<ImageVector>, onSelected: (Int)->Unit) {
+/** Stock-style standard navigation: full-width material, icon/text selection, no indicator pill or line. */
+@Composable internal fun SystemStandardBottomNavigation(index: Int, labels: List<String>, icons: List<ImageVector>, onSelected: (Int)->Unit,
+    backdrop: Backdrop? = null,hazeState: HazeState? = null) {
+    val dark=LocalSystemUiDark.current
     val height=maxOf(64.dp,with(LocalDensity.current) { 18.sp.toDp() }+44.dp)
-    val divider=MiuixTheme.colorScheme.dividerLine
-    Box(Modifier.fillMaxWidth().background(systemSurfacePalette().dock).drawBehind {
-        drawLine(divider,Offset.Zero,Offset(size.width,0f),1.dp.toPx())
-    }.navigationBarsPadding(),Alignment.Center) {
+    val style=remember { HazeBlurStyle { blurRadius(20.dp) } }
+    val glass=when {
+        hazeState!=null -> Modifier.hazeBlur(input=HazeInput.Sources(hazeState),style=style)
+        backdrop!=null -> Modifier.drawBackdrop(backdrop,shape={RectangleShape},effects={blur(20.dp.toPx())},highlight=null,shadow=null)
+        else -> Modifier
+    }
+    val material=Color(if(dark) 0xFF242424 else 0xFFFFFFFF)
+    Box(Modifier.fillMaxWidth().clip(RectangleShape).then(glass).background(material.copy(alpha=if(backdrop!=null||hazeState!=null) .88f else 1f))
+        .navigationBarsPadding(),Alignment.Center) {
         Row(Modifier.widthIn(max=600.dp).fillMaxWidth().selectableGroup()) {
             labels.forEachIndexed { i,label ->
                 val active=i==index
                 val ink=if(active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
                 Column(Modifier.weight(1f).height(height).selectable(active,role=Role.Tab) { onSelected(i) },
                     horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
-                    Box(Modifier.width(24.dp).height(2.dp).background(if(active) ink else Color.Transparent))
-                    Spacer(Modifier.height(5.dp))
-                    Icon(icons[i],null,Modifier.size(26.dp),tint=ink)
-                    Text(label,fontSize=12.sp,lineHeight=18.sp,fontWeight=if(active) FontWeight.SemiBold else FontWeight.Normal,color=if(active) MiuixTheme.colorScheme.onSurface else ink)
+                    Icon(icons[i],null,Modifier.size(28.dp),tint=ink)
+                    Spacer(Modifier.height(3.dp))
+                    Text(label,fontSize=12.sp,lineHeight=18.sp,fontWeight=if(active) FontWeight.Medium else FontWeight.Normal,color=ink)
                 }
             }
         }
