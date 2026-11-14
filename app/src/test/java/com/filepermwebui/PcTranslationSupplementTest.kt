@@ -412,7 +412,8 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
             repeat(8) { i -> SystemCard(insideMargin=PaddingValues(20.dp)) { Text("背景內容 ${i+1} · 載入與套用狀態",fontSize=20.sp) } }
         }
         TopLevelProgressiveBar(scene,pageTitles=listOf("設定"),pagePosition=0f)
-        CompositionLocalProvider(LocalSystemPanelBackdrop provides scene) {
+        CompositionLocalProvider(LocalSystemPanelBackdrop provides scene, LocalSystemWindowBackdrop provides scene) {
+            SystemChoiceMenuSurface(listOf("跟隨系統","淺色","深色"),2,{},Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top=72.dp,end=12.dp))
             SystemSheetSurface("漢化詳情",Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(12.dp),onToggle={}) {
                 Text("零協會完整翻譯與角色名稱已自動整理。",Modifier.padding(24.dp),fontSize=16.sp)
                 SystemTextButton("完成",{},Modifier.fillMaxWidth())
