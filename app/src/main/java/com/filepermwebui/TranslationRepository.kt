@@ -434,16 +434,32 @@ class TranslationRepository(private val context: Context) {
         val cleanup = "rm -rf '/sdcard/limbus mods/zh_cn' ${quote("$PUBLIC_ROOT/目前套用")} ${quote("$PUBLIC_ROOT/.active-next")} ${quote("$PUBLIC_ROOT/.active-old")} ${quote(NATIVE_NEXT)} ${quote(NATIVE_OLD)}"
         val repairFont = "if ${validLanguageDirectoryTest(NATIVE_COMPAT)}; then cp -f ${quote(font.absolutePath)} ${quote("$NATIVE_COMPAT/ChineseFont.ttf")} && chmod 0644 ${quote("$NATIVE_COMPAT/ChineseFont.ttf")}; restorecon -F ${quote("$NATIVE_COMPAT/ChineseFont.ttf")} 2>/dev/null || true; fi"
         runRoot("$cleanup; $repairFont")
+        repairRuntimeIndex()
+    }
+
+    private fun repairRuntimeIndex(): Boolean {
+        if (!rootMode()) return true
+        return runCatching {
+            val directory = if (translationEnabled()) NATIVE_COMPAT else NATIVE_DISABLED
+            val repair = repairRuntimeTextAssetIndex(directory, File(staging, "runtime-index")) { command ->
+                RootShell.run(command, timeoutMs = 15_000L, maxOutputChars = TEXT_ASSET_INDEX_LIMIT, keepTail = false)
+            }
+            if (repair?.changed == true) LogRepository.append(context, "INFO", "translation.textasset.index.repaired",
+                "已為既有漢化補建內建文字索引，共 ${repair.entries} 筆；重新啟動遊戲後生效")
+            true
+        }.getOrElse { error ->
+            LogRepository.append(context, "WARN", "translation.textasset.index.repair_failed", error.message ?: "索引修復失敗")
+            false
+        }
     }
 
     fun prepareGameLaunch(): Boolean {
         if (!rootMode()) return true
-        val command = if (translationEnabled()) {
-            "am force-stop $GAME_PACKAGE && ${validLanguageDirectoryTest(NATIVE_COMPAT)}"
-        } else {
-            "am force-stop $GAME_PACKAGE"
-        }
-        return runRoot(command)
+        // Native configuration reads the index once; stop the previous process before repairing it.
+        if (!runRoot("am force-stop $GAME_PACKAGE")) return false
+        if (!translationEnabled()) return true
+        if (!repairRuntimeIndex()) return false
+        return runRoot(validLanguageDirectoryTest(NATIVE_COMPAT))
     }
 
     fun inspectRuntime(): RuntimeInspection {
