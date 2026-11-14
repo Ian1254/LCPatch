@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <link.h>
 #include <pthread.h>
+#include <sched.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
@@ -23,6 +24,7 @@
 #include <string>
 #include <unordered_map>
 #include "text_asset_paths.h"
+#include "text_asset_bootstrap.h"
 #include "dobby.h"
 #include "verification_read_guard.h"
 #include "verification_signature_scan.h"
