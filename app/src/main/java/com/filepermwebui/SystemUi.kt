@@ -108,8 +108,8 @@ private val LocalGrouped = staticCompositionLocalOf { false }
 internal data class SystemSurfacePalette(val menu: Color,val sheet: Color,val dock: Color,val selected: Color,val actionInk: Color,val outline: Color,val secondaryButton: Color)
 @Composable internal fun systemSurfacePalette(): SystemSurfacePalette {
     val dark=LocalSystemUiDark.current
-    val menu=Color(if(dark) 0xFF38383C else 0xFFEDF2FA)
-    return SystemSurfacePalette(menu,Color(if(dark) 0xFF2D2D31 else 0xFFFFFFFF),Color(if(dark) 0xFF151518 else 0xFFF1F3F7),
+    val menu=Color(if(dark) 0xFF19191C else 0xFFEDF2FA)
+    return SystemSurfacePalette(menu,Color(if(dark) 0xFF202024 else 0xFFFFFFFF),Color(if(dark) 0xFF151518 else 0xFFF1F3F7),
         MiuixTheme.colorScheme.primary.copy(alpha=if(dark) .26f else .17f).compositeOver(menu),
         Color(if(dark) 0xFF9CC2FF else 0xFF1B5FC7),
         (if(dark) Color.White else Color.Black).copy(alpha=if(dark) .18f else .14f),
@@ -385,7 +385,7 @@ private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boo
     Column(modifier.widthIn(max=480.dp).fillMaxWidth()
         .animateContentSize(if(android.animation.ValueAnimator.areAnimatorsEnabled()) spring(1f,500f) else snap())
         .heightIn(max=available).shadow(18.dp,shape).clip(shape).then(glass)
-        .background(palette.sheet.copy(alpha=if(scene!=null) .94f else 1f)).border(.8.dp,palette.outline,shape)
+        .background(palette.sheet.copy(alpha=if(scene!=null) .82f else 1f)).border(.8.dp,palette.outline,shape)
         .clickable(indication=null,interactionSource=remember { MutableInteractionSource() }) { }) {
         if(!alert) Box(Modifier.fillMaxWidth().height(48.dp).then(gripModifier)
             .then(if(onToggle!=null) Modifier.clickable(role=Role.Button,onClick=onToggle).semantics {
@@ -409,9 +409,12 @@ private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boo
 
 @Composable internal fun SystemChoiceMenuSurface(items: List<String>, selected: Int, onSelected: (Int) -> Unit, modifier: Modifier = Modifier) {
     val palette=systemSurfacePalette()
+    val shape=RoundedCornerShape(16.dp)
+    val scene=LocalSystemWindowBackdrop.current.takeIf { LocalSystemMaterialEnabled.current && android.os.Build.VERSION.SDK_INT>=31 }
+    val glass=if(scene!=null) Modifier.drawBackdrop(scene,shape={shape},effects={ blur(24.dp.toPx()) }) else Modifier
     // Only the outside of the whole group is rounded. Adjacent rows meet square.
-    Column(modifier.widthIn(min=180.dp,max=320.dp).width(IntrinsicSize.Max).clip(RoundedCornerShape(16.dp))
-        .background(palette.menu).border(.8.dp,palette.outline,RoundedCornerShape(16.dp)).selectableGroup()) {
+    Column(modifier.widthIn(min=180.dp,max=320.dp).width(240.dp).clip(shape).then(glass)
+        .background(palette.menu.copy(alpha=if(scene!=null) .84f else 1f)).border(.8.dp,palette.outline,shape).selectableGroup()) {
         items.forEachIndexed { i,label ->
             val source=remember { MutableInteractionSource() }
             val pressed by source.collectIsPressedAsState()
@@ -812,7 +815,7 @@ internal data class OverviewUiState(
                 SystemSwitchPreference(
                     modifier = Modifier,
                     title = "背景模糊",
-                    summary = if (blurEnabled) "頂欄、底欄與面板使用模糊效果" else "使用清晰的純色背景",
+                    summary = if (blurEnabled) "頂欄、懸浮底欄、選單與面板使用模糊效果" else "使用清晰的純色背景",
                     checked = blurEnabled,
                     onCheckedChange = onBlurEnabled
                 )
