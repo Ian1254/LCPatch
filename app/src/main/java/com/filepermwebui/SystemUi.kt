@@ -71,17 +71,19 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     val dark = when (themeMode) { "dark" -> true; "light" -> false; else -> isSystemInDarkTheme() }
     val colors = remember(style, dark) {
         val soft = style == SystemUiStyle.HyperOS4
-        val accent = Color(if (dark) 0xFF76AEFF else if (soft) 0xFF126AE5 else 0xFF006CE5)
-        val canvas = Color(if (dark) { if (soft) 0xFF0E0F12 else 0xFF111315 } else if (soft) 0xFFF3F4F7 else 0xFFF5F6F7)
-        val card = Color(if (dark) { if (soft) 0xFF202126 else 0xFF232629 } else 0xFFFFFFFF)
+        val accent = Color(if (soft) { if (dark) 0xFF4788FF else 0xFF3482FF }
+            else { if (dark) 0xFF1A8CFF else 0xFF0080FF })
+        val canvas = Color(if (dark) 0xFF000000 else if (soft) 0xFFF3F3F3 else 0xFFF0F1F2)
+        val card = Color(if (dark) { if (soft) 0xFF242424 else 0xFF1A1A1A } else 0xFFFFFFFF)
         (if (dark) darkColorScheme() else lightColorScheme()).copy(
-            primary = accent, onPrimary = if (dark) Color(0xFF0D1728) else Color.White,
-            primaryVariant = accent, primaryContainer = accent.copy(alpha = 0.11f), onPrimaryContainer = accent,
+            primary = accent, onPrimary = Color.White,
+            primaryVariant = Color(if (soft) 0xFF2469CE else 0xFF0069D9), primaryContainer = accent.copy(alpha = 0.11f), onPrimaryContainer = accent,
             secondaryContainer = card, background = canvas, surface = canvas, surfaceContainer = card,
-            onSurface = Color(if (dark) 0xFFF2F3F6 else 0xFF17191E),
-            onBackground = Color(if (dark) 0xFFF2F3F6 else 0xFF17191E),
-            onSurfaceVariantSummary = Color(if (dark) 0xFFADB0B8 else 0xFF70747E),
-            dividerLine = Color(if (dark) 0xFF35373D else 0xFFEEEFF2))
+            onSurface = Color(if (soft) { if (dark) 0xFFF2F2F2 else 0xFF000000 }
+                else { if (dark) 0xFFE6E6E6 else 0xE6000000 }),
+            onBackground = Color(if (dark) 0xFFF2F2F2 else 0xFF000000),
+            onSurfaceVariantSummary = Color(if (dark) 0xFF999999 else 0xFF707070),
+            dividerLine = Color(if (dark) 0xFF333333 else 0xFFE8E8E8))
     }
     CompositionLocalProvider(LocalSystemUiStyle provides style, LocalSystemUiDark provides dark) {
         MiuixTheme(colors = colors) {
@@ -92,18 +94,14 @@ private val LocalGrouped = staticCompositionLocalOf { false }
 
 @Composable internal fun SystemCanvas(content: @Composable BoxScope.() -> Unit) {
     val base = MiuixTheme.colorScheme.surface
-    val dark = LocalSystemUiDark.current
-    val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
-        if (dark) base else Color(if (soft) 0xFFEEF3F9 else 0xFFEEF5F7), base, base
-    ))), content = content)
+    Box(Modifier.fillMaxSize().background(base), content = content)
 }
 
 /** Content panels stay quiet; glass is reserved for floating controls. */
 @Composable internal fun SystemCard(modifier: Modifier = Modifier, insideMargin: PaddingValues = PaddingValues(0.dp),
     colors: CardColors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer),
     cornerRadius: Dp = Dp.Unspecified, content: @Composable ColumnScope.() -> Unit) {
-    val radius = if (cornerRadius != Dp.Unspecified) cornerRadius else if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 22.dp else 20.dp
+    val radius = if (cornerRadius != Dp.Unspecified) cornerRadius else if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 20.dp else 12.dp
     val shape = RoundedCornerShape(radius)
     CompositionLocalProvider(LocalCardInset provides insideMargin.calculateLeftPadding(LayoutDirection.Ltr), LocalGrouped provides true,
         LocalContentColor provides colors.contentColor) {
@@ -113,8 +111,8 @@ private val LocalGrouped = staticCompositionLocalOf { false }
 
 @Composable internal fun SystemPageHeading(title: String, subtitle: String? = null) {
     Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 12.dp)) {
-        Text(title, fontSize = 34.sp, lineHeight = 44.sp,
-            fontWeight = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) FontWeight.Bold else FontWeight.SemiBold,
+        Text(title, fontSize = 32.sp, lineHeight = 42.sp,
+            fontWeight = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) FontWeight.Normal else FontWeight.SemiBold,
             color = MiuixTheme.colorScheme.onSurface)
         if (subtitle != null) Text(subtitle, modifier = Modifier.padding(top = 4.dp), fontSize = 13.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -135,30 +133,32 @@ private val LocalGrouped = staticCompositionLocalOf { false }
         else -> Color(0xFF518BDB)
     }
     val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
-    Box(modifier.size(30.dp).background(if (soft) ink else ink.copy(alpha = if (LocalSystemUiDark.current) 0.22f else 0.12f),
+    Box(modifier.size(30.dp).background(if (soft) ink else Color.Transparent,
         RoundedCornerShape(if (soft) 9.dp else 10.dp)), contentAlignment = Alignment.Center) {
-        Icon(glyph.vector(), null, Modifier.size(19.dp), tint = if (soft) Color.White else ink)
+        Icon(glyph.vector(), null, Modifier.size(if (soft) 19.dp else 24.dp), tint = if (soft) Color.White else MiuixTheme.colorScheme.onSurface)
     }
 }
 
 @Composable private fun PreferenceRow(title: String, summary: String?, value: String?, modifier: Modifier,
     enabled: Boolean, trailing: @Composable () -> Unit, action: Modifier) {
     val inset = (16.dp - LocalCardInset.current).coerceAtLeast(0.dp)
-    val glyph = preferenceGlyph(title)
+    // The supplied COUI settings layout hides its image area when no icon is set.
+    val glyph = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) preferenceGlyph(title) else null
     val divider = MiuixTheme.colorScheme.dividerLine
     val grouped = LocalGrouped.current
+    val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
     Row(modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.45f).then(action)
         .drawBehind {
             if (grouped) {
                 val left = inset.toPx() + if (glyph != null) 44.dp.toPx() else 0f
                 drawLine(divider, Offset(left, size.height - 0.5f), Offset(size.width - inset.toPx(), size.height - 0.5f), 0.5.dp.toPx())
             }
-        }.heightIn(min = 60.dp).padding(horizontal = inset, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+        }.heightIn(min = 56.dp).padding(horizontal = inset, vertical = if (soft) 14.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
         if (glyph != null) { SystemGlyphTile(glyph); Spacer(Modifier.width(13.dp)) }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Normal)
+            Text(title, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = if (soft) FontWeight.Normal else FontWeight.Medium)
             if (!summary.isNullOrBlank()) Text(summary, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                fontSize = 12.sp, lineHeight = 18.sp)
+                fontSize = if (soft) 12.sp else 13.sp, lineHeight = 18.sp)
         }
         if (value != null) {
             Text(value, Modifier.padding(start = 12.dp).widthIn(max = 124.dp), fontSize = 13.sp,
@@ -180,9 +180,13 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     val position by animateFloatAsState(if (checked) 1f else 0f, spring(dampingRatio = 0.9f, stiffness = 700f), label = "switch-position")
     val fill by animateColorAsState(if (checked) MiuixTheme.colorScheme.primary else
         Color(if (LocalSystemUiDark.current) 0xFF4C4F57 else 0xFFD9DCE2), label = "switch-fill")
-    Box(Modifier.size(if (soft) 47.dp else 45.dp, 28.dp).clip(CircleShape).background(fill.copy(alpha = if (enabled) 1f else 0.45f))) {
-        Box(Modifier.offset(x = 3.dp + (position * if (soft) 19 else 17).dp, y = 3.dp)
-            .size(22.dp).shadow(1.dp, CircleShape).background(Color.White, CircleShape))
+    val width = if (soft) 49.dp else 44.dp
+    val height = if (soft) 28.dp else 24.dp
+    val thumb = if (soft) 20.dp else 18.dp
+    val padding = (height - thumb) / 2
+    Box(Modifier.size(width, height).clip(CircleShape).background(fill.copy(alpha = if (enabled) 1f else 0.45f))) {
+        Box(Modifier.offset(x = padding + (width - thumb - padding * 2) * position, y = padding)
+            .size(thumb).shadow(1.dp, CircleShape).background(Color.White, CircleShape))
     }
 }
 
@@ -199,7 +203,8 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     val scale by animateFloatAsState(if (pressed) 0.985f else 1f, spring(0.9f, 800f), label = "button-press")
     val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
     val shape = RoundedCornerShape(if (soft) 16.dp else 50.dp)
-    val fill = MiuixTheme.colorScheme.primary
+    // Text CTAs use a darker blue than icon/switch accents for white-label contrast.
+    val fill = MiuixTheme.colorScheme.primaryVariant
     Box(modifier.graphicsLayer { scaleX = scale; scaleY = scale }.clip(shape)
         .background(if (enabled) fill else fill.copy(alpha = 0.22f))
         .then(if (!soft) Modifier.border(0.75.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.35f), Color.Transparent)), shape) else Modifier)
@@ -224,15 +229,20 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.matchParentSize().clickable(onClick = onDismiss))
-            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 12.dp)
-                .widthIn(max = 480.dp).fillMaxWidth().clip(RoundedCornerShape(if (soft) 30.dp else 28.dp))
-                .background(MiuixTheme.colorScheme.surfaceContainer).clickable { }.padding(top = 10.dp, bottom = 10.dp)) {
-                Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp).size(32.dp, 4.dp)
-                    .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.16f), CircleShape))
-                Text(title, modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp), fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold)
-                content()
-            }
+            SystemSheetSurface(title, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                .padding(horizontal = if (soft) 12.dp else 16.dp, vertical = 12.dp), content)
         }
+    }
+}
+
+@Composable internal fun SystemSheetSurface(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
+    Column(modifier.widthIn(max = 480.dp).fillMaxWidth().clip(RoundedCornerShape(if (soft) 36.dp else 28.dp))
+        .background(MiuixTheme.colorScheme.surfaceContainer).clickable { }.padding(top = 10.dp, bottom = 10.dp)) {
+        Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp).size(32.dp, 4.dp)
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.16f), CircleShape))
+        Text(title, modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp), fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold)
+        content()
     }
 }
 
@@ -296,35 +306,51 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     }
 }
 
+/** Native dimensions come from the two supplied clock packages; the portable
+ * backdrop renderer approximates their OEM-only material/force-dark services. */
 @Composable internal fun SystemBottomNavigation(index: Int, labels: List<String>, icons: List<ImageVector>, floating: Boolean,
     backdrop: Backdrop? = null, hazeState: HazeState? = null, targetIndex: Int = index, onSelected: (Int) -> Unit) {
     val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
     val dark = LocalSystemUiDark.current
-    val shape = RoundedCornerShape(if (floating) 32.dp else 0.dp)
-    val hazeStyle = remember { HazeBlurStyle { blurRadius(20.dp) } }
+    val largeFont = LocalDensity.current.fontScale > 1.2f
+    val barHeight = if (soft) { if (largeFont) 80.dp else 64.dp } else { if (largeFont) 72.dp else 56.dp }
+    val itemHeight = barHeight - 8.dp
+    val horizontal = if (soft) 8.dp else 12.dp
+    val itemGap = if (soft) 0.dp else 8.dp
+    val maxBarWidth = if (soft) (labels.size * 96 + 16).dp else (labels.size * 70 + 24 + (labels.size - 1) * 8).dp
+    val shape = if (floating) CircleShape else RoundedCornerShape(0.dp)
+    val hazeStyle = remember(soft) { HazeBlurStyle { blurRadius(if (soft) 24.dp else 30.dp) } }
     val glass = when {
         hazeState != null -> Modifier.hazeBlur(input = HazeInput.Sources(hazeState), style = hazeStyle)
-        backdrop != null -> Modifier.drawBackdrop(backdrop, shape = { shape }, effects = { blur(18.dp.toPx()); vibrancy() }, highlight = null, shadow = null)
+        backdrop != null -> Modifier.drawBackdrop(backdrop, shape = { shape },
+            effects = { blur((if (soft) 24.dp else 30.dp).toPx()); vibrancy() }, highlight = null, shadow = null)
         else -> Modifier
     }
-    val tint = if (dark) Color(0xFF292C33) else Color(0xFFF9FAFC)
-    val rim = Brush.linearGradient(listOf(Color.White.copy(alpha = if (dark) 0.22f else 0.85f),
-        Color.White.copy(alpha = if (dark) 0.05f else 0.20f), Color.White.copy(alpha = if (dark) 0.12f else 0.65f)))
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = if (floating) 24.dp else 0.dp, vertical = if (floating) 8.dp else 0.dp), Alignment.Center) {
-        BoxWithConstraints(Modifier.widthIn(max = if (floating) 304.dp else 600.dp).fillMaxWidth()
-            .shadow(if (floating) 14.dp else 0.dp, shape, ambientColor = Color.Black.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.12f))
-            .clip(shape).then(glass).background(tint.copy(alpha = if (dark) 0.86f else if (soft) 0.78f else 0.86f))
-            .then(if (floating) Modifier.border(if (soft) 1.dp else 0.65.dp, rim, shape) else Modifier).padding(5.dp)) {
-            val cell = maxWidth / labels.size
-            val cellPx = with(LocalDensity.current) { cell.toPx() }
+    val hasBlur = hazeState != null || backdrop != null
+    val fallback = Color(if (dark) { if (soft) 0xFF242424 else 0xFF1E1E1E } else 0xFFF7F7F7)
+    val tint = if (!hasBlur) fallback else (if (dark) Color(0xFF272727) else Color.White)
+        .copy(alpha = if (soft) 0.62f else 0.52f)
+    val rim = Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.23f else 0.82f),
+        Color.White.copy(alpha = if (dark) 0.04f else 0.12f), Color.White.copy(alpha = if (dark) 0.10f else 0.42f)))
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = if (floating) 16.dp else 0.dp,
+        vertical = if (floating) { if (soft) 10.dp else 8.dp } else 0.dp), Alignment.Center) {
+        BoxWithConstraints(Modifier.widthIn(max = if (floating) maxBarWidth else 600.dp).fillMaxWidth()
+            .shadow(if (floating) 8.dp else 0.dp, shape, ambientColor = Color.Black.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.12f))
+            .clip(shape).then(glass).background(tint)
+            .then(if (floating) Modifier.border(0.6.dp, rim, shape) else Modifier)
+            .padding(horizontal = horizontal, vertical = 4.dp)) {
+            val cell = (maxWidth - itemGap * (labels.size - 1)) / labels.size
+            val stride = cell + itemGap
+            val stridePx = with(LocalDensity.current) { stride.toPx() }
             var dragPosition by remember { mutableStateOf<Float?>(null) }
             val latestSelected by rememberUpdatedState(onSelected)
             val latestTarget by rememberUpdatedState(targetIndex)
             val position by animateFloatAsState(dragPosition ?: targetIndex.toFloat(), spring(0.88f, 600f), label = "navigation-selection")
-            Box(Modifier.offset(x = cell * position).width(cell).height(54.dp).clip(CircleShape)
-                .background(if (dark) Color.White.copy(alpha = if (soft) 0.10f else 0.07f)
-                    else Color.Black.copy(alpha = if (soft) 0.055f else 0.035f)))
-            Row(Modifier.fillMaxWidth().pointerInput(cellPx, labels.size) {
+            // COUI's capsule drawable is transient press/hover feedback. Persistent
+            // selection comes from the filled icon and label, not a background pill.
+            if (soft) Box(Modifier.offset(x = stride * position).width(cell).height(itemHeight).clip(CircleShape)
+                .background(if (dark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.065f)))
+            Row(Modifier.fillMaxWidth().pointerInput(stridePx, labels.size) {
                 detectHorizontalDragGestures(
                     onDragStart = { dragPosition = latestTarget.toFloat() },
                     onDragCancel = { dragPosition = null },
@@ -334,19 +360,22 @@ private val LocalGrouped = staticCompositionLocalOf { false }
                     }
                 ) { change, amount ->
                     change.consume()
-                    dragPosition = ((dragPosition ?: latestTarget.toFloat()) + amount / cellPx).coerceIn(0f, labels.lastIndex.toFloat())
+                    dragPosition = ((dragPosition ?: latestTarget.toFloat()) + amount / stridePx).coerceIn(0f, labels.lastIndex.toFloat())
                 }
-            }) {
+            }, horizontalArrangement = Arrangement.spacedBy(itemGap)) {
                 labels.forEachIndexed { i, label ->
                     val selected = i == index
-                    val ink = if (selected) { if (soft) MiuixTheme.colorScheme.onSurface else MiuixTheme.colorScheme.primary }
-                        else MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    val ink = if (selected) MiuixTheme.colorScheme.onSurface else
+                        (if (dark) Color.White else Color.Black).copy(alpha = if (soft) 0.60f else 0.72f)
                     val glyph = listOf(SystemGlyph.Home, SystemGlyph.Records, SystemGlyph.Settings).getOrNull(i)
-                    Column(Modifier.weight(1f).heightIn(min = 54.dp).clip(CircleShape)
-                        .selectable(selected, role = Role.Tab) { onSelected(i) }.padding(vertical = 7.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Icon(glyph?.vector() ?: icons[i], null, Modifier.size(21.dp), tint = ink)
-                        Text(label, color = ink, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal)
+                    Column(Modifier.weight(1f).height(itemHeight).clip(CircleShape)
+                        .selectable(selected, role = Role.Tab) { onSelected(i) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
+                        Icon(if (glyph == null) icons[i] else if (selected && !soft) selectedNavigationGlyphs.getValue(glyph) else glyph.vector(),
+                            null, Modifier.size(if (soft) 26.dp else 24.dp), tint = ink)
+                        Text(label, color = ink, fontSize = if (soft) 11.sp else 10.sp, lineHeight = if (soft) 14.sp else 12.sp,
+                            maxLines = 1, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -446,7 +475,7 @@ internal data class OverviewUiState(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("目前漢化", Modifier.weight(1f), fontSize = 12.sp, lineHeight = 18.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Box(Modifier.size(48.dp, 40.dp).semantics { contentDescription = "啟用漢化" }
+            Box(Modifier.size(52.dp, 48.dp).semantics { contentDescription = "啟用漢化" }
                 .toggleable(state.enabled, enabled = !state.busy && (state.rootMode || state.enabled), role = Role.Switch, onValueChange = onEnabled),
                 Alignment.Center) { SystemToggle(state.enabled, !state.busy) }
         }
@@ -519,4 +548,24 @@ internal data class OverviewUiState(
         } else SystemTextButton(loadAction, onGameFolder, Modifier.fillMaxWidth())
         SystemTextButton("完成", { expanded = false }, Modifier.fillMaxWidth())
     }
+}
+
+// Original LCPatch glyphs: filled active variants follow the supplied COUI tab states.
+private val selectedNavigationGlyphs = listOf(SystemGlyph.Home, SystemGlyph.Records, SystemGlyph.Settings).associateWith { glyph ->
+    ImageVector.Builder("Selected${glyph.name}", 24.dp, 24.dp, 24f, 24f).apply {
+        path(fill = SolidColor(Color.Black), pathFillType = PathFillType.EvenOdd) {
+            when (glyph) {
+                SystemGlyph.Home -> { moveTo(2f,11f); lineTo(12f,2.5f); lineTo(22f,11f); lineTo(19.5f,11f); lineTo(19.5f,21.5f); lineTo(14.5f,21.5f); lineTo(14.5f,14f); lineTo(9.5f,14f); lineTo(9.5f,21.5f); lineTo(4.5f,21.5f); lineTo(4.5f,11f); close() }
+                SystemGlyph.Records -> {
+                    moveTo(5f,2.5f); lineTo(19f,2.5f); quadTo(21f,2.5f,21f,4.5f); lineTo(21f,19.5f); quadTo(21f,21.5f,19f,21.5f); lineTo(5f,21.5f); quadTo(3f,21.5f,3f,19.5f); lineTo(3f,4.5f); quadTo(3f,2.5f,5f,2.5f); close()
+                    for (y in listOf(7f,11f,15f)) { moveTo(7f,y); lineTo(17f,y); lineTo(17f,y+1.7f); lineTo(7f,y+1.7f); close() }
+                }
+                SystemGlyph.Settings -> {
+                    moveTo(9f,2f); lineTo(15f,2f); lineTo(15.7f,5f); lineTo(18f,6.3f); lineTo(20.5f,5.8f); lineTo(22f,11f); lineTo(20f,12.5f); lineTo(19.7f,15f); lineTo(21f,17f); lineTo(16.8f,20.8f); lineTo(14.7f,19.3f); lineTo(12f,20f); lineTo(10.5f,22f); lineTo(5.5f,20f); lineTo(6f,17.5f); lineTo(4.4f,15.4f); lineTo(2f,15f); lineTo(2f,9.5f); lineTo(4.3f,8.5f); lineTo(6f,6.5f); lineTo(6.3f,4f); close()
+                    moveTo(15.5f,12f); arcTo(3.5f,3.5f,0f,true,true,8.5f,12f); arcTo(3.5f,3.5f,0f,true,true,15.5f,12f); close()
+                }
+                else -> Unit
+            }
+        }
+    }.build()
 }
