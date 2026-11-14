@@ -1,6 +1,26 @@
 package com.lcpatch
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.semantics.*
+import com.kyant.backdrop.backdrops.layerBackdrop
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.*
@@ -91,7 +111,7 @@ private val LocalGrouped = staticCompositionLocalOf { false }
         }
         CompositionLocalProvider(LocalSystemUiStyle provides style, LocalSystemUiDark provides dark) {
             MiuixTheme(controller = controller) {
-                CompositionLocalProvider(LocalContentColor provides MiuixTheme.colorScheme.onSurface, content = content)
+                CompositionLocalProvider(LocalContentColor provides MiuixTheme.colorScheme.onSurface) { SystemWindowSurface(content) }
             }
         }
         return
@@ -107,16 +127,37 @@ private val LocalGrouped = staticCompositionLocalOf { false }
             primaryVariant = Color(if (soft) 0xFF2469CE else 0xFF0069D9), primaryContainer = accent.copy(alpha = 0.11f), onPrimaryContainer = accent,
             secondaryContainer = card, background = canvas, surface = canvas, surfaceContainer = card,
             onSurface = Color(if (soft) { if (dark) 0xFFF2F2F2 else 0xFF000000 }
-                else { if (dark) 0xFFE6E6E6 else 0xE6000000 }),
+                else { if (dark) 0xE6FFFFFF else 0xE6000000 }),
             onBackground = Color(if (dark) 0xFFF2F2F2 else 0xFF000000),
-            onSurfaceVariantSummary = Color(if (dark) 0xFF999999 else 0xFF707070),
+            onSurfaceVariantSummary = Color(if (dark) 0x8AFFFFFF else 0x8A000000),
             dividerLine = Color(if (dark) 0xFF333333 else 0xFFE8E8E8))
     }
     CompositionLocalProvider(LocalSystemUiStyle provides style, LocalSystemUiDark provides dark) {
         MiuixTheme(colors = colors) {
-            CompositionLocalProvider(LocalContentColor provides colors.onSurface, content = content)
+            CompositionLocalProvider(LocalContentColor provides colors.onSurface) { SystemWindowSurface(content) }
         }
     }
+}
+
+internal val LocalSystemWindowBackdrop = staticCompositionLocalOf<Backdrop?> { null }
+internal val LocalSystemPanelBackdrop = staticCompositionLocalOf<Backdrop?> { null }
+internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
+
+@Composable private fun SystemWindowSurface(content: @Composable () -> Unit) {
+    val scene = rememberBarBackdrop()
+    CompositionLocalProvider(LocalSystemWindowBackdrop provides scene) {
+        Box(Modifier.fillMaxSize().then(if (scene != null) Modifier.layerBackdrop(scene) else Modifier)
+            .background(MiuixTheme.colorScheme.surface)) { content() }
+    }
+}
+
+@Composable internal fun SystemMaterialScope(enabled: Boolean, content: @Composable BoxScope.() -> Unit) {
+    CompositionLocalProvider(LocalSystemMaterialEnabled provides enabled) { SystemCanvas(content) }
+}
+
+@Composable internal fun systemPageGutter(): Dp {
+    val base = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 12.dp else 16.dp
+    return maxOf(base, (LocalConfiguration.current.screenWidthDp.dp - 600.dp) / 2)
 }
 
 @Composable internal fun SystemCanvas(content: @Composable BoxScope.() -> Unit) {
@@ -175,6 +216,7 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     val divider = MiuixTheme.colorScheme.dividerLine
     val grouped = LocalGrouped.current
     val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
+    val stackedValue = LocalDensity.current.fontScale > 1.3f
     Row(modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.45f).then(action)
         .drawBehind {
             if (grouped && soft) {
@@ -187,8 +229,9 @@ private val LocalGrouped = staticCompositionLocalOf { false }
             Text(title, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = if (soft) FontWeight.Normal else FontWeight.Medium)
             if (!summary.isNullOrBlank()) Text(summary, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 fontSize = if (soft) 12.sp else 13.sp, lineHeight = 18.sp)
+            if (value != null && stackedValue) Text(value, fontSize=13.sp,lineHeight=18.sp, color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
-        if (value != null) {
+        if (value != null && !stackedValue) {
             Text(value, Modifier.padding(start = 12.dp).widthIn(max = 124.dp), fontSize = 13.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -197,13 +240,13 @@ private val LocalGrouped = staticCompositionLocalOf { false }
 }
 
 @Composable internal fun SystemArrowPreference(title: String, summary: String? = null, modifier: Modifier = Modifier,
-    enabled: Boolean = true, onClick: () -> Unit) {
+    enabled: Boolean = true, value: String? = null, onClick: () -> Unit) {
     if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) {
-        MiuixArrowPreference(title = title, summary = summary, modifier = modifier, enabled = enabled, onClick = onClick)
+        MiuixArrowPreference(title = title, summary = summary ?: value, modifier = modifier, enabled = enabled, onClick = onClick)
         return
     }
-    PreferenceRow(title, summary?.takeIf { it.length > 18 }, summary?.takeIf { it.length <= 18 }, modifier, enabled,
-        trailing = { Icon(SystemGlyph.Chevron.vector(), null, Modifier.size(15.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.65f)) },
+    PreferenceRow(title, summary, value, modifier, enabled,
+        trailing = { Icon(SystemGlyph.Chevron.vector(), null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary) },
         action = Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick))
 }
 
@@ -246,19 +289,31 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     }
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.985f else 1f, spring(0.9f, 800f), label = "button-press")
-    val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
-    val shape = RoundedCornerShape(if (soft) 16.dp else 50.dp)
-    // Text CTAs use a darker blue than icon/switch accents for white-label contrast.
-    val fill = MiuixTheme.colorScheme.primaryVariant
-    Box(modifier.graphicsLayer { scaleX = scale; scaleY = scale }.clip(shape)
-        .background(if (enabled) fill else fill.copy(alpha = 0.22f))
-        .then(if (!soft) Modifier.border(0.75.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.35f), Color.Transparent)), shape) else Modifier)
-        .clickable(interactionSource = source, indication = LocalIndication.current, enabled = enabled, role = Role.Button, onClick = onClick)
-        .heightIn(min = 50.dp).padding(horizontal = 20.dp, vertical = 13.dp), Alignment.Center) {
-        CompositionLocalProvider(LocalContentColor provides MiuixTheme.colorScheme.onPrimary.copy(alpha = if (enabled) 1f else 0.55f)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, content = content)
+    val fill = MiuixTheme.colorScheme.primary
+    val shape = CircleShape
+    Box(modifier.heightIn(min = 48.dp)
+        .clickable(interactionSource = source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+        .padding(vertical = 2.dp), Alignment.Center) {
+        Box(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(shape)
+            .background(fill.copy(alpha = if (enabled) 1f else 0.30f))
+            .then(if (pressed) Modifier.background(Color.Black.copy(alpha = 0.2f)) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 8.dp), Alignment.Center) {
+            CompositionLocalProvider(LocalContentColor provides Color.White.copy(alpha = if (enabled) 1f else 0.70f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, content = content)
+            }
         }
+    }
+}
+
+@Composable internal fun SystemSecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) {
+        MiuixButton(onClick = onClick, modifier = modifier, enabled = enabled) { Text(text, fontSize = 16.sp) }
+        return
+    }
+    Box(modifier.heightIn(min = 48.dp).clip(CircleShape).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+        .background((if (LocalSystemUiDark.current) Color.White else Color.Black).copy(alpha = if (LocalSystemUiDark.current) 0.10f else 0.08f))
+        .padding(horizontal = 12.dp, vertical = 10.dp), Alignment.Center) {
+        Text(text, color = MiuixTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f), fontSize = 16.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -269,18 +324,50 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     }
     Box(modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp))
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp), Alignment.Center) {
-        Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+        Text(text, fontSize = 16.sp, fontWeight = FontWeight.Medium,
             color = MiuixTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f))
     }
 }
 
-@Composable internal fun SystemModal(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun SystemModal(title: String, onDismiss: () -> Unit, alert: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit) {
     val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize()) {
-            Box(Modifier.matchParentSize().clickable(onClick = onDismiss))
-            SystemSheetSurface(title, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                .padding(horizontal = if (soft) 12.dp else 16.dp, vertical = 12.dp), content)
+    val scope = rememberCoroutineScope()
+    var shown by remember { mutableStateOf(false) }
+    var closing by remember { mutableStateOf(false) }
+    val latestDismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(Unit) { shown = true }
+    val close = {
+        if (!closing) {
+            closing = true
+            scope.launch { shown = false; delay(if (soft) 200L else 250L); latestDismiss() }
+        }
+    }
+    val windowScene = LocalSystemWindowBackdrop.current.takeIf { LocalSystemMaterialEnabled.current }
+    Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect { window?.setDimAmount(0f) }
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)).clickable(indication = null,
+            interactionSource = remember { MutableInteractionSource() }, onClick = close)) {
+            AnimatedVisibility(shown, modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding(),
+                enter = fadeIn(tween(250)) + slideInVertically(tween(250, easing = CubicBezierEasing(.3f,0f,.1f,1f))) { it / 3 },
+                exit = fadeOut(tween(200)) + slideOutVertically(tween(250, easing = CubicBezierEasing(.3f,0f,1f,1f))) { it / 4 }) {
+                CompositionLocalProvider(LocalSystemPanelBackdrop provides windowScene) {
+                SystemSheetSurface(title, Modifier.padding(horizontal = if (soft) 12.dp else 16.dp,
+                    vertical = if (!soft && alert) 32.dp else 12.dp), alert, content)
+                }
+            }
+        }
+    }
+}
+
+@Composable internal fun SystemConfirmDialog(title: String, message: String, confirm: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    SystemModal(title, onDismiss, alert = true) {
+        Text(message, Modifier.padding(horizontal = 24.dp, vertical = 10.dp), fontSize = 14.sp, lineHeight = 22.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SystemSecondaryButton("取消", onDismiss, Modifier.weight(1f))
+            SystemButton(onConfirm, Modifier.weight(1f)) { Text(confirm, fontSize = 16.sp) }
         }
     }
 }
@@ -336,17 +423,63 @@ private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boo
     }
 }
 
-@Composable internal fun SystemSheetSurface(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun SystemSheetSurface(title: String, modifier: Modifier = Modifier, alert: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit) {
     val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
-    val shape = RoundedCornerShape(if (soft) 36.dp else 28.dp)
-    Column(modifier.widthIn(max = 480.dp).fillMaxWidth().clip(shape)
-        .background(MiuixTheme.colorScheme.surfaceContainer)
-
-        .clickable { }.padding(top = 10.dp, bottom = 10.dp)) {
-        Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp).size(32.dp, 4.dp)
+    val dark = LocalSystemUiDark.current
+    val radius = if (soft) 36.dp else if (alert) 24.dp else 28.dp
+    val shape = RoundedCornerShape(radius)
+    val scene = LocalSystemPanelBackdrop.current.takeIf { LocalSystemMaterialEnabled.current }
+    val glass = if (soft && scene != null) Modifier.hyperGlassBackdrop(scene, shape, radius) else Modifier
+    val surface = if (soft) MiuixTheme.colorScheme.surfaceContainer.copy(alpha = if (scene != null) 0.84f else 1f)
+        else Color(if (dark) 0xFF1E1E1E else 0xFFFFFFFF)
+    Column(modifier.widthIn(max = 480.dp).fillMaxWidth()
+        .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.88f).clip(shape).then(glass)
+        .background(surface).clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { }
+        .verticalScroll(rememberScrollState()).padding(top = if (alert) 14.dp else 10.dp, bottom = 10.dp)) {
+        if (!alert) Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp).size(32.dp, 4.dp)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.16f), CircleShape))
-        Text(title, modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp), fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp),
+            textAlign = if (!soft && alert) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Start,
+            fontSize = if (soft) 20.sp else 18.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold)
         content()
+    }
+}
+
+@Composable internal fun SystemSelectionRows(items: List<String>, selected: Int, onSelected: (Int) -> Unit) {
+    Column(Modifier.fillMaxWidth().selectableGroup()) {
+        items.forEachIndexed { i, label ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(i == selected, role = Role.RadioButton) { onSelected(i) }
+                .padding(horizontal = 24.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(label, Modifier.weight(1f), fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.width(16.dp))
+                Box(Modifier.size(24.dp), Alignment.Center) {
+                    val color = if (i == selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface.copy(alpha = .38f)
+                    Box(Modifier.size(if (i == selected) 20.dp else 18.4.dp).then(if (i == selected) Modifier.background(color, CircleShape)
+                        else Modifier.border(1.3.dp, color, CircleShape)), Alignment.Center) {
+                        if (i == selected) Box(Modifier.size(12.dp).background(Color.White, CircleShape))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable internal fun SystemChoiceMenuSurface(items: List<String>, selected: Int, onSelected: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val dark = LocalSystemUiDark.current
+    val shape = RoundedCornerShape(16.dp)
+    Column(modifier.widthIn(min = 180.dp, max = 300.dp).width(IntrinsicSize.Max).clip(shape)
+        .background(Color(if (dark) 0xFF262626 else 0xFFFFFFFF)).padding(vertical = 8.dp).selectableGroup()) {
+        items.forEachIndexed { i, label ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(i == selected, role = Role.RadioButton) { onSelected(i) }
+                .padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(label, Modifier.weight(1f), fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.width(18.dp))
+                Box(Modifier.size(20.dp), Alignment.Center) {
+                    if (i == selected) Icon(SystemGlyph.Check.vector(), null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.primary)
+                }
+            }
+        }
     }
 }
 
@@ -358,22 +491,26 @@ private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boo
         return
     }
     var expanded by remember { mutableStateOf(false) }
-    PreferenceRow(title, summary, items.getOrNull(selectedIndex), modifier, enabled,
-        trailing = { Icon(SystemGlyph.Chevron.vector(), null, Modifier.size(15.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.65f)) },
-        action = Modifier.clickable(enabled = enabled, role = Role.Button) { expanded = true })
-    if (expanded) SystemModal(title, { expanded = false }) {
-        Column(Modifier.weight(1f, fill = false).heightIn(max = 400.dp).verticalScroll(rememberScrollState()).selectableGroup()) {
-            items.forEachIndexed { i, value ->
-                Row(Modifier.fillMaxWidth().selectable(i == selectedIndex, role = Role.RadioButton) {
-                    onSelectedIndexChange(i); expanded = false
-                }.padding(horizontal = 24.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(value, Modifier.weight(1f), fontSize = 16.sp, lineHeight = 22.sp,
-                        color = if (i == selectedIndex) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface)
-                    if (i == selectedIndex) Icon(SystemGlyph.Check.vector(), null, Modifier.size(22.dp), tint = MiuixTheme.colorScheme.primary)
-                }
+    val margin = with(LocalDensity.current) { 12.dp.roundToPx() }
+    val position = remember(margin) { object : PopupPositionProvider {
+        override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+            val x = (if (layoutDirection == LayoutDirection.Ltr) anchorBounds.right-popupContentSize.width else anchorBounds.left)
+                .coerceIn(margin, maxOf(margin, windowSize.width-popupContentSize.width-margin))
+            val below = anchorBounds.bottom+margin
+            val y = (if (below+popupContentSize.height <= windowSize.height-margin) below else anchorBounds.top-popupContentSize.height-margin)
+                .coerceIn(margin, maxOf(margin, windowSize.height-popupContentSize.height-margin))
+            return IntOffset(x,y)
+        }
+    } }
+    Box {
+        PreferenceRow(title, summary, items.getOrNull(selectedIndex), modifier, enabled,
+            trailing = { Icon(SystemGlyph.Chevron.vector(), null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary) },
+            action = Modifier.clickable(enabled = enabled, role = Role.Button) { expanded = true })
+        if (expanded) Popup(popupPositionProvider = position, onDismissRequest = { expanded = false }, properties = PopupProperties(focusable = true)) {
+            Box(Modifier.shadow(12.dp, RoundedCornerShape(16.dp)).heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                SystemChoiceMenuSurface(items, selectedIndex, { onSelectedIndexChange(it); expanded = false })
             }
         }
-        SystemTextButton("取消", { expanded = false }, Modifier.fillMaxWidth().padding(horizontal = 12.dp))
     }
 }
 
@@ -419,83 +556,130 @@ private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boo
  * backdrop renderer approximates their OEM-only material/force-dark services. */
 @Composable internal fun SystemBottomNavigation(index: Int, labels: List<String>, icons: List<ImageVector>, floating: Boolean,
     backdrop: Backdrop? = null, hazeState: HazeState? = null, targetIndex: Int = index, onSelected: (Int) -> Unit) {
-    val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
+    val hyper = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
     val dark = LocalSystemUiDark.current
-    val largeFont = LocalDensity.current.fontScale > 1.2f
-    val barHeight = if (soft) { if (largeFont) 80.dp else 64.dp } else { if (largeFont) 72.dp else 56.dp }
-    val itemHeight = barHeight - 8.dp
-    val horizontal = if (soft) 8.dp else 12.dp
-    val itemGap = if (soft) 0.dp else 8.dp
-    val maxBarWidth = if (soft) (labels.size * 96 + 16).dp else (labels.size * 70 + 24 + (labels.size - 1) * 8).dp
+    val density = LocalDensity.current
+    val large = density.fontScale > 1.4f
+    val labelHeight = with(density) { (if (hyper) 14.sp else 12.sp).toDp() }
+    val barHeight = if (hyper) maxOf(54.dp, 40.dp+labelHeight*(if (large) 2 else 1)) else if (large) 72.dp else 56.dp
+    val vertical = if (hyper) 3.dp else 4.dp
+    val itemHeight = barHeight-vertical*2
+    val horizontal = if (hyper) 3.dp else 12.dp
+    val gap = if (hyper) (-10).dp else 8.dp
+    val preferredWidth = if (hyper) (labels.size*88-(labels.size-1)*10+6).dp else (labels.size*70+24+(labels.size-1)*8).dp
     val shape = if (floating) CircleShape else RoundedCornerShape(0.dp)
-    val hazeStyle = remember(soft) { HazeBlurStyle { blurRadius(if (soft) 24.dp else 30.dp) } }
+    val hazeStyle = remember(hyper) { HazeBlurStyle { blurRadius(if (hyper) 20.dp else 30.dp) } }
     val glass = when {
         hazeState != null -> Modifier.hazeBlur(input = HazeInput.Sources(hazeState), style = hazeStyle)
-        backdrop != null -> Modifier.drawBackdrop(backdrop, shape = { shape },
-            effects = {
-                if (soft) { blur(24.dp.toPx()); vibrancy() }
-                else {
-                    // Observed COUI FRAMEWORK_BOTTOM_BAR fallback chain. Radius is
-                    // raw pixels; color filters act on the captured background only.
-                    blur(25f, edgeTreatment = TileMode.Mirror)
-                    colorFilter(ColorFilter.tint(Color(if (dark) 0x80666666 else 0xB3666666),
-                        if (dark) BlendMode.Overlay else BlendMode.ColorDodge))
-                    colorFilter(ColorFilter.tint(Color(if (dark) 0xB3262626 else 0x99F5F5F5), BlendMode.Luminosity))
+        backdrop != null -> Modifier.drawBackdrop(backdrop, shape = { shape }, effects = {
+            if (hyper) {
+                blur(20.dp.toPx())
+                // Source Pured_Thin_Glass, alpha-aware PLUS_DARKER on the opaque page capture.
+                val subtract = if (dark) -26f else -5f
+                colorFilter(ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+                    1f,0f,0f,0f,subtract, 0f,1f,0f,0f,subtract, 0f,0f,1f,0f,subtract, 0f,0f,0f,1f,0f))))
+                if (dark) {
+                    colorFilter(ColorFilter.tint(Color(0x66565656), BlendMode.Luminosity))
+                    colorFilter(ColorFilter.tint(Color(0x993F3F3F), BlendMode.Overlay))
+                } else {
+                    colorFilter(ColorFilter.tint(Color(0x99FFFFFF), BlendMode.Softlight))
+                    colorFilter(ColorFilter.tint(Color(0x66FFFFFF), BlendMode.Hardlight))
                 }
-            }, highlight = null, shadow = null)
+            } else {
+                blur(25f, edgeTreatment = TileMode.Mirror)
+                colorFilter(ColorFilter.tint(Color(if (dark) 0x80666666 else 0xB3666666), if (dark) BlendMode.Overlay else BlendMode.ColorDodge))
+                colorFilter(ColorFilter.tint(Color(if (dark) 0xB3262626 else 0x99F5F5F5), BlendMode.Luminosity))
+            }
+        }, highlight = null, shadow = null)
         else -> Modifier
     }
-    val hasBlur = hazeState != null || backdrop != null
-    val fallback = Color(if (dark) { if (soft) 0xFF242424 else 0xFF1E1E1E } else if (soft) 0xFFF7F7F7 else 0xFFFAFAFA)
-    val tint = if (!hasBlur) fallback else if (!soft && backdrop != null && hazeState == null) Color.Transparent else (if (dark) Color(0xFF272727) else Color.White)
-        .copy(alpha = if (soft) 0.62f else 0.52f)
-    val rim = Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.23f else 0.82f),
-        Color.White.copy(alpha = if (dark) 0.04f else 0.12f), Color.White.copy(alpha = if (dark) 0.10f else 0.42f)))
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = if (floating) 16.dp else 0.dp,
-        vertical = if (floating) { if (soft) 10.dp else 8.dp } else 0.dp), Alignment.Center) {
-        BoxWithConstraints(Modifier.widthIn(max = if (floating) maxBarWidth else 600.dp).fillMaxWidth()
-            .shadow(if (floating) 8.dp else 0.dp, shape, ambientColor = Color.Black.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.12f))
+    val tint = if (backdrop != null && hazeState == null) Color.Transparent else if (hazeState != null)
+        (if (dark) Color(0xFF272727) else Color.White).copy(alpha = .56f)
+        else Color(if (dark) 0xFF1E1E1E else 0xFFFAFAFA)
+    val rim = Brush.linearGradient(listOf(Color.White.copy(alpha = if (dark) .4f else .5f),
+        Color.White.copy(alpha = .1f), Color.White.copy(alpha = if (dark) .2f else .3f)))
+    val inset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottom = if (!floating) inset else if (hyper) maxOf(24.dp,inset+8.dp) else inset+8.dp
+    val sources = remember(labels.size) { List(labels.size) { MutableInteractionSource() } }
+    val pressed = sources.map { it.collectIsPressedAsState().value }
+    val hovered = sources.map { it.collectIsHoveredAsState().value || it.collectIsFocusedAsState().value }
+    Box(Modifier.fillMaxWidth().padding(start = if (floating) 24.dp else 0.dp, end = if (floating) 24.dp else 0.dp,
+        top = if (floating && hyper) 20.dp else 0.dp, bottom = bottom), Alignment.Center) {
+        BoxWithConstraints(Modifier.widthIn(max = if (floating) preferredWidth else 600.dp).fillMaxWidth()
+            .shadow(if (floating) 10.dp else 0.dp, shape, ambientColor = Color.Black.copy(alpha = .18f), spotColor = Color.Black.copy(alpha = .18f))
             .clip(shape).then(glass).background(tint)
-            .then(if (!floating) Modifier else if (soft) Modifier.border(0.6.dp, rim, shape)
-                else Modifier.acrylicSurfaceEdges(shape, dark))
-            .padding(horizontal = horizontal, vertical = 4.dp)) {
-            val cell = (maxWidth - itemGap * (labels.size - 1)) / labels.size
-            val stride = cell + itemGap
-            val stridePx = with(LocalDensity.current) { stride.toPx() }
-            var dragPosition by remember { mutableStateOf<Float?>(null) }
-            val latestSelected by rememberUpdatedState(onSelected)
+            .then(if (!floating) Modifier else if (hyper) Modifier.border(.8.dp,rim,shape) else Modifier.acrylicSurfaceEdges(shape,dark))
+            .padding(horizontal = horizontal, vertical = vertical)) {
+            val cell = (maxWidth-gap*(labels.size-1))/labels.size
+            val stride = cell+gap
+            val stridePx = with(density) { stride.toPx() }
+            val physics = remember { BottomBarPhysics(targetIndex.toFloat()) }
+            var revision by remember { mutableIntStateOf(0) }
+            var dragging by remember { mutableStateOf(false) }
             val latestTarget by rememberUpdatedState(targetIndex)
-            val position by animateFloatAsState(dragPosition ?: targetIndex.toFloat(), spring(0.88f, 600f), label = "navigation-selection")
-            // COUI's capsule drawable is transient press/hover feedback. Persistent
-            // selection comes from the filled icon and label, not a background pill.
-            if (soft) Box(Modifier.offset(x = stride * position).width(cell).height(itemHeight).clip(CircleShape)
-                .background(if (dark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.065f)))
-            Row(Modifier.fillMaxWidth().pointerInput(stridePx, labels.size) {
-                detectHorizontalDragGestures(
-                    onDragStart = { dragPosition = latestTarget.toFloat() },
-                    onDragCancel = { dragPosition = null },
-                    onDragEnd = {
-                        val target = (dragPosition ?: latestTarget.toFloat()).roundToInt().coerceIn(0, labels.lastIndex)
-                        latestSelected(target); dragPosition = null
+            val latestSelected by rememberUpdatedState(onSelected)
+            LaunchedEffect(targetIndex) {
+                if (!android.animation.ValueAnimator.areAnimatorsEnabled()) physics.snapTo(targetIndex) else physics.select(targetIndex)
+                revision++
+            }
+            LaunchedEffect(physics) {
+                snapshotFlow { revision }.collect {
+                    var previous = withFrameNanos { it }
+                    while (physics.active || physics.dragging) {
+                        val now = withFrameNanos { it }
+                        if (!physics.dragging && !android.animation.ValueAnimator.areAnimatorsEnabled()) physics.snapTo(latestTarget)
+                        else physics.advance((now-previous)/1_000_000_000f)
+                        previous = now; revision++
                     }
-                ) { change, amount ->
-                    change.consume()
-                    dragPosition = ((dragPosition ?: latestTarget.toFloat()) + amount / stridePx).coerceIn(0f, labels.lastIndex.toFloat())
                 }
-            }, horizontalArrangement = Arrangement.spacedBy(itemGap)) {
-                labels.forEachIndexed { i, label ->
-                    val selected = i == index
-                    val ink = if (selected) MiuixTheme.colorScheme.onSurface else
-                        (if (dark) Color.White else Color.Black).copy(alpha = if (soft) 0.60f else 0.72f)
-                    val glyph = listOf(SystemGlyph.Home, SystemGlyph.Records, SystemGlyph.Settings).getOrNull(i)
-                    Column(Modifier.weight(1f).height(itemHeight).clip(CircleShape)
-                        .selectable(selected, role = Role.Tab) { onSelected(i) },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
-                        Icon(if (soft || glyph == null) icons[i] else if (selected) selectedNavigationGlyphs.getValue(glyph) else glyph.vector(),
-                            null, Modifier.size(if (soft) 26.dp else 24.dp), tint = ink)
-                        Text(label, color = ink, fontSize = if (soft) 11.sp else 10.sp, lineHeight = if (soft) 14.sp else 12.sp,
-                            maxLines = 1, fontWeight = FontWeight.Medium)
+            }
+            @Suppress("UNUSED_VARIABLE") val frame = revision
+            val left = physics.leftPosition*stride
+            val width = (physics.rightPosition-physics.leftPosition)*stride+(cell-stride)
+            val stateIndex = if (dragging) physics.dragPosition.roundToInt().coerceIn(0,labels.lastIndex) else targetIndex.coerceIn(0,labels.lastIndex)
+            val isPressed = pressed[stateIndex] || dragging
+            val press by animateFloatAsState(if (isPressed) 1f else 0f, spring(.7f,250f), label = "nav-press")
+            val alpha by animateFloatAsState(if (isPressed) { if (dark) .26f else .16f }
+                else if (hovered[stateIndex]) { if (dark) .20f else .10f } else if (dark) .12f else .06f,
+                tween(150), label = "nav-state-alpha")
+            if (hyper) Box(Modifier.offset(x=left).width(width).height(itemHeight).graphicsLayer {
+                scaleX = (width.toPx()-6.dp.toPx()*press).coerceAtLeast(width.toPx()*.5f)/width.toPx()
+                scaleY = (itemHeight.toPx()-6.dp.toPx()*press)/itemHeight.toPx()
+            }.background((if (dark) Color.White else Color.Black).copy(alpha=alpha), RoundedCornerShape(itemHeight/2)))
+            if (!hyper) labels.indices.forEach { i ->
+                if (pressed[i] || hovered[i]) Box(Modifier.offset(x=stride*i-8.dp).width(cell+16.dp).height(itemHeight)
+                    .background(MiuixTheme.colorScheme.onSurface.copy(alpha=.08f),CircleShape))
+            }
+            val latestLeft by rememberUpdatedState(with(density) { left.toPx() })
+            val latestRight by rememberUpdatedState(with(density) { (left+width).toPx() })
+            var previousTime by remember { mutableStateOf(0L) }
+            Row(Modifier.fillMaxWidth().then(if (hyper) Modifier.pointerInput(stridePx) {
+                detectHorizontalDragGestures(onDragStart = { point ->
+                    dragging = point.x in latestLeft..latestRight
+                    if (dragging) { physics.beginDrag(); previousTime = android.os.SystemClock.uptimeMillis(); revision++ }
+                }, onDragCancel = { dragging=false; physics.select(latestTarget); revision++ }, onDragEnd = {
+                    if (dragging) { val selected=physics.dragPosition.roundToInt().coerceIn(0,labels.lastIndex)
+                        physics.select(selected); latestSelected(selected) }
+                    dragging=false; revision++
+                }) { change, delta ->
+                    if (dragging) { change.consume(); physics.dragBy(delta/stridePx,(change.uptimeMillis-previousTime)/1000f)
+                        previousTime=change.uptimeMillis; revision++ }
+                }
+            } else Modifier), horizontalArrangement=Arrangement.spacedBy(gap)) {
+                labels.forEachIndexed { i,label ->
+                    val selected=i==index
+                    val ink by animateColorAsState((if(dark) Color.White else Color.Black).copy(alpha=if(selected) .9f else if(hyper) .6f else .72f),tween(180),label="tab-ink")
+                    val glyph=listOf(SystemGlyph.Home,SystemGlyph.Records,SystemGlyph.Settings).getOrNull(i)
+                    Column(Modifier.width(cell).height(itemHeight).clip(CircleShape)
+                        .selectable(selected,interactionSource=sources[i],indication=null,role=Role.Tab) { onSelected(i) },
+                        horizontalAlignment=Alignment.CenterHorizontally,
+                        verticalArrangement=Arrangement.spacedBy(if(hyper) 0.dp else 2.dp,Alignment.CenterVertically)) {
+                        if (hyper || glyph==null) Icon(icons[i],null,Modifier.size(if(hyper) 28.dp else 24.dp),tint=ink)
+                        else Crossfade(selected,Modifier.size(24.dp),animationSpec=tween(180),label="tab-icon") { active ->
+                            Icon(if(active) selectedNavigationGlyphs.getValue(glyph) else glyph.vector(),null,Modifier.size(24.dp),tint=ink)
+                        }
+                        Text(label,color=ink,fontSize=if(hyper) 11.sp else 10.sp,lineHeight=if(hyper) 14.sp else 12.sp,
+                            maxLines=if(large) 2 else 1,fontWeight=FontWeight.Medium)
                     }
                 }
             }
@@ -639,7 +823,7 @@ internal data class OverviewUiState(
     val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled
     SystemCard {
         SystemArrowPreference(if (state.rootMode) "環境與權限" else "文件載入方式",
-            if (healthy) "已就緒" else "待設定", onClick = { expanded = true })
+            value = if (healthy) "已就緒" else "待設定", onClick = { expanded = true })
     }
     if (expanded) SystemModal(if (state.rootMode) "環境與權限" else "文件載入", { expanded = false }) {
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -675,4 +859,97 @@ private val selectedNavigationGlyphs = listOf(SystemGlyph.Home, SystemGlyph.Reco
             }
         }
     }.build()
+}
+
+/** Shared action states preserve readable text at large system font sizes. */
+@Composable internal fun SystemProgressActionButton(text: String, progress: Float? = null, busy: Boolean = false,
+    enabled: Boolean = true, onClick: () -> Unit) {
+    val primary = MiuixTheme.colorScheme.primary
+    val fraction = progress?.takeIf { it.isFinite() }?.coerceIn(0f, 1f)
+    val shape = RoundedCornerShape(if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 16.dp else 50.dp)
+    val ink = MiuixTheme.colorScheme.onSurface
+    Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
+        .background(if (busy) primary.copy(alpha=.16f).compositeOver(MiuixTheme.colorScheme.surfaceContainer)
+            else if (enabled) primary else ink.copy(alpha=.08f))
+        .semantics {
+            role = Role.Button
+            if (busy) {
+                stateDescription = "處理中"
+                progressBarRangeInfo = if (fraction == null) ProgressBarRangeInfo.Indeterminate else ProgressBarRangeInfo(fraction, 0f..1f)
+            }
+        }.clickable(enabled = enabled && !busy, onClick = onClick), Alignment.Center) {
+        if (busy && fraction != null && fraction > 0f) Box(Modifier.matchParentSize().drawBehind {
+            drawRect(primary.copy(alpha=.24f), size=androidx.compose.ui.geometry.Size(size.width*fraction,size.height))
+        })
+        Text(text, Modifier.padding(horizontal=16.dp,vertical=12.dp), color=if (busy) ink else if (enabled) Color.White else ink.copy(alpha=.38f),
+            fontSize=16.sp,lineHeight=24.sp,fontWeight=FontWeight.Medium,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
+
+@Composable internal fun SystemNotice(message: String, error: Boolean, retry: (() -> Unit)?, dismiss: () -> Unit, modifier: Modifier = Modifier) {
+    SystemCard(modifier.widthIn(max=480.dp).fillMaxWidth(), insideMargin=PaddingValues(16.dp)) {
+        Column(Modifier.heightIn(max=280.dp).verticalScroll(rememberScrollState())) {
+            Text(message, Modifier.semantics { liveRegion=LiveRegionMode.Polite }, fontSize=14.sp,lineHeight=22.sp)
+            if (error) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp,Alignment.End)) {
+                if (retry != null) SystemTextButton("重試",retry)
+                SystemTextButton("關閉",dismiss)
+            }
+        }
+    }
+}
+
+/** Ordinary second-level COUI toolbar uses 18sp medium, distinct from the 24sp collapsed main title. */
+@Composable internal fun SystemColorTopBar(title: String, navigationIcon: @Composable () -> Unit) {
+    Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min=56.dp).padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically) {
+        Box(Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp),Alignment.Center) { navigationIcon() }
+        Text(title,Modifier.weight(1f).padding(start=8.dp,end=16.dp,top=12.dp,bottom=12.dp),fontSize=18.sp,lineHeight=26.sp,fontWeight=FontWeight.Medium)
+    }
+}
+
+@Composable internal fun SystemDisplaySettingsPanel(
+        themeMode: String,
+        systemUiStyle: SystemUiStyle,
+        onSystemUiStyle: (SystemUiStyle) -> Unit,
+        navigationStyle: String,
+        onNavigationStyle: (String) -> Unit,
+        blurEnabled: Boolean,
+        onBlurEnabled: (Boolean) -> Unit,
+        hazeRendererEnabled: Boolean,
+        onHazeRendererEnabled: (Boolean) -> Unit,
+        onThemeMode: (String) -> Unit
+    ) {
+    SystemCard {
+                SystemStylePicker(systemUiStyle, onSystemUiStyle)
+                SystemDropdownPreference(
+                    modifier = Modifier,
+                    title = "深淺模式",
+                    items = listOf("跟隨系統", "淺色", "深色"),
+                    selectedIndex = when (themeMode) { "light" -> 1; "dark" -> 2; else -> 0 },
+                    onSelectedIndexChange = { onThemeMode(when (it) { 1 -> "light"; 2 -> "dark"; else -> "system" }) }
+                )
+                SystemDropdownPreference(
+                    modifier = Modifier,
+                    title = "底欄樣式",
+                    items = listOf("標準底欄", "懸浮底欄"),
+                    selectedIndex = if (navigationStyle == "floating") 1 else 0,
+                    onSelectedIndexChange = { onNavigationStyle(if (it == 1) "floating" else "standard") }
+                )
+                SystemSwitchPreference(
+                    modifier = Modifier,
+                    title = "背景模糊",
+                    summary = if (blurEnabled) "頂欄、底欄與面板使用模糊效果" else "使用清晰的純色背景",
+                    checked = blurEnabled,
+                    onCheckedChange = onBlurEnabled
+                )
+                SystemSwitchPreference(
+                    modifier = Modifier,
+                    title = "相容模糊",
+                    summary = if (hazeRendererEnabled) "使用較柔和的模糊；效果不合適時可以關閉"
+                        else "使用標準玻璃效果",
+                    enabled = blurEnabled,
+                    checked = hazeRendererEnabled,
+                    onCheckedChange = onHazeRendererEnabled
+                )
+
+    }
 }
