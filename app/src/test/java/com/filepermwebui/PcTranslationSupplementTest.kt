@@ -168,7 +168,7 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
                         end = systemPageGutter(),
                         top = padding.calculateTopPadding() + if (style == SystemUiStyle.HyperOS4) 12.dp else (-8).dp,
                         bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (style != SystemUiStyle.HyperOS4) item { SystemPageHeading(listOf("LCPatch", "日誌", "設定")[page]) }
+                    if (style != SystemUiStyle.HyperOS4) item { SystemPageHeading(listOf("LCPatch", "日誌", "設定")[page],collapseFraction=if(scrolled || atEnd) 1f else 0f) }
                     when (page) {
                         0 -> {
                             item { SystemTranslationPanel(sampleOverview, {}, {}, {}) }
