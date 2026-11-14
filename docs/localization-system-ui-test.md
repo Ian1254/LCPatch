@@ -4,6 +4,59 @@ This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
 
+## test.8: supplied clock APK references
+
+The user supplied two static references; neither APK was installed or executed.
+No APK, recovered OEM code, image, icon, or font is included in LCPatch.
+
+| Reference | Identity and SHA-256 |
+|---|---|
+| Xiaomi Clock | com.android.deskclock 18.28.0 (1306002800), cf26966aa67bdb135706e39b90def94d4ab3ec1244f15b0699e8ea5fb3951ab9 |
+| OPPO Clock | com.coloros.alarmclock 17.6.70 (17006070), 09b5b1920a60f6c0872e9250e7982a3cc6829a5b734be2dd4e2dfb8edfa9a62a |
+
+Xiaomi's manifest uses `com.miui.system`, MIUI permissions and Xiaomi wearable
+integration. The app-linked MainActivityTheme selects Theme.DayNight.Navigator.
+The package version alone does not establish a particular HyperOS release.
+OPPO's actual AlarmClock.H1 inflates COUIBottomFloatingNavigationBar over its
+pager. Archive inventories had no integrity contradictions. REA summary Evidence:
+`ev_425f517bf0b6e16edadf6fe11cc413d4833870a982fc050bab7b32a006586756`
+and `ev_8306a5d39b0c4f047736f6329d5700721643e8576d796a50e531c8eec95e8510`.
+XML, resources and selected DEX/JADX class methods provided the UI evidence;
+REA's separate JADX MCP provider was not configured.
+
+| Component | 柔光玻璃 | Liquid Acrylic |
+|---|---|---|
+| Page light | main_bg / surface_low_light #F3F3F3 | main_pager_background #F0F1F2 |
+| Card | alarm_item_radius 20dp, white / #24FFFFFF over black | generic COUI corner 12dp, white / #1AFFFFFF over black |
+| Expanded title | WindowTitle.Expand 32sp regular | COUICollapsingToolbarLayoutStyle 32dp semibold |
+| Collapsed title | 18sp medium | 24dp semibold |
+| Switch | sliding_button_width 49dp, height28dp, thumb20dp | COUISwitchStyle 44x24dp, thumb18dp |
+| Bottom bar | height64dp, large-font80dp, actual XML icon26dp, label11sp override | height56dp, item48dp, icon24dp, label10dp medium |
+| Three-item width | bounded to 3x96+16dp, portable layout choice | BaseBottomFloatingMenuView.onMeasure: 3x70+2x12+2x8 =250dp |
+| Active navigation | app override black / near-white | 90% black/white, original filled LCPatch icon |
+| Preferences | min56dp, 16sp title, horizontal16dp / vertical14dp | text-only rows matching alarm_setting_prefs.xml, 16sp medium title, 13sp summary |
+| Floating sheet | MIUIX big radius36dp, external12dp | bottom-sheet radius28dp, external16dp |
+
+COUI NavMenu.setSelectedItem -> NavItem.setSelected -> NavIcon.setShowMask only
+changes label/icon selection and an icon-local mask. COUIMaskRippleDrawable's
+expanded 86x48dp rectangle belongs to press/hover feedback, **not a persistent
+selected capsule**. Liquid Acrylic removes the permanent capsule and keeps the
+floating bar itself. Original icons have independent filled/outline states.
+
+OEM material services remain unavailable outside their frameworks:
+MIUIX MiuiBlurUtils/GlassToken and COUI TYPE_FRAMEWORK_BOTTOM_BAR. Compose uses
+real backdrop blur with restrained tint and an opaque unsupported-device fallback;
+its blur radius/rim and Xiaomi selector are reconstruction choices, not recovered
+runtime shader values. COUI's force-dark rank transforms some resource colors;
+black Compose canvas is an explicit inference, not an observed device result.
+The native blue accent is retained for controls; text CTA fill is darkened for
+white-label readability. System fonts replace OEM fonts. At large text sizes the
+COUI bar grows to72dp to keep labels reachable.
+
+Validation adds two shared sheet-surface previews to the existing11 (13 total),
+plus Release lint/build and the existing unit/native/ICU checks. Translation code
+and native text hooks are unchanged from test.7.
+
 ## Translation changes
 
 - Applying a Root pack creates an explicit resource-name-to-JSON allowlist.
