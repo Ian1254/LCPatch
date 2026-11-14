@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <link.h>
 #include <pthread.h>
+#include <sched.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
@@ -14,12 +15,16 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
+#include <string>
+#include <unordered_map>
+#include "text_asset_paths.h"
 #include "dobby.h"
 #include "verification_read_guard.h"
 #include "verification_signature_scan.h"
@@ -164,6 +169,7 @@ void breadcrumb(const char *level, const char *code, const char *format, ...) {
 
 bool installHook(void *target, void *replacement, void **original, const char *name);
 bool verificationEntryReady();
+void observeTextAssetBootstrap(const char *source);
 
 bool buildLocalizeRedirect(const char *path, char *output, size_t outputSize) {
     if (!path || !*path || !output || outputSize == 0 ||
@@ -202,6 +208,7 @@ const char *redirectReadPath(const char *path, char *buffer, size_t size) {
             breadcrumb("INFO", "core.io.verify_read", "original retained count=%u path=%s", count, path);
         return path;
     }
+    observeTextAssetBootstrap("localize_read");
     const unsigned count = gRedirectCount.fetch_add(1, std::memory_order_relaxed);
     if (count < 12) {
         LOGI("localize redirected: %s -> %s", path, buffer);
@@ -776,6 +783,7 @@ bool knownOriginalFont(size_t size) {
 }
 
 void hookedFont(void *object, uint32_t a1, uint32_t a2, uint32_t a3) {
+    observeTextAssetBootstrap("font_load");
     if (object && gFontData && gFontSize && gSwapCount.load(std::memory_order_relaxed) < 3) {
         void *asset = nullptr;
         std::memcpy(&asset, static_cast<uint8_t *>(object) + 0x38, sizeof(asset));
@@ -799,7 +807,70 @@ void hookedFont(void *object, uint32_t a1, uint32_t a2, uint32_t a3) {
     gFontOriginal(object, a1, a2, a3);
 }
 
+// Resolve public IL2CPP APIs in the already loaded image. Module class-loader
+// namespaces need not permit dlopen("libil2cpp.so"). No fixed game offsets.
+void *imageExport(const UnitySearch &image, const char *name) {
+    const auto *elf = reinterpret_cast<const Elf64_Ehdr *>(image.base);
+    const auto *headers = reinterpret_cast<const Elf64_Phdr *>(image.base + elf->e_phoff);
+    Elf64_Addr symbols = 0, strings = 0, hash = 0;
+    size_t stringBytes = 0;
+    for (Elf64_Half i = 0; i < elf->e_phnum; ++i) {
+        if (headers[i].p_type != PT_DYNAMIC) continue;
+        const uintptr_t at = image.base + headers[i].p_vaddr;
+        if (!rangeContains(image.readable, image.readableCount, at, headers[i].p_memsz)) return nullptr;
+        const auto *entries = reinterpret_cast<const Elf64_Dyn *>(at);
+        for (size_t n = 0; n < headers[i].p_memsz / sizeof(Elf64_Dyn) && entries[n].d_tag != DT_NULL; ++n) {
+            switch (entries[n].d_tag) {
+                case DT_SYMTAB: symbols = entries[n].d_un.d_ptr; break;
+                case DT_STRTAB: strings = entries[n].d_un.d_ptr; break;
+                case DT_STRSZ: stringBytes = entries[n].d_un.d_val; break;
+                case DT_GNU_HASH: hash = entries[n].d_un.d_ptr; break;
+                default: break;
+            }
+        }
+    }
+    const uintptr_t symbolsAt = loadedAddress(image, symbols, sizeof(Elf64_Sym));
+    const uintptr_t stringsAt = loadedAddress(image, strings, stringBytes);
+    const uintptr_t hashAt = loadedAddress(image, hash, 16);
+    if (!symbolsAt || !stringsAt || !hashAt || !stringBytes) return nullptr;
+    const auto *gnu = reinterpret_cast<const uint32_t *>(hashAt);
+    const uint32_t buckets = gnu[0], first = gnu[1], bloom = gnu[2];
+    if (!buckets || buckets > (1U << 20) || bloom > (1U << 20)) return nullptr;
+    const uintptr_t bucketsAt = hashAt + 16 + static_cast<size_t>(bloom) * sizeof(Elf64_Addr);
+    if (!rangeContains(image.readable, image.readableCount, bucketsAt, static_cast<size_t>(buckets) * 4)) return nullptr;
+    uint32_t value = 5381;
+    for (const auto *p = reinterpret_cast<const unsigned char *>(name); *p; ++p) value = value * 33 + *p;
+    uint32_t index = reinterpret_cast<const uint32_t *>(bucketsAt)[value % buckets];
+    if (index < first) return nullptr;
+    const uintptr_t chainsAt = bucketsAt + static_cast<size_t>(buckets) * 4;
+    for (unsigned n = 0; n < (1U << 20); ++n, ++index) {
+        const uintptr_t chainAt = chainsAt + static_cast<size_t>(index - first) * 4;
+        const uintptr_t symbolAt = symbolsAt + static_cast<size_t>(index) * sizeof(Elf64_Sym);
+        if (!rangeContains(image.readable, image.readableCount, chainAt, 4) ||
+            !rangeContains(image.readable, image.readableCount, symbolAt, sizeof(Elf64_Sym))) return nullptr;
+        const uint32_t chain = *reinterpret_cast<const uint32_t *>(chainAt);
+        const auto &symbol = *reinterpret_cast<const Elf64_Sym *>(symbolAt);
+        if ((chain | 1U) == (value | 1U) && symbol.st_name < stringBytes) {
+            const char *candidate = reinterpret_cast<const char *>(stringsAt + symbol.st_name);
+            if (std::memchr(candidate, '\0', stringBytes - symbol.st_name) &&
+                std::strcmp(candidate, name) == 0 && symbol.st_shndx != SHN_UNDEF &&
+                ELF64_ST_TYPE(symbol.st_info) == STT_FUNC) {
+                const uintptr_t target = image.base + symbol.st_value;
+                return rangeContains(image.executable, image.count, target, 4) ? reinterpret_cast<void *>(target) : nullptr;
+            }
+        }
+        if (chain & 1U) break;
+    }
+    return nullptr;
+}
+
+
+#include "text_asset_hook.inc"
+
 void *startFontHook(void *) {
+    // Also arm on font-unavailable/unsupported exits, after every setup hook
+    // operation has ended. Callbacks never wait on the setup worker.
+    struct ArmTextBootstrapOnExit { ~ArmTextBootstrapOnExit() { armTextAssetBootstrap(); } } armOnExit;
     breadcrumb("INFO", "core.unity.wait", "waiting for libunity.so");
     UnitySearch image;
     for (unsigned attempt = 0; attempt < 120 && !image.base; ++attempt) {
@@ -818,6 +889,7 @@ void *startFontHook(void *) {
     }
     if (il2cpp.base) {
         configureVerificationGuard(il2cpp);
+        configureTextAssetHook(il2cpp);
         patchFileImports(il2cpp, kIl2CppName);
     }
     else breadcrumb("WARN", "core.io.result", "%s not loaded; imports not patched", kIl2CppName);
@@ -859,7 +931,7 @@ void *startFontHook(void *) {
 
 void start() {
     if (gStarted.exchange(true)) return;
-    breadcrumb("INFO", "core.start", "recovery core: beta.1 loading flow; beta.2 managed hooks removed");
+    breadcrumb("INFO", "core.start", "file/font loading; scoped Unity text reader v4");
     pthread_t thread{};
     if (pthread_create(&thread, nullptr, startFontHook, nullptr) != 0) {
         LOGE("font worker creation failed"); breadcrumb("ERROR", "core.thread.failed", "pthread_create failed"); return;

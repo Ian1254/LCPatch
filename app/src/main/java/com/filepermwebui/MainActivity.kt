@@ -56,6 +56,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
@@ -80,6 +81,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalDensity
@@ -103,8 +105,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Card
+import com.lcpatch.SystemButton as Button
+import com.lcpatch.SystemCard as Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -115,10 +117,10 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import com.lcpatch.SystemTextButton as TextButton
+import com.lcpatch.SystemArrowPreference as ArrowPreference
+import com.lcpatch.SystemSwitchPreference as SwitchPreference
+import com.lcpatch.SystemDropdownPreference as OverlayDropdownPreference
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Home
@@ -131,7 +133,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import com.kyant.backdrop.backdrops.layerBackdrop
 import rikka.shizuku.Shizuku
 
-private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
+private val PreferenceItemModifier = Modifier
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
 private data class PageScrollPosition(val index: Int, val offset: Int)
@@ -155,23 +157,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             var themeMode by remember { mutableStateOf(appPrefs.getString("theme_mode", "system") ?: "system") }
-            val controller = remember(themeMode) {
-                ThemeController(
-                    colorSchemeMode = when (themeMode) {
-                        "light" -> ColorSchemeMode.Light
-                        "dark" -> ColorSchemeMode.Dark
-                        else -> ColorSchemeMode.System
-                    }
-                )
-            }
-            MiuixTheme(controller = controller) {
-                App(themeMode) { value -> themeMode = value; appPrefs.edit().putString("theme_mode", value).apply() }
+            var systemUiStyle by remember { mutableStateOf(SystemUiStyle.fromId(appPrefs.getString("system_ui_style", null))) }
+            SystemUiTheme(systemUiStyle, themeMode) {
+                App(themeMode, systemUiStyle, { value -> systemUiStyle = value; appPrefs.edit().putString("system_ui_style", value.id).apply() }) { value -> themeMode = value; appPrefs.edit().putString("theme_mode", value).apply() }
             }
         }
     }
 
     @Composable
-    private fun App(themeMode: String, onThemeMode: (String) -> Unit) {
+    private fun App(themeMode: String, systemUiStyle: SystemUiStyle, onSystemUiStyle: (SystemUiStyle) -> Unit, onThemeMode: (String) -> Unit) {
         val taskState: MainTaskViewModel = viewModel()
         var page by rememberSaveable { mutableIntStateOf(if (appPrefs.getBoolean("onboarding_done", false)) OVERVIEW else ONBOARDING) }
         var navigationStack by rememberSaveable { mutableStateOf(intArrayOf()) }
@@ -668,26 +662,24 @@ class MainActivity : ComponentActivity() {
             } else {
                 Modifier.fillMaxSize().nestedScroll(visibleScrollBehavior.nestedScrollConnection)
             }
+            val hyper = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
             Box(Modifier.fillMaxSize()) {
                 key(visiblePage) {
                     LazyColumn(
                         state = visibleListState,
-                        modifier = listModifier,
+                        modifier = listModifier.padding(bottom = padding.calculateBottomPadding()).clipToBounds(),
                         contentPadding = PaddingValues(
-                            start = 12.dp,
-                            end = 12.dp,
-                            top = padding.calculateTopPadding() +
-                                if (visiblePage in topPages) {
-                                    WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp
-                                } else 12.dp,
-                            bottom = padding.calculateBottomPadding() +
-                                if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp
+                            start = systemPageGutter(),
+                            end = systemPageGutter(),
+                            top = padding.calculateTopPadding() + 12.dp,
+                            bottom = 16.dp
                         ),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(if (hyper) 12.dp else 8.dp)
                     ) {
+                        if (!hyper && visiblePage in topPages) item { Spacer(Modifier.height(64.dp)) }
                         if (visiblePage == SETTINGS) item { SectionLabel("運作環境") }
                         if (visiblePage == SETTINGS || visiblePage == ONBOARDING) item {
-                            Card(insideMargin = PaddingValues(18.dp)) {
+                            Card {
                                 OverlayDropdownPreference(
                                     title = "運作模式",
                                     items = listOf("無 root", "Root ＋ LSPosed"),
@@ -832,6 +824,8 @@ class MainActivity : ComponentActivity() {
                             )
                             DISPLAY -> displaySettings(
                                 themeMode = themeMode,
+                                systemUiStyle = systemUiStyle,
+                                onSystemUiStyle = onSystemUiStyle,
                                 navigationStyle = navigationStyle,
                                 onNavigationStyle = { navigationStyle = it; appPrefs.edit().putString("navigation_style", it).apply() },
                                 blurEnabled = blurEnabled,
@@ -963,39 +957,22 @@ class MainActivity : ComponentActivity() {
                             end = 18.dp,
                             bottom = padding.calculateBottomPadding() + 12.dp
                         )
-                    Box(
-                        modifier = noticeModifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(MiuixTheme.colorScheme.surfaceContainer)
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                    ) {
-                        Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
-                        Text(
-                            currentNotice.message,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                            maxLines = if (currentNotice.kind == UiNoticeKind.Error) Int.MAX_VALUE else 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (currentNotice.kind == UiNoticeKind.Error) Row {
-                            if (taskState.retryAction != null) TextButton(text = "重試", onClick = taskState::retry)
-                            TextButton(text = "關閉", onClick = taskState::dismissNotice)
-                        }
-                        }
-                    }
+                    SystemNotice(currentNotice.message, currentNotice.kind == UiNoticeKind.Error,
+                        if (taskState.retryAction != null) taskState::retry else null, taskState::dismissNotice, noticeModifier)
                 }
             }
         }
 
-        Box(Modifier.fillMaxSize()) {
+        SystemMaterialScope(blurEnabled) {
             AnimatedContent(
                 targetState = shellTarget,
                 modifier = Modifier.fillMaxSize(),
                 transitionSpec = {
                     val direction = navigationDirection
-                    slideInHorizontally(tween(320, easing = PageTransitionEasing)) { direction * it } togetherWith
-                        slideOutHorizontally(tween(320, easing = PageTransitionEasing)) { -direction * it }
+                    val duration = 320
+                    val easing = PageTransitionEasing
+                    slideInHorizontally(tween(duration, easing = easing)) { direction * it } togetherWith
+                        slideOutHorizontally(tween(duration, easing = easing)) { -direction * it }
                 },
                 label = "screen-transition"
             ) { animatedShell ->
@@ -1022,11 +999,20 @@ class MainActivity : ComponentActivity() {
                 else -> conversionScrollBehavior
             }
 
-            Box(Modifier.fillMaxSize()) {
+            CompositionLocalProvider(LocalSystemWindowBackdrop provides activeBarBackdrop) {
+            SystemMaterialScope(blurEnabled) {
                 Scaffold(
+                    containerColor = Color.Transparent,
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
-                        if (!topLevelScreen) {
+                        if (topLevelScreen) {
+                            val titleList = when (page) { OVERVIEW -> overviewListState; LOGS -> logsListState; else -> settingsListState }
+                            val collapse = if (systemUiStyle == SystemUiStyle.HyperOS4 || titleList.firstVisibleItemIndex > 0) 1f else
+                                (titleList.firstVisibleItemScrollOffset / with(LocalDensity.current) { 64.dp.toPx() }).coerceIn(0f, 1f)
+                            TopLevelProgressiveBar(backdrop = activeBarBackdrop, hazeState = activeHazeState,
+                                pageTitles = topPages.map { if (it == OVERVIEW) "LCPatch" else pageTitle(it) }, pagePosition = pagePosition,
+                                collapseFraction = collapse)
+                        } else {
                             TintedBar(activeBarBackdrop, hazeState = activeHazeState) {
                                 val navigationIcon: @Composable () -> Unit = {
                                     if (visiblePage != ONBOARDING || onboardingDone) {
@@ -1046,22 +1032,17 @@ class MainActivity : ComponentActivity() {
                     },
                     bottomBar = {
                         if (topLevelScreen) {
-                            if (navigationStyle == "floating") {
-                                SukiFloatingBottomBar(
-                                    currentIndex = pagerState.settledPage,
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                SystemBottomNavigation(
+                                    index = pagerState.currentPage,
+                                    labels = listOf("概觀", "日誌", "設定"),
+                                    icons = listOf(MiuixIcons.Home, Icons.Default.List, MiuixIcons.Settings),
+                                    floating = navigationStyle == "floating",
+                                    backdrop = activeBarBackdrop,
+                                    hazeState = activeHazeState,
                                     targetIndex = topNavigationTarget,
-                                    transactionId = topNavigationTransaction,
-                                    pagePosition = pagePosition,
-                                    onTargetSelected = { index ->
-                                        topPages.getOrNull(index)?.let(::navigateTo)
-                                    },
+                                    onSelected = { index -> topPages.getOrNull(index)?.let(::navigateTo) }
                                 )
-                            } else {
-                                NavigationBar(color = MiuixTheme.colorScheme.surfaceContainer) {
-                                    NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { navigateTo(OVERVIEW) }, icon = MiuixIcons.Home, label = "概觀")
-                                    NavigationBarItem(selected = pagerState.currentPage == 1, onClick = { navigateTo(LOGS) }, icon = Icons.Default.List, label = "日誌")
-                                    NavigationBarItem(selected = pagerState.currentPage == 2, onClick = { navigateTo(SETTINGS) }, icon = MiuixIcons.Settings, label = "設定")
-                                }
                             }
                         }
                     }
@@ -1075,6 +1056,7 @@ class MainActivity : ComponentActivity() {
                             .then(
                                 if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier
                             )
+                            .background(MiuixTheme.colorScheme.surface)
                     ) {
                         if (topLevelScreen) {
                             HorizontalPager(
@@ -1092,14 +1074,7 @@ class MainActivity : ComponentActivity() {
                         if (animatedShell == shellTarget) renderNotice(padding)
                     }
                 }
-                if (topLevelScreen) {
-                    TopLevelProgressiveBar(
-                        backdrop = activeBarBackdrop,
-                        hazeState = activeHazeState,
-                        pageTitles = topPages.map(::pageTitle),
-                        pagePosition = pagePosition
-                    )
-                }
+            }
             }
             }
 
@@ -1108,35 +1083,9 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize()
             )
             if (showClearLogDialog) {
-                Dialog(onDismissRequest = { showClearLogDialog = false }) {
-                    Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(22.dp)) {
-                        Text("清除所有日誌？", style = MiuixTheme.textStyles.title2)
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "將一併清除 App 日誌與已保存的遊戲診斷快照，此操作無法復原。",
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontSize = 14.sp
-                        )
-                        Spacer(Modifier.height(20.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            TextButton(
-                                modifier = Modifier.weight(1f),
-                                text = "取消",
-                                onClick = { showClearLogDialog = false }
-                            )
-                            Button(
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    showClearLogDialog = false
-                                    clearDiagnostics()
-                                }
-                            ) { Text("確認清除") }
-                        }
-                    }
-                }
+                SystemConfirmDialog("清除所有日誌？", "將一併清除 App 日誌與已保存的遊戲診斷快照，此操作無法復原。", "確認清除",
+                    onDismiss = { showClearLogDialog = false },
+                    onConfirm = { showClearLogDialog = false; clearDiagnostics() })
             }
         }
     }
@@ -1151,81 +1100,16 @@ class MainActivity : ComponentActivity() {
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection,
         onDownload: () -> Unit, onDownloaded: () -> Unit
     ) {
-        if (!rootMode) item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("無 root · 原生文件載入", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
-                Text(loadStatus)
-                Text("使用遊戲原有字型。請先下載對應語言資源，並在套用、停用前完全關閉遊戲。", fontSize = 14.sp)
-                TextButton(modifier = Modifier.fillMaxWidth(), text = loadAction, enabled = !busy, onClick = onGameFolder)
-            }
-        }
-        if (rootMode) item {
-            EnvironmentStatusOverviewCard(
-                overlayState = overlayState,
-                scopeStatus = scopeStatus,
-                rootStatus = rootStatus,
-                gameInstalled = game.installed,
-                gameVersion = game.version,
-                onCheckScope = onCheckScope,
-                onRequestRoot = onRequestRoot
-            )
-        }
+        val state = OverviewUiState(activeName, activeScript, targetLanguage.label, translationEnabled,
+            rootMode, game.installed, game.version, busy, scopeStatus, rootStatus, loadStatus,
+            runtimeInspection.ready, runtimeInspection.fontReady, runtimeInspection.jsonFiles, translations.pcCoverageSummary())
+        item { SystemTranslationPanel(state, onTranslationEnabled, ::launchGame, onDownload) }
+        item { SystemQuickActions(onDownload, onDownloaded) }
+        item { SystemSectionLabel("運作狀態") }
+        item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onGameFolder, loadAction) }
         item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("當前漢化", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    if (activeName == "尚未選擇") "尚未選擇漢化" else "$activeName · $activeScript",
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    if (!rootMode) {
-                        if (translationEnabled) "已寫入原生語言文件；停用可還原備份" else "尚未套用；可先下載或匯入無 root 專用漢化"
-                    } else if (runtimeInspection.ready && runtimeInspection.fontReady) {
-                        "遊戲快取已就緒 · ${runtimeInspection.jsonFiles} 個 JSON · ${runtimeInspection.matchingFiles} 個 ${targetLanguage.prefix} 文件 · 字型 ${formatBytes(runtimeInspection.fontBytes)}"
-                    } else {
-                        "遊戲快取未就緒 · JSON ${runtimeInspection.jsonFiles} · ${targetLanguage.prefix} 文件 ${runtimeInspection.matchingFiles} · ${if (runtimeInspection.fontReady) "字型已寫入" else "缺少中文字型"}"
-                    },
-                    color = if (!rootMode || runtimeInspection.ready && runtimeInspection.fontReady) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.error,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(Modifier.height(3.dp))
-                Text("遊戲內語言需設為 ${targetLanguage.label}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                Spacer(Modifier.height(6.dp))
-                SwitchPreference(
-                    modifier = PreferenceItemModifier,
-                    title = if (rootMode) "應用漢化" else "原生漢化（關閉以還原）",
-                    enabled = !busy && (rootMode || translationEnabled),
-                    summary = if (translationEnabled) "已啟用，重新啟動遊戲後載入" else "已停用，下載內容仍會保留",
-                    checked = translationEnabled,
-                    onCheckedChange = onTranslationEnabled
-                )
-                Spacer(Modifier.height(14.dp))
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = game.installed && !busy,
-                    onClick = ::launchGame
-                ) {
-                    Text(if (game.installed) "啟動 Limbus Company" else "尚未安裝 Limbus Company")
-                }
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    "遊戲版本：${game.version}",
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 12.sp
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TextButton(modifier = Modifier.weight(1f), text = "下載漢化", onClick = onDownload)
-                    TextButton(modifier = Modifier.weight(1f), text = "已下載漢化", onClick = onDownloaded)
-                }
-            }
+            Text("遊戲語言請設為「${targetLanguage.label}」", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
 
@@ -1254,16 +1138,18 @@ class MainActivity : ComponentActivity() {
                     )
                     Spacer(Modifier.height(8.dp))
                 }
-                ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入自訂漢化文件", summary = "從本機加入 ZIP 漢化包", onClick = onImport)
-                if (rootMode) ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "更換字型", summary = fontName, onClick = onFont)
+                ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入漢化包", value = "ZIP 檔案", onClick = onImport)
+                if (rootMode) {
+                    ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "更換字型", value = fontName, onClick = onFont)
+                }
             }
         }
         if (rootMode && hasCustomFont) item { TextButton(modifier = Modifier.fillMaxWidth(), text = "移除自訂字型", onClick = onClearFont) }
         item { SectionLabel("應用程式") }
         item {
             Card {
-                ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "主題、模糊效果與底欄", onClick = onDisplay)
-                ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", summary = logs.selectedFolderLabel(), onClick = onFolder)
+                ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "深淺模式、底欄與模糊效果", onClick = onDisplay)
+                ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", value = logs.selectedFolderLabel(), onClick = onFolder)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "關於", summary = "版本與元件", onClick = onAbout)
             }
@@ -1273,6 +1159,8 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.displaySettings(
         themeMode: String,
+        systemUiStyle: SystemUiStyle,
+        onSystemUiStyle: (SystemUiStyle) -> Unit,
         navigationStyle: String,
         onNavigationStyle: (String) -> Unit,
         blurEnabled: Boolean,
@@ -1281,53 +1169,12 @@ class MainActivity : ComponentActivity() {
         onHazeRendererEnabled: (Boolean) -> Unit,
         onThemeMode: (String) -> Unit
     ) {
-        item {
-            Card {
-                OverlayDropdownPreference(
-                    modifier = PreferenceItemModifier,
-                    title = "深淺模式",
-                    items = listOf("跟隨系統", "淺色", "深色"),
-                    selectedIndex = when (themeMode) { "light" -> 1; "dark" -> 2; else -> 0 },
-                    onSelectedIndexChange = { onThemeMode(when (it) { 1 -> "light"; 2 -> "dark"; else -> "system" }) }
-                )
-                OverlayDropdownPreference(
-                    modifier = PreferenceItemModifier,
-                    title = "底欄樣式",
-                    items = listOf("標準底欄", "懸浮底欄"),
-                    selectedIndex = if (navigationStyle == "floating") 1 else 0,
-                    onSelectedIndexChange = { onNavigationStyle(if (it == 1) "floating" else "standard") }
-                )
-                SwitchPreference(
-                    modifier = PreferenceItemModifier,
-                    title = "背景模糊",
-                    summary = if (blurEnabled) "頂欄使用背景模糊" else "頂欄使用半透明背景",
-                    checked = blurEnabled,
-                    onCheckedChange = onBlurEnabled
-                )
-                SwitchPreference(
-                    modifier = PreferenceItemModifier,
-                    title = "Haze 2.1 漸進模糊（測試）",
-                    summary = if (hazeRendererEnabled) "使用 Haze 2.1，關閉可切回原本的 AGSL 效果"
-                        else "使用原本的 AGSL；可啟用 Haze 2.1 比較效果",
-                    enabled = blurEnabled,
-                    checked = hazeRendererEnabled,
-                    onCheckedChange = onHazeRendererEnabled
-                )
-            }
-        }
+        item { SystemDisplaySettingsPanel(themeMode,systemUiStyle,onSystemUiStyle,navigationStyle,onNavigationStyle,
+            blurEnabled,onBlurEnabled,hazeRendererEnabled,onHazeRendererEnabled,onThemeMode) }
     }
 
     private fun LazyListScope.logPage(events: List<LogEvent>, busy: Boolean, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
-        item {
-            Card(insideMargin = PaddingValues(16.dp)) {
-                Button(modifier = Modifier.fillMaxWidth(), enabled = !busy, onClick = share) { Text(if (busy) "正在收集遊戲診斷…" else "分享診斷文件") }
-                Spacer(Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(modifier = Modifier.weight(1f), text = "儲存", enabled = !busy, onClick = save)
-                    TextButton(modifier = Modifier.weight(1f), text = "清除", enabled = !busy, onClick = clear)
-                }
-            }
-        }
+        item { SystemLogActions(busy, share, save, clear) }
         item { InfoCard("遊戲閃退診斷", "分享或儲存時會重新收集遊戲相關系統記錄。文件會標示每項資料是否取得、逾時或權限不足；沒有模組事件時也可以匯出。") }
         if (events.isEmpty()) {
             item { InfoCard("尚無模組事件", "這不代表遊戲沒有閃退，仍可分享診斷文件取得系統收集結果。") }
@@ -1350,23 +1197,18 @@ class MainActivity : ComponentActivity() {
             }
         }
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
-                    Text("LCPatch 版本", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                    Spacer(Modifier.height(8.dp)); Text(BuildConfig.VERSION_NAME, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                }
-                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
-                    Text("遊戲版本", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                    Spacer(Modifier.height(8.dp)); Text(game.version.substringBefore(" ("), fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                }
+            Card(insideMargin=PaddingValues(18.dp)) {
+                Detail("LCPatch 版本",BuildConfig.VERSION_NAME)
+                Detail("遊戲版本",game.version.substringBefore(" ("))
             }
         }
+
         item {
             Card(insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
                 Text("詳細資訊", style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.height(10.dp))
                 Detail("核心元件", "LSPosed API 102")
-                Detail("使用者介面", "Miuix 0.9.3")
+                Detail("介面風格", LocalSystemUiStyle.current.label)
                 Detail("文字轉換", "opencc4j 1.14.0")
                 Detail("目標架構", "arm64-v8a")
                 Detail("儲存目錄", if (translations.rootMode()) "/sdcard/LCPatch" else "App 私有儲存空間")
@@ -1515,120 +1357,24 @@ class MainActivity : ComponentActivity() {
         enabled: Boolean = true,
         onClick: () -> Unit
     ) {
-        val shape = RoundedCornerShape(16.dp)
-        val primary = MiuixTheme.colorScheme.primary
-        val fraction = progress?.coerceIn(0f, 1f)
-        val trackColor = when {
-            busy -> primary.copy(alpha = 0.16f)
-                .compositeOver(MiuixTheme.colorScheme.surfaceContainer)
-            enabled -> primary
-            else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-                .copy(alpha = 0.16f)
-                .compositeOver(MiuixTheme.colorScheme.surfaceContainer)
-        }
-        val textColor = when {
-            !enabled && !busy -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-            busy -> if (MiuixTheme.colorScheme.surface.luminance() < 0.5f) Color.White else Color(0xFF151518)
-            primary.luminance() > 0.56f -> Color(0xFF151518)
-            else -> Color.White
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-                .clip(shape)
-                .background(trackColor)
-                .clickable(enabled = enabled && !busy, onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            if (busy && fraction != null && fraction > 0f) {
-                Box(
-                    Modifier
-                        .align(Alignment.CenterStart)
-                        .fillMaxHeight()
-                        .fillMaxWidth(fraction)
-                        .background(primary.copy(alpha = 0.28f))
-                )
-            }
-            Text(
-                text = text,
-                color = textColor,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
+        SystemProgressActionButton(text, progress, busy, enabled, onClick)
     }
 
     @Composable private fun InfoCard(title: String, body: String, translucent: Boolean = false) {
-        Card(
-            insideMargin = PaddingValues(18.dp),
-            colors = if (translucent) translucentAboutCardColors() else CardDefaults.defaultColors()
-        ) {
-            Text(title, style = MiuixTheme.textStyles.title2); Spacer(Modifier.height(6.dp)); Text(body, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp)) {
+            Text(title,fontSize=16.sp,lineHeight=24.sp,fontWeight=FontWeight.Medium)
+            Spacer(Modifier.height(6.dp))
+            Text(body,fontSize=14.sp,lineHeight=22.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
 
     @Composable private fun translucentAboutCardColors() = CardDefaults.defaultColors(
-        color = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = if (isSystemInDarkTheme()) 0.76f else 0.82f)
+        color = MiuixTheme.colorScheme.surfaceContainer
     )
 
-    @Composable private fun SectionLabel(text: String) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 2.dp),
-            color = MiuixTheme.colorScheme.primary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
+    @Composable private fun SectionLabel(text: String) = SystemSectionLabel(text)
 
-    @Composable private fun Modifier.aboutShimmer(): Modifier {
-        val transition = rememberInfiniteTransition(label = "about-shimmer")
-        val position by transition.animateFloat(
-            initialValue = -420f,
-            targetValue = 1640f,
-            animationSpec = infiniteRepeatable(animation = tween(4300), repeatMode = RepeatMode.Reverse),
-            label = "about-shimmer-position"
-        )
-        val glow = MiuixTheme.colorScheme.primary.copy(alpha = if (isSystemInDarkTheme()) 0.48f else 0.34f)
-        val violet = Color(0xFF9B6DFF).copy(alpha = if (isSystemInDarkTheme()) 0.42f else 0.30f)
-        return drawBehind {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        glow.copy(alpha = glow.alpha * 0.72f),
-                        violet.copy(alpha = violet.alpha * 0.56f),
-                        glow.copy(alpha = glow.alpha * 0.18f),
-                        Color.Transparent
-                    ),
-                    endY = size.height * 0.82f
-                )
-            )
-            drawRect(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        glow.copy(alpha = glow.alpha * 0.42f),
-                        violet,
-                        glow,
-                        violet.copy(alpha = violet.alpha * 0.36f),
-                        Color.Transparent
-                    ),
-                    start = Offset(position - size.width * 1.15f, 0f),
-                    end = Offset(position + size.width * 0.65f, size.height)
-                )
-            )
-        }
-    }
-
-    @Composable private fun LogCard(event: LogEvent) {
-        Card(insideMargin = PaddingValues(16.dp)) {
-            Text("${event.level} · ${event.code}", fontWeight = FontWeight.SemiBold,
-                color = when (event.level) { "ERROR" -> Color(0xFFE5484D); "WARN" -> Color(0xFFF59E0B); else -> MiuixTheme.colorScheme.primary })
-            Spacer(Modifier.height(4.dp)); Text(event.message); Spacer(Modifier.height(6.dp))
-            Text("${event.time}${if (event.process.isBlank()) "" else " · ${event.process}"}", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-    }
+    @Composable private fun LogCard(event: LogEvent) = SystemLogEntry(event)
 
     private fun gameInfo(): GameInfo = try {
         val value = packageManager.getPackageInfo(LogProvider.GAME, 0)
