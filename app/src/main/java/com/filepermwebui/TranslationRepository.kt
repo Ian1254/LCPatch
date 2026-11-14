@@ -283,7 +283,15 @@ class TranslationRepository(private val context: Context) {
         File(unpacked, ".lcpatch-script").writeText(script)
         val runtimeFont = File(unpacked, "Localize/cn/ChineseFont.ttf")
         customFontFile()?.copyTo(runtimeFont, overwrite = true) ?: copyBundledPuaFont(runtimeFont)
-        supplementPcTranslations(File(unpacked, "Localize/cn"), script, progress)
+        try {
+            supplementPcTranslations(File(unpacked, "Localize/cn"), script, progress)
+        } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException || error is VirtualMachineError || error is ThreadDeath) throw error
+            prefs.edit().putString("pc_coverage_summary", "PC 翻譯處理失敗；目前遊戲內容未更新").apply()
+            LogRepository.append(context, "ERROR", "translation.pc.processing_failed", error.stackTraceToString())
+            val reason = generateSequence(error) { it.cause }.take(8).last()
+            throw IllegalStateException("PC 翻譯處理失敗，尚未寫入遊戲：${reason.message ?: reason.javaClass.simpleName}", error)
+        }
         validateJsonDirectory(File(unpacked, "Localize/cn"))
         val indexed = writeTextAssetIndex(File(unpacked, "Localize/cn"))
         LogRepository.append(context, "INFO", "translation.textasset.index", "$indexed 個內建文字資源名稱已建立索引")
