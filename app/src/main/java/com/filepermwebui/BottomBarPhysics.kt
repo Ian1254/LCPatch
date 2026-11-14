@@ -128,3 +128,12 @@ internal class BottomBarPhysics(initialPosition: Float) {
         }
     }
 }
+
+internal enum class SheetDragOutcome { Expand, Collapse, Dismiss, Keep }
+/** Distance is measured in 56dp grip travel units; velocity is pixels/second. */
+internal fun sheetDragOutcome(expanded: Boolean, distance: Float, velocity: Float): SheetDragOutcome = when {
+    distance < -.6f || velocity < -650f -> SheetDragOutcome.Expand
+    !expanded && (distance > 1.7f || velocity > 1400f) -> SheetDragOutcome.Dismiss
+    expanded && (distance > 1f || velocity > 650f) -> SheetDragOutcome.Collapse
+    else -> SheetDragOutcome.Keep
+}
