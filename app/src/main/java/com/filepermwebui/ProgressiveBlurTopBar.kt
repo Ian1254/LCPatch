@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -23,10 +25,144 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.runtimeShaderEffect
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.vibrancy
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.concurrent.atomic.AtomicInteger
 
 private val progressiveBlurShaderSeq = AtomicInteger(0)
+private val hyperGlassShaderSeq = AtomicInteger(0)
+
+/**
+ * Original portable scene lens: a smooth edge normal displaces the captured
+ * background, with a second bounded reflection sample and directional lighting.
+ * It uses the observed MiGlass mechanism, not its recovered shader or fitted SDF.
+ * Preblur/vibrancy approximates color processing; it does not reproduce the OEM
+ * small/big-blur color pipeline. Only drawBackdrop's background is processed.
+ * Shape clipping may be arbitrary, while lens geometry is a rounded rectangle;
+ * callers should supply the corresponding radius (the default forms a capsule).
+ */
+@Composable
+internal fun Modifier.hyperGlassBackdrop(
+    backdrop: Backdrop,
+    shape: Shape,
+    cornerRadius: Dp = 1000.dp
+): Modifier {
+    val shaderKey = remember { "LCPatchHyperGlass_${hyperGlassShaderSeq.incrementAndGet()}" }
+    val shapeBlock = remember(shape) { { shape } }
+    val effects: com.kyant.backdrop.BackdropEffectScope.() -> Unit =
+        remember(shaderKey, cornerRadius) {
+            {
+                val shortSide = minOf(size.width, size.height).coerceAtLeast(1f)
+                // Pixel-space tuning follows control geometry. The OEM's 800px
+                // reflection preset is intentionally not applied to small pills.
+                val edge = minOf(shortSide * 0.22f, 12.dp.toPx()).coerceAtLeast(1f)
+                val maxShift = minOf(shortSide * 0.19f, 10.dp.toPx()).coerceAtLeast(1f)
+                padding = maxOf(padding, maxShift + 12.dp.toPx())
+                if (Build.VERSION.SDK_INT >= 31) {
+                    blur(8.dp.toPx(), edgeTreatment = TileMode.Clamp)
+                }
+                if (Build.VERSION.SDK_INT >= 33) {
+                    vibrancy()
+                    val pad = padding * downsampleScale
+                    val width = size.width * downsampleScale
+                    val height = size.height * downsampleScale
+                    runtimeShaderEffect(shaderKey, HYPER_GLASS_SCENE_SHADER, "content") {
+                        setFloatUniform("contentOrigin", pad, pad)
+                        setFloatUniform("contentSize", width, height)
+                        setFloatUniform("bufferSize", width + 2f * pad, height + 2f * pad)
+                        setFloatUniform("cornerRadius", cornerRadius.toPx().coerceAtLeast(0f) * downsampleScale)
+                        setFloatUniform("edgeWidth", edge * downsampleScale)
+                        setFloatUniform("thickness", edge * 1.12f * downsampleScale)
+                        setFloatUniform("reflectionOffset", edge * 2.2f * downsampleScale)
+                        setFloatUniform("maxShift", maxShift * downsampleScale)
+                        setFloatUniform("ior", 4f)
+                    }
+                }
+            }
+        }
+    return drawBackdrop(
+        backdrop = backdrop,
+        shape = shapeBlock,
+        effects = effects,
+        highlight = null,
+        shadow = null,
+        downsampleScale = 1f
+    )
+}
+
+// Independent AGSL implementation. No OEM shader text, chromatic split, hidden
+// system API or foreground sampling. Padded child coordinates remain explicit.
+private const val HYPER_GLASS_SCENE_SHADER = """
+uniform shader content;
+uniform float2 contentOrigin;
+uniform float2 contentSize;
+uniform float2 bufferSize;
+uniform float cornerRadius;
+uniform float edgeWidth;
+uniform float thickness;
+uniform float reflectionOffset;
+uniform float maxShift;
+uniform float ior;
+
+float roundedDistance(float2 point, float2 halfSize, float radius) {
+    float2 q = abs(point) - (halfSize - float2(radius));
+    return length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+float2 boundedShift(float2 shift) {
+    return shift * min(1.0, maxShift / max(length(shift), 0.001));
+}
+
+half4 scene(float2 point) {
+    return content.eval(clamp(point, float2(0.5), max(bufferSize - float2(0.5), float2(0.5))));
+}
+
+half4 main(float2 coord) {
+    float2 local = coord - contentOrigin;
+    if (local.x < 0.0 || local.y < 0.0 || local.x >= contentSize.x || local.y >= contentSize.y) {
+        return scene(coord);
+    }
+    float2 halfSize = max(contentSize * 0.5, float2(0.5));
+    float radius = clamp(cornerRadius, 0.0, min(halfSize.x, halfSize.y));
+    float2 point = local - halfSize;
+    float d = roundedDistance(point, halfSize, radius);
+    float inside = clamp(-d / max(edgeWidth, 0.5), 0.0, 1.0);
+    float rim = 1.0 - inside;
+    // Numerical SDF gradient is stable on capsules, straight edges and corners.
+    float eps = 0.5;
+    float dx = roundedDistance(point + float2(eps, 0.0), halfSize, radius)
+             - roundedDistance(point - float2(eps, 0.0), halfSize, radius);
+    float dy = roundedDistance(point + float2(0.0, eps), halfSize, radius)
+             - roundedDistance(point - float2(0.0, eps), halfSize, radius);
+    float2 outward = float2(dx, dy) / max(length(float2(dx, dy)), 0.001);
+    float slope = 0.80 * rim * rim * (3.0 - 2.0 * rim);
+    float2 normalXY = outward * slope;
+    float normalZ = sqrt(max(0.0, 1.0 - dot(normalXY, normalXY)));
+    // Explicit Snell vector for incident (0,0,-1); no intrinsic ABI assumptions.
+    float eta = 1.0 / max(ior, 1.0);
+    float transmittedZ = sqrt(max(0.0, 1.0 - eta * eta * (1.0 - normalZ * normalZ)));
+    float2 transmittedXY = (eta * normalZ - transmittedZ) * normalXY;
+    float travel = 2.0 * max(thickness - edgeWidth + edgeWidth * inside, 0.0);
+    half4 refracted = scene(coord + boundedShift(transmittedXY * travel));
+    float2 reflectedShift = boundedShift(2.0 * normalZ * normalXY * reflectionOffset * rim);
+    half4 reflected = scene(coord + reflectedShift);
+    float reflectionWeight = 0.20 * rim * rim;
+    half4 material = mix(refracted, reflected, half(reflectionWeight));
+    float alpha = clamp(float(material.a), 0.0, 1.0);
+    float3 rgb = float3(material.rgb) / max(alpha, 0.0001);
+    float luminance = dot(rgb, float3(0.2126, 0.7152, 0.0722));
+    // Directional light has a softer opposite side, adapting to scene brightness.
+    float lightSide = max(dot(outward, float2(-0.6, -0.8)), 0.0);
+    float opposite = max(dot(outward, float2(0.6, 0.8)), 0.0);
+    float light = (0.11 * lightSide + 0.035 * opposite) * rim * rim;
+    light *= 1.0 - 0.55 * clamp(luminance, 0.0, 1.0);
+    rgb = mix(rgb, float3(1.0), light);
+    float coverage = 1.0 - smoothstep(-0.75, 0.75, d);
+    alpha *= coverage;
+    return half4(half3(clamp(rgb, float3(0.0), float3(1.0)) * alpha), half(alpha));
+}
+"""
 
 /**
  * 顶部栏渐进模糊：模糊半径随 Y 从顶部最大连续收到 0。
