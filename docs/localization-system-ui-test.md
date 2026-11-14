@@ -39,9 +39,10 @@ recovered shader source are included in the app.
   error/retry and confirmation components. About/update panels use the selected
   theme rather than system dark mode. Appearance settings share their production
   component with screenshot fixtures.
-- The scroll **viewport** reserves the full bottom-bar region and clips at that
-  boundary. This prevents readable/tappable content from passing underneath the
-  bar, instead of relying only on final-item scroll padding. Landscape content
+- The scroll **viewport** reserves the full top- and bottom-bar regions and clips
+  at those boundaries. This prevents readable/tappable content from passing underneath the
+  bar, instead of relying only on final-item scroll padding. Content cannot cross into
+  the header, preventing expanded and collapsed titles from overprinting. Landscape content
   is centered at a maximum 600dp width. Large-font Color values move below titles;
   navigation and header heights grow with text size.
 
