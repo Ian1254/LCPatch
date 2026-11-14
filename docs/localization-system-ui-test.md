@@ -1,8 +1,67 @@
-# Localization expansion and 柔光玻璃 / Liquid Acrylic test build
+# Localization expansion and hyper / color test build
 
 This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
+
+## test.11: successful title localization followed by exit; UI reconstruction
+
+The user observed the translated title screen before the game exited. The
+supplied test.10 diagnostic corroborates successful LoginUIText,
+UserAgreements, FileDownloadDesc and BattleHint substitutions, then a
+self-signalled SIGKILL (exit-info status9) about2.4seconds after the targeted
+managed-getter hook was installed. No native crash stack/tombstone was retained.
+This rules out a missing index or inactive getter as the reason for untranslated
+title text in that run. It does not establish the unique cause of termination.
+The raw diagnostic is not committed.
+
+The test.10 full-ring logcat scan also timed out before reaching the current
+launch. Collection now seeks by decimal epoch to the latest launch/exit window
+(maximum120seconds) before filtering. Only the current main-process PID is
+seeded. Failed/timed-out partial output is filtered too; raw system text is not
+placed in an error detail. Epoch timestamps avoid desktop/device timezone drift.
+
+The displayed modes are renamed exactly `hyper` and `color`, preserving saved
+style IDs. UI review compares the previous published beta.5 Miuix components,
+supplied clock APK evidence and saved official app screenshots. System app
+settings/navigation references are kept distinct from home-screen widget glass.
+
+The new route leaves IL2CPP instructions unchanged. Runtime metadata identifies
+TextAsset.text's exact BL to get_bytes and validates the bytes wrapper's tail
+BR. The only substituted native-icall read must have precisely that return
+address, an attached Unity main thread and a ready verifier guard. Raw bytes
+readers, unknown contexts and unrelated resources retain original bytes. The
+five display resources are LoginUIText, FileDownloadDesc, BattleHint,
+BattleHint_AbnorBattle and BattleHint_NormalBattle; UserAgreements is excluded.
+
+Native Object.GetName_Injected's span ABI is checked with live metadata field
+offsets/value size/alignment, parameter types and byte-array element/header APIs.
+Its positive-length storage is freed by the matching Unity allocator. Historical
+1.117.1 retained-code evidence corroborates text->bytes tail dispatch and span
+ownership; current1.119.0 must pass all runtime checks or retains original data.
+This is not a confirmed crash resolution and it does not alter termination or
+security-result functions.
+
+For hyper, restore actual published Miuix theme/Card/Button/Switch/Arrow and
+OverlayDropdown components, native icon family and compact root header. Remove
+colored preference tiles and the extra large root heading. For color, retain the
+COUI reference's text-only groups,44x24 switch,250x56floating bar, monochrome tab
+states and separate expanded header. Remove invented preference dividers and
+sheet glass bevels. Both overview pages use compact resource/action groups
+rather than the previous oversized hero and two-column dashboard tiles. Floating
+content overlap remains intentional; final items can scroll above the bar.
+
+The16 rendered fixtures include both themes, sheets, overview/log pages,
+small/large-font cases for both modes, both landscape modes and a released-beta.5
+Miuix component baseline. They verify portable rendering, not OEM-only native
+material services or device animations. No OEM shader/assets/fonts are copied.
+
+Local validation: ARM64 compilation and host C++ checks passed, including signed
+BL targets, bounded veneer/cycle handling, ambiguous-call rejection and the display
+resource allowlist.71 JVM cases reported67 passed and4 platform/fixture skips;
+Release lint/assembly and16 Compose renders passed. Real PC archive fixtures ran
+locally. Linux Actions repeats Unix diagnostics/index tests before signing. No
+physical device/emulator verification was performed; user testing remains required.
 
 ## test.10: bounded callback bootstrap and directional material edges
 
