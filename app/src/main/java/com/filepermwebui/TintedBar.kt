@@ -68,8 +68,8 @@ private fun HazeExperimentalTopBlur(state: HazeState, height: Dp) {
         Box(
             Modifier.matchParentSize().background(
                 Brush.verticalGradient(
-                    0f to surface.copy(alpha = 0.94f),
-                    1f to surface.copy(alpha = 0.84f)
+                    0f to surface.copy(alpha = 0.24f),
+                    1f to Color.Transparent
                 )
             )
         )
@@ -93,11 +93,10 @@ internal fun TopLevelProgressiveBar(
     hazeState: HazeState? = null,
     pageTitles: List<String>,
     pagePosition: Float,
-    collapseFraction: Float = 1f,
     actions: @Composable () -> Unit = {}
 ) {
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val barHeight = statusInset + 56.dp
+    val barHeight = statusInset + 64.dp
     val surface = MiuixTheme.colorScheme.surface
 
     Box(Modifier.fillMaxWidth().height(barHeight)) {
@@ -108,7 +107,7 @@ internal fun TopLevelProgressiveBar(
                 backdrop = backdrop,
                 modifier = Modifier.fillMaxWidth(),
                 height = barHeight,
-                tintIntensity = 0.86f,
+                tintIntensity = 0.16f,
                 tintColor = surface,
                 edgeFadeStart = 0.76f
             ) {}
@@ -118,7 +117,7 @@ internal fun TopLevelProgressiveBar(
                     Brush.verticalGradient(
                         0f to surface.copy(alpha = 0.94f),
                         0.78f to surface.copy(alpha = 0.70f),
-                        1f to surface.copy(alpha = 0.84f)
+                        1f to Color.Transparent
                     )
                 )
             )
@@ -142,10 +141,10 @@ internal fun TopLevelProgressiveBar(
                                     0
                                 )
                             }
-                            .graphicsLayer { alpha = (1f - abs(delta)).coerceIn(0f, 1f) * collapseFraction },
+                            .graphicsLayer { alpha = (1f - abs(delta)).coerceIn(0f, 1f) },
                         color = MiuixTheme.colorScheme.onSurface,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontSize = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 30.sp else 28.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -164,7 +163,7 @@ internal fun TintedBar(
     content: @Composable () -> Unit
 ) {
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val barHeight = statusInset + 56.dp
+    val barHeight = statusInset + 64.dp
     val surface = MiuixTheme.colorScheme.surface
     Box {
         if (hazeState != null) {
@@ -183,7 +182,7 @@ internal fun TintedBar(
                 Modifier.matchParentSize().background(
                     Brush.verticalGradient(
                         0f to surface.copy(alpha = 0.94f),
-                        1f to surface.copy(alpha = 0.84f)
+                        1f to Color.Transparent
                     )
                 )
             )

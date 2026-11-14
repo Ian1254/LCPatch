@@ -72,16 +72,3 @@ jobs:
           name: LCPatch-unsigned
           path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
-
-      - name: Upload interface previews and diagnostics
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: LCPatch-interface-previews-and-diagnostics
-          path: |
-            app/src/screenshotTestDebug/reference/
-            app/build/outputs/screenshotTest-results/
-            app/build/outputs/mapping/release/mapping.txt
-            app/build/test-results/testDebugUnitTest/
-          if-no-files-found: warn
-          retention-days: 14

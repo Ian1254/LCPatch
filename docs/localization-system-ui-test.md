@@ -43,31 +43,6 @@ not rewrite an already applied translation.
 Non-root mode keeps the existing JP/KR replacement approach; this native
 TextAsset expansion and PC supplementation require Root/LSPosed mode.
 
-## test.7 corrections and validation
-
-- The reported `ov0` apply failure mapped to `PcTranslationSupplementKt`.
-  Its Java-compatible regex contained an unescaped closing brace rejected by
-  Android ICU. The literal is corrected and CI compiles the actual patterns
-  with ICU before building. Apply errors now retain their underlying cause.
-- Official LLC 2026111301 and the corresponding Android builder archive were
-  compared directly: the named title/loading resources already contain Chinese.
-  The real-archive integration test leaves a complete pack unchanged and repairs
-  deliberately removed files/rows/fields. See `pc-pack-2026111301-audit.md`.
-- The TextAsset bootstrap now follows a validated ARM64 branch veneer to the
-  shared internal-call resolver. Unity-generated calls bypass the public export
-  previously hooked. Evidence comes from retained 1.117.1 artifacts and Unity
-  source; this does not establish runtime coverage in game 1.119.0.
-- Hook trampolines are published atomically, and bootstrap retries occur on a
-  separate bounded worker. Main-thread restrictions remain in effect.
-- The interface was rebuilt with shared overview/settings/log components,
-  consistent icons, full-width log cards, grouped rows and a collapsing title.
-  Floating navigation intentionally overlaps scrolling content, with bottom
-  scroll space so the last item remains reachable.
-- Local validation: ARM64 native build; ICU pattern compilation; Release build
-  and lint; 56 executed unit tests with no failures (one separate test skipped);
-  11 Compose renders covering both materials, dark/light, logs, large text and
-  landscape. These are desktop renders, not physical-device verification.
-
 ## Interface changes
 
 **設定 → 介面與顯示 → 系統介面風格** switches between **柔光玻璃** and
