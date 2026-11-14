@@ -8,6 +8,7 @@ import java.nio.file.Files
 import java.util.zip.ZipFile
 import org.junit.Assume.assumeTrue
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -228,3 +229,26 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
 @Composable fun LandscapeOverview() = ScreenFixture(SystemUiStyle.ColorOS17, false, 0)
 @PreviewTest @Preview(name = "StyleChoices", widthDp = 393, heightDp = 350)
 @Composable fun StyleChoices() = SystemUiTheme(SystemUiStyle.HyperOS4, "light") { SystemCard { SystemStylePicker(SystemUiStyle.HyperOS4, {}) } }
+
+@Composable private fun SheetFixture(style: SystemUiStyle, dark: Boolean) {
+    SystemUiTheme(style, if (dark) "dark" else "light") {
+        Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(16.dp),
+            verticalArrangement = Arrangement.Bottom) {
+            SystemSheetSurface("覆蓋語言文件") {
+                listOf("日本語", "한국어").forEachIndexed { index, value ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text(value, Modifier.weight(1f), fontSize = 16.sp)
+                        if (index == 0) top.yukonga.miuix.kmp.basic.Icon(SystemGlyph.Check.vector(), null,
+                            Modifier.size(22.dp), tint = MiuixTheme.colorScheme.primary)
+                    }
+                }
+                SystemTextButton("取消", {}, Modifier.fillMaxWidth().padding(horizontal = 12.dp))
+            }
+        }
+    }
+}
+@PreviewTest @Preview(name = "SoftLightSheet", widthDp = 393, heightDp = 420)
+@Composable fun SoftLightSelectionPanel() = SheetFixture(SystemUiStyle.HyperOS4, false)
+@PreviewTest @Preview(name = "AcrylicSheet", widthDp = 393, heightDp = 420)
+@Composable fun AcrylicSelectionPanel() = SheetFixture(SystemUiStyle.ColorOS17, true)
