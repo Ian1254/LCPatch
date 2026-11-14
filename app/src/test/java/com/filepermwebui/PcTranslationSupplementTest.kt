@@ -17,6 +17,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Home
+import top.yukonga.miuix.kmp.icon.extended.Settings
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.List
 import com.android.tools.screenshot.PreviewTest
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
@@ -149,15 +154,17 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
             Scaffold(containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = { TopLevelProgressiveBar(backdrop, pageTitles = listOf("LCPatch", "日誌", "設定"),
-                    pagePosition = page.toFloat(), collapseFraction = if (scrolled) 1f else 0f) },
+                    pagePosition = page.toFloat(), collapseFraction = if (style == SystemUiStyle.HyperOS4 || scrolled) 1f else 0f) },
                 bottomBar = { SystemBottomNavigation(page, listOf("概觀", "日誌", "設定"),
-                    listOf(SystemGlyph.Home.vector(), SystemGlyph.Records.vector(), SystemGlyph.Settings.vector()),
+                    listOf(MiuixIcons.Home, Icons.Default.List, MiuixIcons.Settings),
                     true, backdrop = backdrop, onSelected = {}) }
             ) { padding ->
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize().then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp,
+                    contentPadding = PaddingValues(start = if (style == SystemUiStyle.HyperOS4) 12.dp else 16.dp,
+                        end = if (style == SystemUiStyle.HyperOS4) 12.dp else 16.dp,
+                        top = padding.calculateTopPadding() + if (style == SystemUiStyle.HyperOS4) 12.dp else (-8).dp,
                         bottom = padding.calculateBottomPadding() + 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    item { SystemPageHeading(listOf("LCPatch", "日誌", "設定")[page]) }
+                    if (style != SystemUiStyle.HyperOS4) item { SystemPageHeading(listOf("LCPatch", "日誌", "設定")[page]) }
                     when (page) {
                         0 -> {
                             item { SystemTranslationPanel(sampleOverview, {}, {}, {}) }
@@ -252,3 +259,33 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
 @Composable fun SoftLightSelectionPanel() = SheetFixture(SystemUiStyle.HyperOS4, false)
 @PreviewTest @Preview(name = "AcrylicSheet", widthDp = 393, heightDp = 420)
 @Composable fun AcrylicSelectionPanel() = SheetFixture(SystemUiStyle.ColorOS17, true)
+
+// Released beta.5 component baseline, kept separate from reconstruction fixtures.
+@PreviewTest @Preview(name = "PublishedBeta5", widthDp = 393, heightDp = 852)
+@Composable fun PublishedBeta5Reference() {
+    MiuixTheme {
+        Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.height(56.dp))
+            Text("設定", Modifier.padding(horizontal = 12.dp), fontSize = 18.sp)
+            Text("運作環境", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            top.yukonga.miuix.kmp.basic.Card {
+                top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(title = "運作模式",
+                    items = listOf("無 root", "Root ＋ LSPosed"), selectedIndex = 1, onSelectedIndexChange = {})
+            }
+            Text("漢化", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            top.yukonga.miuix.kmp.basic.Card {
+                top.yukonga.miuix.kmp.preference.ArrowPreference(title = "覆蓋語言文件", summary = "日本語", onClick = {})
+                top.yukonga.miuix.kmp.preference.ArrowPreference(title = "匯入漢化包", onClick = {})
+                top.yukonga.miuix.kmp.preference.SwitchPreference(title = "啟用漢化", checked = true, onCheckedChange = {})
+                top.yukonga.miuix.kmp.preference.ArrowPreference(title = "更換字型", summary = "內建中文字型", onClick = {})
+            }
+        }
+    }
+}
+@PreviewTest @Preview(name = "ColorSmallLargeFont", widthDp = 360, heightDp = 800, fontScale = 1.3f)
+@Composable fun ColorSmallLargeFont() = ScreenFixture(SystemUiStyle.ColorOS17, false)
+@PreviewTest @Preview(name = "HyperLandscape", widthDp = 852, heightDp = 393)
+@Composable fun HyperLandscape() = ScreenFixture(SystemUiStyle.HyperOS4, false, 0)
