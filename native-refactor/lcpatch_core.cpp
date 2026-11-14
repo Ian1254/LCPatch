@@ -169,6 +169,7 @@ void breadcrumb(const char *level, const char *code, const char *format, ...) {
 
 bool installHook(void *target, void *replacement, void **original, const char *name);
 bool verificationEntryReady();
+void observeTextAssetBootstrap(const char *source);
 
 bool buildLocalizeRedirect(const char *path, char *output, size_t outputSize) {
     if (!path || !*path || !output || outputSize == 0 ||
@@ -207,6 +208,7 @@ const char *redirectReadPath(const char *path, char *buffer, size_t size) {
             breadcrumb("INFO", "core.io.verify_read", "original retained count=%u path=%s", count, path);
         return path;
     }
+    observeTextAssetBootstrap("localize_read");
     const unsigned count = gRedirectCount.fetch_add(1, std::memory_order_relaxed);
     if (count < 12) {
         LOGI("localize redirected: %s -> %s", path, buffer);
@@ -781,6 +783,7 @@ bool knownOriginalFont(size_t size) {
 }
 
 void hookedFont(void *object, uint32_t a1, uint32_t a2, uint32_t a3) {
+    observeTextAssetBootstrap("font_load");
     if (object && gFontData && gFontSize && gSwapCount.load(std::memory_order_relaxed) < 3) {
         void *asset = nullptr;
         std::memcpy(&asset, static_cast<uint8_t *>(object) + 0x38, sizeof(asset));
@@ -865,6 +868,9 @@ void *imageExport(const UnitySearch &image, const char *name) {
 #include "text_asset_hook.inc"
 
 void *startFontHook(void *) {
+    // Also arm on font-unavailable/unsupported exits, after every setup hook
+    // operation has ended. Callbacks never wait on the setup worker.
+    struct ArmTextBootstrapOnExit { ~ArmTextBootstrapOnExit() { armTextAssetBootstrap(); } } armOnExit;
     breadcrumb("INFO", "core.unity.wait", "waiting for libunity.so");
     UnitySearch image;
     for (unsigned attempt = 0; attempt < 120 && !image.base; ++attempt) {
@@ -925,7 +931,7 @@ void *startFontHook(void *) {
 
 void start() {
     if (gStarted.exchange(true)) return;
-    breadcrumb("INFO", "core.start", "file/font loading; TextAsset index diagnostics v2");
+    breadcrumb("INFO", "core.start", "file/font loading; callback TextAsset bootstrap v3");
     pthread_t thread{};
     if (pthread_create(&thread, nullptr, startFontHook, nullptr) != 0) {
         LOGE("font worker creation failed"); breadcrumb("ERROR", "core.thread.failed", "pthread_create failed"); return;
