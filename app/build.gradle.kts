@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.android.compose.screenshot")
 }
 
 val versionProperties = Properties().apply {
@@ -14,6 +15,7 @@ val appVersionName = versionProperties.getProperty("VERSION_NAME")?.takeIf { it.
     ?: error("VERSION_NAME is missing in version.properties")
 
 android {
+    experimentalProperties["android.experimental.enableScreenshotTest"] = true
     namespace = "com.lcpatch"
     compileSdk = 37
     ndkVersion = "27.2.12479018"
@@ -70,4 +72,6 @@ dependencies {
     implementation("io.github.libxposed:service:102.0.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    screenshotTestImplementation("com.android.tools.screenshot:screenshot-validation-api:0.0.1-alpha16")
+    screenshotTestImplementation("androidx.compose.ui:ui-tooling:1.10.0")
 }
