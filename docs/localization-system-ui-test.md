@@ -4,6 +4,63 @@ This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
 
+## test.12: complete shared chrome and action-state reconstruction
+
+The user reports that test.11 localization works. This change preserves the native,
+translation preparation and text-resource paths, and updates interface code only.
+Style labels remain `hyper` and `color`. No OEM binaries, fonts, icon paths or
+recovered shader source are included in the app.
+
+- Hyper floating navigation now follows the **new Clock BottomNavigator** family:
+  88dp items overlapping by 10dp, 3dp end insets (250dp for three tabs), 28dp icons,
+  11sp accessible labels and a minimum 54dp height. Its outer material uses
+  Pured_Thin_Glass: density-scaled 20dp blur, alpha-aware PLUS_DARKER subtraction
+  of 5/26 RGB byte units on opaque light/dark captures, followed by the observed
+  softlight/hardlight or luminosity/overlay sequence. The plain moving selector
+  uses native state alpha and shrinks by 6dp on press; it has no refraction lens.
+- Existing independent leading/trailing springs remain; disabling animations
+  immediately resets both edges, velocity and drag state. Color tab clicks use
+  immediate pager selection, while secondary-screen transitions use 350ms and
+  the observed (.3,.1,.3,1) curve.
+- Color uses its separate 250x56dp floating navigation family, filled/outline
+  icons with 180ms changes, no persistent selector, 44dp primary button surfaces
+  inside at least 48dp touch targets, native primary/disabled fills, ordinary
+  18sp secondary toolbar, 16sp preference titles, 13sp summaries and 12dp cards.
+- Short Color preferences now open bounded anchored menus. Radio alerts and
+  28dp bottom sheets are separate components; alert titles, handles and radio
+  geometry follow their own widget families. Color primary/secondary label
+  alpha roles are preserved; this is not a claim that every OEM color meets AA.
+- Hyper modal material samples only the separate scene behind a dialog. An
+  original portable rounded-distance/Snell/reflection shader approximates the
+  observed mechanism; it does not copy native shader text or execute hidden APIs.
+  The native 42-float SystemUI preset is **not** applied to the navigation bar.
+  Inline panels have no ancestor capture, preventing recursive layer recording.
+- Both styles share complete idle, disabled, processing, determinate-progress,
+  error/retry and confirmation components. About/update panels use the selected
+  theme rather than system dark mode. Appearance settings share their production
+  component with screenshot fixtures.
+- The scroll **viewport** reserves the full bottom-bar region and clips at that
+  boundary. This prevents readable/tappable content from passing underneath the
+  bar, instead of relying only on final-item scroll padding. Landscape content
+  is centered at a maximum 600dp width. Large-font Color values move below titles;
+  navigation and header heights grow with text size.
+
+Evidence came from the supplied HyperOS 4 OTA (xuanyuan Android 17), its
+`miuix.jar`/SystemUI plus Clock 18.28.0, and supplied ColorOS 17 framework/material
+libraries plus Clock 17.6.70. Native material services, force-dark transforms,
+exact Gaussian shadows, font shaping and GPU composition remain platform
+limitations of a portable reconstruction. Source-based dimensions and rendered
+previews do not establish pixel-identical OEM runtime output.
+
+Local validation: release lint and assemble passed. The JVM suite contains 72
+cases: 68 passed and four were skipped on Windows (three POSIX-only checks and
+one unavailable historical Unity fixture). The real PC/builder archive integration
+ran successfully. All 32 preview cases rendered without failures, including
+320dp, landscape, 200% fonts, both last-row states, anchored/radio choices,
+progress/error states, opaque fallback and the independently captured glass scene.
+Actions must also pass and sign the APK before handoff. No device or emulator is
+used, and no main merge/tag/Release is authorized by this work.
+
 ## test.11: successful title localization followed by exit; UI reconstruction
 
 The user observed the translated title screen before the game exited. The
