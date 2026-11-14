@@ -203,7 +203,7 @@ fun ProgressiveBlurTopBar(
     val blurEffects: com.kyant.backdrop.BackdropEffectScope.() -> Unit =
         remember(shaderKey, denoiseKey, tintColor, tintIntensity, edgeFadeStart) {
             {
-                val maxRadiusPx = 12f.dp.toPx()
+                val maxRadiusPx = 20f.dp.toPx()
                 // 录制缓冲向外扩一圈，边缘采样可摸到框外真实内容
                 padding = maxRadiusPx
                 val pad = padding * downsampleScale
