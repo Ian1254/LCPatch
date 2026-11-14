@@ -133,7 +133,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import com.kyant.backdrop.backdrops.layerBackdrop
 import rikka.shizuku.Shizuku
 
-private val PreferenceItemModifier = Modifier.clip(RoundedCornerShape(18.dp))
+private val PreferenceItemModifier = Modifier
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
 private data class PageScrollPosition(val index: Int, val offset: Int)
@@ -298,8 +298,7 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(topNavigationTransaction, topNavigationTarget) {
             if (pagerState.currentPage != topNavigationTarget || pagerState.currentPageOffsetFraction != 0f) {
-                if (systemUiStyle == SystemUiStyle.ColorOS17) pagerState.scrollToPage(topNavigationTarget)
-                else pagerState.animateScrollToPage(
+                pagerState.animateScrollToPage(
                     page = topNavigationTarget,
                     animationSpec = tween(440, easing = PageTransitionEasing)
                 )
@@ -668,11 +667,11 @@ class MainActivity : ComponentActivity() {
                 key(visiblePage) {
                     LazyColumn(
                         state = visibleListState,
-                        modifier = listModifier.padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding()).clipToBounds(),
+                        modifier = listModifier.padding(bottom = padding.calculateBottomPadding()).clipToBounds(),
                         contentPadding = PaddingValues(
                             start = systemPageGutter(),
                             end = systemPageGutter(),
-                            top = if (!hyper && visiblePage in topPages) 0.dp else 12.dp,
+                            top = padding.calculateTopPadding() + 12.dp,
                             bottom = 16.dp
                         ),
                         verticalArrangement = Arrangement.spacedBy(if (hyper) 12.dp else 8.dp)
@@ -970,8 +969,8 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize(),
                 transitionSpec = {
                     val direction = navigationDirection
-                    val duration = if (systemUiStyle == SystemUiStyle.ColorOS17) 350 else 320
-                    val easing = if (systemUiStyle == SystemUiStyle.ColorOS17) androidx.compose.animation.core.CubicBezierEasing(.3f,.1f,.3f,1f) else PageTransitionEasing
+                    val duration = 320
+                    val easing = PageTransitionEasing
                     slideInHorizontally(tween(duration, easing = easing)) { direction * it } togetherWith
                         slideOutHorizontally(tween(duration, easing = easing)) { -direction * it }
                 },
@@ -1022,8 +1021,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
-                                if (systemUiStyle == SystemUiStyle.ColorOS17) SystemColorTopBar(visibleTitle,navigationIcon)
-                                else SmallTopAppBar(
+                                SmallTopAppBar(
                                     title = visibleTitle,
                                     color = Color.Transparent,
                                     scrollBehavior = visibleScrollBehavior,
@@ -1142,9 +1140,6 @@ class MainActivity : ComponentActivity() {
                 }
                 ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入漢化包", value = "ZIP 檔案", onClick = onImport)
                 if (rootMode) {
-                    var supplementEnabled by remember { mutableStateOf(translations.pcSupplementEnabled()) }
-                    SwitchPreference(title = "補齊 PC 版翻譯", summary = "套用時補入缺少的翻譯，保留既有中文", enabled = !applying,
-                        checked = supplementEnabled, onCheckedChange = { value -> supplementEnabled = value; translations.setPcSupplementEnabled(value) })
                     ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "更換字型", value = fontName, onClick = onFont)
                 }
             }
@@ -1153,7 +1148,7 @@ class MainActivity : ComponentActivity() {
         item { SectionLabel("應用程式") }
         item {
             Card {
-                ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", value = LocalSystemUiStyle.current.label, onClick = onDisplay)
+                ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "深淺模式、底欄與模糊效果", onClick = onDisplay)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", value = logs.selectedFolderLabel(), onClick = onFolder)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "關於", summary = "版本與元件", onClick = onAbout)
@@ -1202,17 +1197,12 @@ class MainActivity : ComponentActivity() {
             }
         }
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
-                    Text("LCPatch 版本", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                    Spacer(Modifier.height(8.dp)); Text(BuildConfig.VERSION_NAME, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                }
-                Card(modifier = Modifier.weight(1f), insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
-                    Text("遊戲版本", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                    Spacer(Modifier.height(8.dp)); Text(game.version.substringBefore(" ("), fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                }
+            Card(insideMargin=PaddingValues(18.dp)) {
+                Detail("LCPatch 版本",BuildConfig.VERSION_NAME)
+                Detail("遊戲版本",game.version.substringBefore(" ("))
             }
         }
+
         item {
             Card(insideMargin = PaddingValues(18.dp), colors = translucentAboutCardColors()) {
                 Text("詳細資訊", style = MiuixTheme.textStyles.title2)
@@ -1371,11 +1361,10 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable private fun InfoCard(title: String, body: String, translucent: Boolean = false) {
-        Card(
-            insideMargin = PaddingValues(18.dp),
-            colors = if (translucent) translucentAboutCardColors() else CardDefaults.defaultColors()
-        ) {
-            Text(title, style = MiuixTheme.textStyles.title2); Spacer(Modifier.height(6.dp)); Text(body, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp)) {
+            Text(title,fontSize=16.sp,lineHeight=24.sp,fontWeight=FontWeight.Medium)
+            Spacer(Modifier.height(6.dp))
+            Text(body,fontSize=14.sp,lineHeight=22.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
 
