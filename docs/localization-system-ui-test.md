@@ -4,6 +4,58 @@ This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
 
+## test.14: package-guided hierarchy and navigation correction
+
+The user's test.13 screenshots supersede the earlier grip and border decisions.
+Details must remain secondary throughout the app, not just translation details.
+
+- Remove the sheet grip, collapsed presentation, drag state machine and its tests.
+  Dialogs open with their complete content; long content scrolls. Outside tap,
+  Back and explicit inset actions dismiss them. No detail content is moved into
+  the overview to replace the removed collapsed presentation.
+- Restore the quick-action card and informational cards. Related log summaries
+  share groups of eight records, keeping the list lazy without a card per label.
+  Only section headings and short state summaries remain outside containers.
+- Log codes, processes, full messages, statistics and diagnostic explanations
+  live in secondary dialogs. Native access configuration/help is secondary too.
+- Remove explicit white surface borders from popups, sheets, secondary buttons
+  and floating navigation. Scrims, elevation and surface fills separate levels.
+- Keep the list viewport and its recorded backdrop full-height. Put bottom bar
+  clearance in LazyColumn contentPadding rather than shrinking/clipping the
+  viewport above the entire bottom-bar slot. This eliminates the rectangular
+  black shelf while allowing the final item to scroll above the controls.
+- Standard navigation uses flat full-width material and icon/text selection,
+  without the invented blue indicator line or floating selector capsule.
+  Floating navigation retains its separate geometry and motion.
+- Primary dialog actions have 24dp horizontal insets. Secondary actions have
+  12dp separation, adapting to a vertical arrangement at large font sizes.
+  No full-width pressed text-button footer or contiguous gray button stack.
+
+Reference evidence is the user's supplied xuanyuan OS4 archive, with identity
+and extraction checks documented below. The selected Settings.apk SHA-256 is
+`d6398d25b4819e37d79f59ece7144d2965cb63e40a92543bc174c4288029fa06`.
+Focused aapt2 resource reads establish common radius 16dp, big/dialog radius
+36dp, button height 50dp, common horizontal margin 12dp, dialog button vertical
+margin 8dp, dark surface-high #242424 and surface-highest #2c2c2c. Its dialog
+button-panel layout uses separate weighted GroupButtons, not a colored footer.
+Previous focused framework/clock decompilation provides navigation item layout
+and material routing context. OEM layout/code/resources are analysis inputs only
+and are not redistributed. REA's Android bridge lacked its caller-supplied JADX
+MCP JAR; these focused resource observations use the existing standalone aapt2
+and retained standalone JADX output, not an invented successful REA analysis.
+
+The implementation is portable Compose reconstruction guided by these observed
+contracts. It does not claim device pixel equivalence or OEM service availability
+on another manufacturer's system. No device/emulator verification is requested.
+Secondary page headers use a left-aligned title and circular Back control, shared
+by production and the appearance fixture. Standard bar drawing is explicitly
+clipped to its own rectangle; the page viewport itself remains full-height.
+Local checks: 75 JVM cases, 71 passed and four platform/fixture skips; release
+lint/build passed. Twenty renders cover both bars, scrolled content, light/dark,
+secondary pages, borderless menus/dialogs, landscape and 200% text. After the
+bar-boundary/header correction, debug recompilation and all renders passed again.
+The final Actions run must compile, check and sign these final sources.
+
 ## test.13: one hyper interface, distinct navigation, direct official packages
 
 The user requested removal of color, functional sheet grips, fewer card fragments,
