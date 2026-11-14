@@ -56,6 +56,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
@@ -669,16 +670,16 @@ class MainActivity : ComponentActivity() {
                 key(visiblePage) {
                     LazyColumn(
                         state = visibleListState,
-                        modifier = listModifier.padding(bottom = padding.calculateBottomPadding()).clipToBounds(),
+                        modifier = listModifier.padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding()).clipToBounds(),
                         contentPadding = PaddingValues(
                             start = systemPageGutter(),
                             end = systemPageGutter(),
-                            top = padding.calculateTopPadding() + if (!hyper && visiblePage in topPages) (-8).dp else 12.dp,
+                            top = if (!hyper && visiblePage in topPages) 0.dp else 12.dp,
                             bottom = 16.dp
                         ),
                         verticalArrangement = Arrangement.spacedBy(if (hyper) 12.dp else 8.dp)
                     ) {
-                        if (!hyper && visiblePage in topPages) item { SystemPageHeading(if (visiblePage == OVERVIEW) "LCPatch" else pageTitle(visiblePage), collapseFraction=headingCollapse) }
+                        if (!hyper && visiblePage in topPages) item { SystemPageHeading(if (visiblePage == OVERVIEW) "LCPatch" else pageTitle(visiblePage),collapseFraction=headingCollapse) }
                         if (visiblePage == SETTINGS) item { SectionLabel("運作環境") }
                         if (visiblePage == SETTINGS || visiblePage == ONBOARDING) item {
                             Card {
@@ -1001,6 +1002,7 @@ class MainActivity : ComponentActivity() {
                 else -> conversionScrollBehavior
             }
 
+            CompositionLocalProvider(LocalSystemWindowBackdrop provides activeBarBackdrop) {
             SystemMaterialScope(blurEnabled) {
                 Scaffold(
                     containerColor = Color.Transparent,
@@ -1076,6 +1078,7 @@ class MainActivity : ComponentActivity() {
                         if (animatedShell == shellTarget) renderNotice(padding)
                     }
                 }
+            }
             }
             }
 
