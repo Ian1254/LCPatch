@@ -117,3 +117,67 @@ SharedIcallEntry findSharedIcallResolver(uintptr_t publicEntry, Reader read) {
 }
 
 } // namespace lcpatch
+
+namespace lcpatch {
+template <typename Reader>
+uintptr_t textAccessorBody(uintptr_t entry, Reader read) {
+    uintptr_t seen[4]{};
+    for (unsigned depth = 0; depth < 4; ++depth) {
+        if (!entry || (entry & 3U)) return 0;
+        for (unsigned i = 0; i < depth; ++i) if (seen[i] == entry) return 0;
+        seen[depth] = entry;
+        uint32_t word = 0;
+        if (!read(entry, word) || !word) return 0;
+        if (aarch64BranchLandingHint(word)) {
+            if (entry > std::numeric_limits<uintptr_t>::max()-4U) return 0;
+            entry += 4;
+            continue;
+        }
+        uintptr_t next = 0;
+        if (aarch64TailBranchTarget(entry, word, next)) { entry = next; continue; }
+        return entry;
+    }
+    return 0;
+}
+// Match the runtime metadata's text->bytes call, then require a tail-dispatch
+// wrapper. Unrecognized code keeps official bytes. No game addresses are stored.
+template <typename Reader>
+uintptr_t findTextBytesReturn(uintptr_t text, uintptr_t bytes, Reader read) {
+    if (!text || !bytes || (text & 3U) || (bytes & 3U)) return 0;
+    const uintptr_t bytesEntry = bytes;
+    text = textAccessorBody(text, read);
+    bytes = textAccessorBody(bytes, read);
+    if (!text || !bytes) return 0;
+    uintptr_t found = 0;
+    for (unsigned offset = 0; offset < 96; offset += 4) {
+        if (text > std::numeric_limits<uintptr_t>::max()-offset) return 0;
+        const auto at = text+offset;
+        uint32_t word = 0;
+        if (!read(at, word) || !word) return 0;
+        if ((word & 0xfc000000U) == 0x94000000U) {
+            uintptr_t target = 0;
+            if (aarch64TailBranchTarget(at, (word & 0x03ffffffU) | 0x14000000U, target) && (target == bytesEntry || target == bytes)) {
+                if (found || at > std::numeric_limits<uintptr_t>::max()-4U) return 0;
+                found = at+4;
+            }
+        }
+        if (word == 0xd65f03c0U || (word & 0xfc000000U) == 0x14000000U) break;
+    }
+    if (!found) return 0;
+    for (unsigned offset = 0; offset < 128; offset += 4) {
+        if (bytes > std::numeric_limits<uintptr_t>::max()-offset) return 0;
+        uint32_t word = 0;
+        if (!read(bytes+offset, word) || !word) return 0;
+        if (word == 0xd65f03c0U || (word & 0xfc000000U) == 0x14000000U) return 0;
+        if ((word & 0xfffffc1fU) == 0xd61f0000U) {
+            const auto reg = (word >> 5) & 31U;
+            return reg < 30 ? found : 0;
+        }
+    }
+    return 0;
+}
+inline bool textAssetDisplayResource(const std::string &key) {
+    return key == "LoginUIText" || key == "FileDownloadDesc" || key == "BattleHint" ||
+        key == "BattleHint_AbnorBattle" || key == "BattleHint_NormalBattle";
+}
+}
