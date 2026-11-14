@@ -144,8 +144,8 @@ internal fun TopLevelProgressiveBar(
                             }
                             .graphicsLayer { alpha = (1f - abs(delta)).coerceIn(0f, 1f) * collapseFraction },
                         color = MiuixTheme.colorScheme.onSurface,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontSize = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 18.sp else 24.sp,
+                        fontWeight = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) FontWeight.Medium else FontWeight.SemiBold
                     )
                 }
             }
