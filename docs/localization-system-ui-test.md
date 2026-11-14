@@ -4,6 +4,48 @@ This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
 
+## test.10: bounded callback bootstrap and directional material edges
+
+The supplied test.9 diagnostic confirms an index with3,840 entries, then a
+self-signalled SIGKILL (exit-info status9) about285ms after shared-resolver
+installation. No native crash stack or relevant tombstone was retained. This
+establishes the exit and ordering, not its unique cause. Raw logs are not committed.
+
+The shared InternalCalls::Resolve observer is removed. Existing font-load and
+verified localization-read callbacks now attempt the targeted TextAsset getter
+installation only on an already attached runtime thread and the Unity main thread.
+The public resolver is called as an API; neither its export nor shared implementation
+is patched. No worker polls domain_get: the locally installed Unity source shows
+that domain_get can allocate a domain before initialization. Configuration is
+published only after all setup-worker hook operations finish, including early exits,
+so its Dobby installer cannot race the callback installer. Atomic installer ownership
+continues to serialize callback attempts. TextAsset substitution also retains
+original data when the verifier profile is unknown or its signature is not ready.
+
+This change is a narrower startup route, not a confirmed device crash resolution.
+A resource consumed before the first eligible callback is not retroactively reloaded.
+The next diagnostic distinguishes waiting, callback trigger, getter installation,
+lookup miss and successful replacement. Background readers retain original data.
+
+Diagnostics now obtain historical game PIDs first and filter the retained logcat
+ring by game/module/PID before applying output bounds. Reporter PIDs are admitted
+only through explicit game process declarations. Unrelated adjacent system rows
+are excluded; Linux integration covers an exit followed by10,000 unrelated rows.
+There is no new device access and no attempt to suppress process termination.
+
+Liquid Acrylic's bar and selection panels gain an original portable treatment
+with separate directional near/far rims and restrained inner bands. Screen,
+soft-light and multiply blending respond to the rendered surface; the gradient
+strengths/depths are reconstruction choices. The verified COUI blur/tint fallback,
+250x56dp bar,48dp items,28dp sheet corners and floating content overlap remain.
+No OEM shader is copied, and no exact native shader/refraction equivalence is claimed.
+
+Local validation: ARM64 native compilation passed; testDebugUnitTest,
+lintVitalRelease, assembleRelease and13 Compose previews passed. The68 JVM
+cases reported64 passed and4 skipped: three Unix-only shell/publication checks
+and the optional scanner fixture. Actual PC pack fixtures ran successfully.
+Actions repeats the Unix checks before signing; no physical device test was run.
+
 ## test.9: applied-pack index migration and ROM material boundary
 
 A user-supplied test.8 / game1.119.0 diagnostic showed working file redirects
