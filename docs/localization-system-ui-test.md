@@ -4,6 +4,71 @@ This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
 
+## test.13: one hyper interface, distinct navigation, direct official packages
+
+The user requested removal of color, functional sheet grips, fewer card fragments,
+clearer layer separation, squared middle menu rows and a true standard bottom bar.
+
+- Only `hyper` remains selectable/supported. Historical color preferences resolve
+  to hyper. The style picker and the PC supplement switch are removed.
+- Standard navigation is a full-width dock, with rectangular tab hit regions,
+  active icon/text/line treatment and system-bottom insets. It never constructs
+  the floating selector physics or draws a capsule. Floating navigation retains
+  its own compact capsule, moving selector and source-based material.
+- Dropdowns use a single clipped group. The selected background fills the row;
+  only the first/last rows inherit the group's exterior rounded corners. Settings
+  row feedback is clipped to the whole card, with square internal joins.
+- Canvas, card, dock, popup, sheet, selected row, primary and secondary actions
+  have explicit roles. Raised surfaces use distinct luminance, outlines/shadows;
+  sheet scrims separate them from their parent. Text actions use a readable ink
+  distinct from selected-row fills. Theme modes are checked independently.
+- Top content remains available to the blur source instead of being hard-clipped
+  beneath the header. Progressive blur uses a 20dp maximum kernel and a moderate
+  surface tint; disabled/unsupported blur uses a solid fallback. Bottom content
+  still reserves the bar region and never scrolls behind navigation.
+- Sheet grips accept vertical drag and tap. Upward release expands, downward
+  release collapses, and a further downward gesture dismisses a collapsed sheet.
+  The collapsed state shows the title and an expand hint; it does not leave half
+  a status line or button visible. Handles remain fixed while body text scrolls.
+  Semantic expand/collapse/close alternatives avoid drag-only interaction.
+- Repeated explanation cards become flowing text, log entries become divided
+  records, and About version values share one panel. Sheet secondary operations
+  are transparent text actions rather than three stacked gray pills.
+
+### Direct official source and coverage
+
+The root/LSPosed catalog now offers the official LLC archive directly. A separate
+LCPatch-Localization-Builder release is no longer fetched or required. Download
+preparation maps missing story `teller` and `title` fields through exact
+`ScenarioModelCodes-AutoCreated` model IDs, before the existing PUA conversion.
+All explicit labels, including `？？？` masked identities and narrative titles,
+remain intact. Conflicting model IDs are not guessed. Info package metadata is
+excluded; the literal `kr_settings-ui-donttranslate` resource name is preserved.
+
+A successfully prepared official pack records its upstream URL/schema and can be
+applied offline without downloading a second reference archive. Older/custom
+root packs still receive the existing PC supplement automatically; old false
+`pc_supplement` preferences no longer disable it. Latest official releases are
+resolved when the user downloads a new package. This is automatic internal
+adaptation, not a claim that unmodified PC ZIPs are a native Android language pack.
+The separate no-root glyph-adapted source and stable native game reader are kept.
+
+Real local archive validation compares every existing field of every builder JSON
+against direct official preparation, with numeric representation normalized:
+**2,383 resources covered, 74,972 missing speaker fields completed, 12 unresolved
+model references retained without guessing**. IDs, arrays, existing translations
+and masked identities are preserved. Repeating preparation adds no further rows,
+files or speaker fields. Unit cases cover conflicting model IDs, narrative title
+preservation, placeholders, archive paths and grip release transitions.
+
+Local validation: 76 JVM cases (72 passed, four platform/fixture skips), release
+lint/build and 19 visual cases passed. The matrix covers both navigation styles,
+light/dark, 320dp, landscape, 200% text, first/middle/last selection, expanded and
+collapsed sheets, action states and a real sampled blur scene. These are shared
+component snapshots and motion-policy checks, not a device/gesture simulation.
+Actions must pass and sign the final APK before handoff. No native reader changes,
+main merge, tag or Release are part of this update.
+
 ## test.12: complete shared chrome and action-state reconstruction
 
 The user reports that test.11 localization works. This change preserves the native,
