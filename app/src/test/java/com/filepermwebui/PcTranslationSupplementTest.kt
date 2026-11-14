@@ -256,7 +256,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
     SystemUiTheme(style, if (dark) "dark" else "light") {
         val backdrop = rememberBarBackdrop()
         // Snapshot the settled state without Layoutlib's initial backward-fill pass.
-        val listState = rememberLazyListState()
+        val listState = rememberLazyListState(initialFirstVisibleItemIndex=if(scrolled) 2 else 0)
         val collapse = if(style == SystemUiStyle.HyperOS4 || scrolled || atEnd || listState.firstVisibleItemIndex > 0) 1f else
             (listState.firstVisibleItemScrollOffset / with(LocalDensity.current) { 64.dp.toPx() }).coerceIn(0f,1f)
         SystemCanvas {
@@ -269,11 +269,11 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
                     floating, backdrop = backdrop, onSelected = {}) }
             ) { padding ->
                 Box(Modifier.fillMaxSize().then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier).background(MiuixTheme.colorScheme.surface)) {
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(bottom=padding.calculateBottomPadding()).clipToBounds(),
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().clipToBounds(),
                     contentPadding = PaddingValues(start = systemPageGutter(),
                         end = systemPageGutter(),
                         top = padding.calculateTopPadding()+12.dp,
-                        bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        bottom = padding.calculateBottomPadding()+16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (style != SystemUiStyle.HyperOS4) item { Spacer(Modifier.height(if(scrolled || atEnd) 0.dp else 64.dp)) }
                     when (page) {
                         0 -> {
@@ -281,27 +281,22 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
                             item { SystemQuickActions({}, {}) }
                             item { SystemSectionLabel("運作狀態") }
                             item { SystemEnvironmentPanel(sampleOverview, {}, {}, {}, "選擇資料夾") }
-                            item { Text("遊戲語言請設為「日本語」", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+
                         }
                         1 -> {
                             item { SystemLogActions(false, {}, {}, {}) }
-                            item { SystemCard(insideMargin = PaddingValues(18.dp)) {
-                                Text("遊戲閃退診斷", fontSize = 16.sp)
-                                Text("分享或儲存時會收集遊戲記錄，方便確認載入與套用狀態。", Modifier.padding(top = 8.dp),
-                                    fontSize = 13.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            } }
-                            item { SystemSectionLabel("最近事件 · 500 筆") }
+                            item { SystemLogGuide(500,5,1) }
+                            item { SystemSectionLabel("最近記錄") }
                             listOf(
                                 LogEvent("2026-11-13T17:36:24.402Z", "ERROR", "APP_ACTION", "套用失敗：PC 翻譯處理未完成，尚未寫入遊戲", ""),
                                 LogEvent("2026-11-13T17:36:03.271Z", "ERROR", "translation.install_failed", "無法處理漢化內容，請分享診斷文件查看完整原因。", ""),
                                 LogEvent("2026-11-13T17:36:03.264Z", "INFO", "download.completed", "漢化資源已下載完成", ""),
                                 LogEvent("2026-11-13T17:35:03.264Z", "INFO", "translation.textasset.index", "已建立內建文字資源索引", "")
-                            ).forEach { event -> item { SystemLogEntry(event) } }
+                            ).let { group -> item { SystemLogGroup(group) } }
                         }
                         else -> {
                             item { SystemSectionLabel("運作環境") }
-                            item { SystemCard { SystemDropdownPreference("運作模式", listOf("無 root", "Root ＋ LSPosed"), 1, {}) } }
+                            item { SystemCard { SystemDropdownPreference("運作模式", listOf("無 root", "Root ＋ LSPosed"), 1, {}); SystemModeHelp() } }
                             item { SystemSectionLabel("漢化") }
                             item { SystemCard {
                                 SystemDropdownPreference("覆蓋語言文件", listOf("日本語", "한국어", "English"), 0, {})
@@ -356,26 +351,19 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 @PreviewTest @Preview(name="LastSelected",widthDp=393,heightDp=240)
 @Composable fun LastSelected()=MenuFixture(2,false)
 
-@Composable private fun SheetFixture(expanded: Boolean,dark: Boolean)=SystemUiTheme(SystemUiStyle.HyperOS4,if(dark) "dark" else "light") {
+@Composable private fun SheetFixture(dark: Boolean)=SystemUiTheme(SystemUiStyle.HyperOS4,if(dark) "dark" else "light") {
     Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.BottomCenter) {
-        SystemSheetSurface("環境與權限",Modifier.padding(12.dp),expanded=expanded,onToggle={}) {
-            Column(Modifier.padding(horizontal=24.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                Text("Limbus Company 1.119.0 (492)",fontSize=14.sp)
-                Text("模組作用域：已啟用",fontSize=14.sp)
-                Text("Root 權限：已授權",fontSize=14.sp)
-            }
-            SystemTextButton("檢查模組作用域",{},Modifier.fillMaxWidth())
-            SystemTextButton("檢查 Root 權限",{},Modifier.fillMaxWidth())
-            SystemTextButton("完成",{},Modifier.fillMaxWidth())
+        SystemSheetSurface("環境與權限",Modifier.padding(12.dp)) {
+            SystemEnvironmentDialogBody(sampleOverview,{},{},{},"選擇資料夾",{})
         }
     }
 }
 @PreviewTest @Preview(name="ExpandedSheet",widthDp=393,heightDp=700)
-@Composable fun ExpandedSheet()=SheetFixture(true,true)
-@PreviewTest @Preview(name="CollapsedSheet",widthDp=393,heightDp=700)
-@Composable fun CollapsedSheet()=SheetFixture(false,false)
+@Composable fun ExpandedSheet()=SheetFixture(true)
+@PreviewTest @Preview(name="DetailLight",widthDp=393,heightDp=700)
+@Composable fun DetailLight()=SheetFixture(false)
 @PreviewTest @Preview(name="SheetFont200",widthDp=360,heightDp=800,fontScale=2f)
-@Composable fun SheetFont200()=SheetFixture(true,true)
+@Composable fun SheetFont200()=SheetFixture(true)
 
 @PreviewTest @Preview(name="Actions",widthDp=393,heightDp=900)
 @Composable fun ActionStates()=SystemUiTheme(SystemUiStyle.HyperOS4,"light") {
@@ -397,9 +385,12 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 
 @PreviewTest @Preview(name="Appearance",widthDp=393,heightDp=852)
 @Composable fun Appearance()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
-    Column(Modifier.fillMaxSize().padding(12.dp)) {
-        top.yukonga.miuix.kmp.basic.SmallTopAppBar(title="介面與顯示")
-        SystemDisplaySettingsPanel("dark",SystemUiStyle.HyperOS4,{},"floating",{},true,{},false,{},{})
+    Scaffold(containerColor=Color.Transparent,contentWindowInsets=WindowInsets(0,0,0,0),
+        topBar={SystemInnerTopBar("介面與顯示",{})}) { padding ->
+        LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=12.dp,end=12.dp,
+            top=padding.calculateTopPadding()+12.dp,bottom=16.dp)) {
+            item { SystemDisplaySettingsPanel("dark",SystemUiStyle.HyperOS4,{},"floating",{},true,{},false,{},{}) }
+        }
     }
 }
 
@@ -414,10 +405,13 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
         TopLevelProgressiveBar(scene,pageTitles=listOf("設定"),pagePosition=0f)
         CompositionLocalProvider(LocalSystemPanelBackdrop provides scene, LocalSystemWindowBackdrop provides scene) {
             SystemChoiceMenuSurface(listOf("跟隨系統","淺色","深色"),2,{},Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top=72.dp,end=12.dp))
-            SystemSheetSurface("漢化詳情",Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(12.dp),onToggle={}) {
+            SystemSheetSurface("漢化詳情",Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(12.dp)) {
                 Text("零協會完整翻譯與角色名稱已自動整理。",Modifier.padding(24.dp),fontSize=16.sp)
-                SystemTextButton("完成",{},Modifier.fillMaxWidth())
+                SystemDialogDone({})
             }
         }
     }
 }
+
+@PreviewTest @Preview(name="ScrolledFloating",widthDp=393,heightDp=852)
+@Composable fun ScrolledFloating()=ScreenFixture(SystemUiStyle.HyperOS4,true,scrolled=true)
