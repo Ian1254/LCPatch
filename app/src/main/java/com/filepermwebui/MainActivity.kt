@@ -660,20 +660,21 @@ class MainActivity : ComponentActivity() {
             } else {
                 Modifier.fillMaxSize().nestedScroll(visibleScrollBehavior.nestedScrollConnection)
             }
+            val hyper = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
             Box(Modifier.fillMaxSize()) {
                 key(visiblePage) {
                     LazyColumn(
                         state = visibleListState,
                         modifier = listModifier,
                         contentPadding = PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = padding.calculateTopPadding() + 8.dp,
+                            start = if (hyper) 12.dp else 16.dp,
+                            end = if (hyper) 12.dp else 16.dp,
+                            top = padding.calculateTopPadding() + if (!hyper && visiblePage in topPages) (-8).dp else 12.dp,
                             bottom = padding.calculateBottomPadding() + 16.dp
                         ),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(if (hyper) 12.dp else 8.dp)
                     ) {
-                        if (visiblePage in topPages) item { SystemPageHeading(if (visiblePage == OVERVIEW) "LCPatch" else pageTitle(visiblePage)) }
+                        if (!hyper && visiblePage in topPages) item { SystemPageHeading(if (visiblePage == OVERVIEW) "LCPatch" else pageTitle(visiblePage)) }
                         if (visiblePage == SETTINGS) item { SectionLabel("運作環境") }
                         if (visiblePage == SETTINGS || visiblePage == ONBOARDING) item {
                             Card {
@@ -1020,7 +1021,7 @@ class MainActivity : ComponentActivity() {
                     topBar = {
                         if (topLevelScreen) {
                             val titleList = when (page) { OVERVIEW -> overviewListState; LOGS -> logsListState; else -> settingsListState }
-                            val collapse = if (titleList.firstVisibleItemIndex > 0) 1f else
+                            val collapse = if (systemUiStyle == SystemUiStyle.HyperOS4 || titleList.firstVisibleItemIndex > 0) 1f else
                                 (titleList.firstVisibleItemScrollOffset / with(LocalDensity.current) { 64.dp.toPx() }).coerceIn(0f, 1f)
                             TopLevelProgressiveBar(backdrop = activeBarBackdrop, hazeState = activeHazeState,
                                 pageTitles = topPages.map { if (it == OVERVIEW) "LCPatch" else pageTitle(it) }, pagePosition = pagePosition,
