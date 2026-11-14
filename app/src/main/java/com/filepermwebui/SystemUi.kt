@@ -175,13 +175,8 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
     }
 }
 
-@Composable internal fun SystemPageHeading(title: String, subtitle: String? = null, collapseFraction: Float = 0f) {
-    val hidden = collapseFraction >= .5f
-    val surface = MiuixTheme.colorScheme.surface
-    Column(Modifier.fillMaxWidth().drawWithContent {
-        drawContent()
-        if (hidden) drawRect(surface)
-    }.then(if(hidden) Modifier.clearAndSetSemantics {} else Modifier).padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 12.dp)) {
+@Composable internal fun SystemPageHeading(title: String, subtitle: String? = null) {
+    Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 12.dp)) {
         Text(title, fontSize = 32.sp, lineHeight = 42.sp,
             fontWeight = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) FontWeight.Normal else FontWeight.SemiBold,
             color = MiuixTheme.colorScheme.onSurface)
