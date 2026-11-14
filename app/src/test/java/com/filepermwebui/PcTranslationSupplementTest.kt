@@ -5,6 +5,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PcTranslationSupplementTest {
+    @Test fun upstreamLatinNamesAreAlignedRatherThanReportedAsMissingTranslation() {
+        val target = JSONObject("""{"dataList":[{"id":1,"name":"E.G.O"}]}""")
+        val report = CoverageReport()
+        supplementJson(target, JSONObject(target.toString()), report)
+        assertEquals(1, report.alignedFields)
+        assertEquals(0, report.unresolvedFields)
+        assertEquals(0, report.filledFields)
+    }
+    @Test fun preservesMatchingPlaceholdersAndMarkupWhileFillingDisplayFields() {
+        val target = JSONObject("""{"dataList":[{"id":1,"dlg":"Use {0} <b>now</b>","simpleDesc":"未翻譯の文章","messageDesc":"Download {1}"}]}""")
+        val reference = JSONObject("""{"dataList":[{"id":1,"dlg":"立即使用 {0} <b>道具</b>","simpleDesc":"簡短中文說明","messageDesc":"下載 {1}"}]}""")
+        val report = CoverageReport()
+        supplementJson(target, reference, report)
+        val row = target.getJSONArray("dataList").getJSONObject(0)
+        assertEquals("立即使用 {0} <b>道具</b>", row.getString("dlg"))
+        assertEquals("簡短中文說明", row.getString("simpleDesc"))
+        assertEquals("下載 {1}", row.getString("messageDesc"))
+        assertEquals(3, report.filledFields)
+        assertEquals(0, report.placeholderConflicts)
+    }
     @Test fun addsMissingIdsOnlyInIdAddressedResourceLists() {
         val target = JSONObject("""{"dataList":[{"id":"a","content":"既有中文"}],"other":[{"id":"a","content":"既有中文"}]}""")
         val reference = JSONObject("""{"dataList":[{"id":"a","content":"原譯"},{"id":"b","content":"新增譯文"}],"other":[{"id":"b","content":"不應加入"}]}""")
