@@ -666,20 +666,17 @@ class MainActivity : ComponentActivity() {
                         state = visibleListState,
                         modifier = listModifier,
                         contentPadding = PaddingValues(
-                            start = 12.dp,
-                            end = 12.dp,
-                            top = padding.calculateTopPadding() +
-                                if (visiblePage in topPages) {
-                                    WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp
-                                } else 12.dp,
-                            bottom = padding.calculateBottomPadding() +
-                                if (visiblePage in topPages && navigationStyle == "floating") 28.dp else 16.dp
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = padding.calculateTopPadding() + 8.dp,
+                            bottom = padding.calculateBottomPadding() + 16.dp
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        if (visiblePage in topPages) item { SystemPageHeading(if (visiblePage == OVERVIEW) "LCPatch" else pageTitle(visiblePage)) }
                         if (visiblePage == SETTINGS) item { SectionLabel("運作環境") }
                         if (visiblePage == SETTINGS || visiblePage == ONBOARDING) item {
-                            Card(insideMargin = PaddingValues(18.dp)) {
+                            Card {
                                 OverlayDropdownPreference(
                                     title = "運作模式",
                                     items = listOf("無 root", "Root ＋ LSPosed"),
@@ -1016,11 +1013,19 @@ class MainActivity : ComponentActivity() {
                 else -> conversionScrollBehavior
             }
 
-            Box(Modifier.fillMaxSize()) {
+            SystemCanvas {
                 Scaffold(
+                    containerColor = Color.Transparent,
                     contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal),
                     topBar = {
-                        if (!topLevelScreen) {
+                        if (topLevelScreen) {
+                            val titleList = when (page) { OVERVIEW -> overviewListState; LOGS -> logsListState; else -> settingsListState }
+                            val collapse = if (titleList.firstVisibleItemIndex > 0) 1f else
+                                (titleList.firstVisibleItemScrollOffset / with(LocalDensity.current) { 64.dp.toPx() }).coerceIn(0f, 1f)
+                            TopLevelProgressiveBar(backdrop = activeBarBackdrop, hazeState = activeHazeState,
+                                pageTitles = topPages.map { if (it == OVERVIEW) "LCPatch" else pageTitle(it) }, pagePosition = pagePosition,
+                                collapseFraction = collapse)
+                        } else {
                             TintedBar(activeBarBackdrop, hazeState = activeHazeState) {
                                 val navigationIcon: @Composable () -> Unit = {
                                     if (visiblePage != ONBOARDING || onboardingDone) {
@@ -1048,6 +1053,7 @@ class MainActivity : ComponentActivity() {
                                     floating = navigationStyle == "floating",
                                     backdrop = activeBarBackdrop,
                                     hazeState = activeHazeState,
+                                    targetIndex = topNavigationTarget,
                                     onSelected = { index -> topPages.getOrNull(index)?.let(::navigateTo) }
                                 )
                             }
@@ -1079,14 +1085,6 @@ class MainActivity : ComponentActivity() {
                         }
                         if (animatedShell == shellTarget) renderNotice(padding)
                     }
-                }
-                if (topLevelScreen) {
-                    TopLevelProgressiveBar(
-                        backdrop = activeBarBackdrop,
-                        hazeState = activeHazeState,
-                        pageTitles = topPages.map(::pageTitle),
-                        pagePosition = pagePosition
-                    )
                 }
             }
             }
@@ -1139,82 +1137,16 @@ class MainActivity : ComponentActivity() {
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection,
         onDownload: () -> Unit, onDownloaded: () -> Unit
     ) {
-        if (!rootMode) item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("無 root · 原生文件載入", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(8.dp))
-                Text(loadStatus)
-                Text("使用遊戲原有字型。請先下載對應語言資源，並在套用、停用前完全關閉遊戲。", fontSize = 14.sp)
-                TextButton(modifier = Modifier.fillMaxWidth(), text = loadAction, enabled = !busy, onClick = onGameFolder)
-            }
-        }
-        if (rootMode) item {
-            EnvironmentStatusOverviewCard(
-                overlayState = overlayState,
-                scopeStatus = scopeStatus,
-                rootStatus = rootStatus,
-                gameInstalled = game.installed,
-                gameVersion = game.version,
-                onCheckScope = onCheckScope,
-                onRequestRoot = onRequestRoot
-            )
-        }
+        val state = OverviewUiState(activeName, activeScript, targetLanguage.label, translationEnabled,
+            rootMode, game.installed, game.version, busy, scopeStatus, rootStatus, loadStatus,
+            runtimeInspection.ready, runtimeInspection.fontReady, runtimeInspection.jsonFiles, translations.pcCoverageSummary())
+        item { SystemTranslationPanel(state, onTranslationEnabled, ::launchGame, onDownload) }
+        item { SystemQuickActions(onDownload, onDownloaded) }
+        item { SystemSectionLabel("運作狀態") }
+        item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onGameFolder, loadAction) }
         item {
-            Card(insideMargin = PaddingValues(18.dp)) {
-                Text("當前漢化", style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    if (activeName == "尚未選擇") "尚未選擇漢化" else "$activeName · $activeScript",
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    if (!rootMode) {
-                        if (translationEnabled) "已寫入原生語言文件；停用可還原備份" else "尚未套用；可先下載或匯入無 root 專用漢化"
-                    } else if (runtimeInspection.ready && runtimeInspection.fontReady) {
-                        "遊戲快取已就緒 · ${runtimeInspection.jsonFiles} 個 JSON · ${runtimeInspection.matchingFiles} 個 ${targetLanguage.prefix} 文件 · 字型 ${formatBytes(runtimeInspection.fontBytes)}"
-                    } else {
-                        "遊戲快取未就緒 · JSON ${runtimeInspection.jsonFiles} · ${targetLanguage.prefix} 文件 ${runtimeInspection.matchingFiles} · ${if (runtimeInspection.fontReady) "字型已寫入" else "缺少中文字型"}"
-                    },
-                    color = if (!rootMode || runtimeInspection.ready && runtimeInspection.fontReady) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.error,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(Modifier.height(3.dp))
-                Text("遊戲內語言需設為 ${targetLanguage.label}", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 13.sp)
-                if (rootMode) Text(translations.pcCoverageSummary(), color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 12.sp)
-                Spacer(Modifier.height(6.dp))
-                SwitchPreference(
-                    modifier = PreferenceItemModifier,
-                    title = if (rootMode) "應用漢化" else "原生漢化（關閉以還原）",
-                    enabled = !busy && (rootMode || translationEnabled),
-                    summary = if (translationEnabled) "已啟用，重新啟動遊戲後載入" else "已停用，下載內容仍會保留",
-                    checked = translationEnabled,
-                    onCheckedChange = onTranslationEnabled
-                )
-                Spacer(Modifier.height(14.dp))
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = game.installed && !busy,
-                    onClick = ::launchGame
-                ) {
-                    Text(if (game.installed) "啟動 Limbus Company" else "尚未安裝 Limbus Company")
-                }
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    "遊戲版本：${game.version}",
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 12.sp
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TextButton(modifier = Modifier.weight(1f), text = "下載漢化", onClick = onDownload)
-                    TextButton(modifier = Modifier.weight(1f), text = "已下載漢化", onClick = onDownloaded)
-                }
-            }
+            Text("遊戲語言請設為「${targetLanguage.label}」", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
 
@@ -1243,10 +1175,10 @@ class MainActivity : ComponentActivity() {
                     )
                     Spacer(Modifier.height(8.dp))
                 }
-                ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入自訂漢化文件", summary = "從本機加入 ZIP 漢化包", onClick = onImport)
+                ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入漢化包", summary = "ZIP 檔案", onClick = onImport)
                 if (rootMode) {
                     var supplementEnabled by remember { mutableStateOf(translations.pcSupplementEnabled()) }
-                    SwitchPreference(title = "補齊 PC 版翻譯", summary = "套用時比對最新零協會語言包，補入缺檔與未翻譯文字；保留既有中文", enabled = !applying,
+                    SwitchPreference(title = "補齊 PC 版翻譯", summary = "套用時補入缺少的翻譯，保留既有中文", enabled = !applying,
                         checked = supplementEnabled, onCheckedChange = { value -> supplementEnabled = value; translations.setPcSupplementEnabled(value) })
                     ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "更換字型", summary = fontName, onClick = onFont)
                 }
@@ -1256,7 +1188,7 @@ class MainActivity : ComponentActivity() {
         item { SectionLabel("應用程式") }
         item {
             Card {
-                ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "主題、模糊效果與底欄", onClick = onDisplay)
+                ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = LocalSystemUiStyle.current.label, onClick = onDisplay)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", summary = logs.selectedFolderLabel(), onClick = onFolder)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "關於", summary = "版本與元件", onClick = onAbout)
@@ -1279,13 +1211,7 @@ class MainActivity : ComponentActivity() {
     ) {
         item {
             Card {
-                OverlayDropdownPreference(
-                    modifier = PreferenceItemModifier,
-                    title = "系統介面風格",
-                    items = SystemUiStyle.entries.map { it.label },
-                    selectedIndex = SystemUiStyle.entries.indexOf(systemUiStyle),
-                    onSelectedIndexChange = { onSystemUiStyle(SystemUiStyle.entries[it]) }
-                )
+                SystemStylePicker(systemUiStyle, onSystemUiStyle)
                 OverlayDropdownPreference(
                     modifier = PreferenceItemModifier,
                     title = "深淺模式",
@@ -1321,16 +1247,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun LazyListScope.logPage(events: List<LogEvent>, busy: Boolean, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
-        item {
-            Card(insideMargin = PaddingValues(16.dp)) {
-                Button(modifier = Modifier.fillMaxWidth(), enabled = !busy, onClick = share) { Text(if (busy) "正在收集遊戲診斷…" else "分享診斷文件") }
-                Spacer(Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(modifier = Modifier.weight(1f), text = "儲存", enabled = !busy, onClick = save)
-                    TextButton(modifier = Modifier.weight(1f), text = "清除", enabled = !busy, onClick = clear)
-                }
-            }
-        }
+        item { SystemLogActions(busy, share, save, clear) }
         item { InfoCard("遊戲閃退診斷", "分享或儲存時會重新收集遊戲相關系統記錄。文件會標示每項資料是否取得、逾時或權限不足；沒有模組事件時也可以匯出。") }
         if (events.isEmpty()) {
             item { InfoCard("尚無模組事件", "這不代表遊戲沒有閃退，仍可分享診斷文件取得系統收集結果。") }
@@ -1575,15 +1492,7 @@ class MainActivity : ComponentActivity() {
         color = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = if (isSystemInDarkTheme()) 0.76f else 0.82f)
     )
 
-    @Composable private fun SectionLabel(text: String) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 2.dp),
-            color = MiuixTheme.colorScheme.primary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
+    @Composable private fun SectionLabel(text: String) = SystemSectionLabel(text)
 
     @Composable private fun Modifier.aboutShimmer(): Modifier {
         val transition = rememberInfiniteTransition(label = "about-shimmer")
@@ -1624,14 +1533,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable private fun LogCard(event: LogEvent) {
-        Card(insideMargin = PaddingValues(16.dp)) {
-            Text("${event.level} · ${event.code}", fontWeight = FontWeight.SemiBold,
-                color = when (event.level) { "ERROR" -> Color(0xFFE5484D); "WARN" -> Color(0xFFF59E0B); else -> MiuixTheme.colorScheme.primary })
-            Spacer(Modifier.height(4.dp)); Text(event.message); Spacer(Modifier.height(6.dp))
-            Text("${event.time}${if (event.process.isBlank()) "" else " · ${event.process}"}", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-    }
+    @Composable private fun LogCard(event: LogEvent) = SystemLogEntry(event)
 
     private fun gameInfo(): GameInfo = try {
         val value = packageManager.getPackageInfo(LogProvider.GAME, 0)
