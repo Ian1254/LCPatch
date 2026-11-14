@@ -4,6 +4,66 @@ This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
 
+## test.9: applied-pack index migration and ROM material boundary
+
+A user-supplied test.8 / game1.119.0 diagnostic showed working file redirects
+and font replacement, but TextAsset startup reported an unusable resource index.
+The old message also covered permission, size/read and parse failures; it does
+not prove the user reapplied a pack or identify the exact filesystem failure.
+The raw diagnostic (including unrelated system events) is not committed.
+
+Opening LCPatch now repairs the existing applied pack's index from filenames,
+without downloading a pack or reading/replacing JSON contents. Launch through
+LCPatch stops the previous game process before repair, since native setup reads
+the index once. Disabled translation retains its previous launch behavior.
+Inventory has time/output/file-count/UTF-8-byte limits, NUL-separated paths and
+an explicit successful-command trailer. Incomplete output is rejected even at
+a complete-file boundary. Publication uses a same-directory temporary file,
+0644 permissions and atomic rename, retaining the previous index on failure.
+An index symlink is replaced rather than followed; unchanged content still has
+read permissions repaired. Directory identity checks reject concurrent pack swaps.
+Native diagnostics distinguish open/stat/empty/size/read/parse failures with errno.
+
+The local ColorOS-17-Rodin super.img was read offline (no flash/device access).
+Its sparse carrier contains an11GiB logical super image. The selected partitions:
+
+- system_a SHA-256 f880b34e34c83622ac4bc12b6c05a3b0e5536e9a982551190d869af67317d204
+- system_ext_a SHA-256 099d86882b973518dd90c2bbfc225a37b158818d82fd4e2711d3207f5ae8a25e
+
+Both are EROFS. Actual system build.prop declares Android17/API37; system_ext
+etc/build.prop declares Oplus API40, sub-API23. These are package declarations,
+not a runtime query or authentication of the port's provenance.
+
+Verified extracted oplus-framework.jar SHA-256:
+7c4ab3a64d853cd798ac2fbbb3db6f784cfeb963a4ba948e1f7dded7c508613f.
+Verified extracted libhwui.so SHA-256:
+1ccc77af079ce680e0bc884c3bf52fa101255e7af2cb89b00579135f40f38b81.
+The observed route is app COUI helper -> public Oplus View wrapper -> RenderNode
+-> CriticalNative JNI -> libhwui. This rendering boundary is in-process, not a
+Binder hop. A separate AppFeatureProvider query controls feature availability;
+animation level, blur-disable and power settings also affect it.
+
+JNI table candidates match actual framework signatures, including
+nSetOplusMaterialCornerParams(JIFF)Z at linked0x733340 and
+nSetCausticShadowParams(JFFFFFF)Z at linked0xa13120. These addresses describe
+this offline binary only and are not hardcoded into LCPatch. Readable shader
+fragments establish shape masks, tint, directional edge highlights and adaptive
+inner shadows; the eight-light shader's relation to caustic APIs is unproven.
+No claim of a recovered general-purpose refraction algorithm is made.
+
+The stable portable Backdrop path now implements the observed COUI bottom-bar
+fallback chain:25 raw-pixel MIRROR blur; light #B3666666 COLOR_DODGE followed by
+#99F5F5F5 LUMINOSITY; dark #80666666 OVERLAY followed by #B3262626 LUMINOSITY.
+It filters only the captured background, with no extra opaque tint on that path.
+Experimental Haze retains its separate renderer approximation. No OEM shader,
+binary or framework JAR is shipped; no hidden-API exemptions or system settings
+are changed. Full OEM native material/caustic rendering is still not claimed.
+
+Local validation: ARM64 native build, Release lint/assembly and13 Compose renders
+passed;64 unit tests reported61 passed and3 skipped. Two skips are Unix atomic
+publication/pack-swap integrations that run on Linux Actions; the other is the
+existing optional scanner fixture. The real PC archive integration ran locally.
+
 ## test.8: supplied clock APK references
 
 The user supplied two static references; neither APK was installed or executed.
