@@ -931,7 +931,7 @@ void *startFontHook(void *) {
 
 void start() {
     if (gStarted.exchange(true)) return;
-    breadcrumb("INFO", "core.start", "file/font loading; callback TextAsset bootstrap v3");
+    breadcrumb("INFO", "core.start", "file/font loading; scoped Unity text reader v4");
     pthread_t thread{};
     if (pthread_create(&thread, nullptr, startFontHook, nullptr) != 0) {
         LOGE("font worker creation failed"); breadcrumb("ERROR", "core.thread.failed", "pthread_create failed"); return;
