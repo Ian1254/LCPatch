@@ -1,6 +1,10 @@
 package com.lcpatch
 
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 internal enum class DiagnosticStatus(val label: String) {
     COLLECTED("已取得"), NO_MATCH("未找到相關記錄"), TRUNCATED("已取得但截斷"),
@@ -35,6 +39,11 @@ internal fun newNativeBreadcrumbs(raw: String, previous: Long, previousKeys: Set
     return NativeImportBatch(events, latest, keys)
 }
 
+internal data class DiagnosticWindow(val sinceMillis: Long, val pids: Set<String>, val origin: String) {
+    // AOSP parseTime supports %s.%q. Decimal epoch avoids the device/local timezone mismatch.
+    val logcatTime: String get() = "${sinceMillis / 1000}.${(sinceMillis % 1000).toString().padStart(3, '0')}"
+}
+
 internal object GameDiagnosticParser {
     const val GAME = "com.ProjectMoon.LimbusCompany"
     private val target = Regex("com\\.ProjectMoon\\.LimbusCompany(?=[:,\\s/)>]|$)", RegexOption.IGNORE_CASE)
@@ -53,9 +62,34 @@ internal object GameDiagnosticParser {
         target.containsMatchIn(it) && (it.contains("Cmdline:") || it.contains("Process:"))
     }.mapNotNull { threadtime.find(it)?.groupValues?.get(1) }.toSet()
 
-    fun exitPids(gameExitInfo: String): Set<String> =
-        Regex("\\bpid\\s*[=:]\\s*(\\d+)", RegexOption.IGNORE_CASE)
-            .findAll(gameExitInfo).map { it.groupValues[1] }.filter { it.toLongOrNull() in 1..Int.MAX_VALUE.toLong() }.take(64).toSet()
+    fun recentWindow(nativeRaw: String, gameExitInfo: String, now: Long, zone: ZoneId = ZoneId.systemDefault()): DiagnosticWindow {
+        val oldest = now - 120_000L
+        val native = nativeRaw.lineSequence().mapNotNull { line ->
+            val parts = line.split('|', limit = 4)
+            val time = parts.firstOrNull()?.toLongOrNull() ?: return@mapNotNull null
+            if (parts.size != 4 || parts[2] != "core.start" || time !in oldest..now + 5_000) return@mapNotNull null
+            val pid = Regex("\\bpid=([1-9][0-9]*)\\b").find(parts[3])?.groupValues?.get(1) ?: return@mapNotNull null
+            if (pid.toIntOrNull() == null) return@mapNotNull null
+            time to pid
+        }.maxByOrNull { it.first }
+        val exits = gameExitInfo.split(Regex("(?m)^\\s*ApplicationExitInfo #[0-9]+:")).mapNotNull { block ->
+            val process = Regex("(?m)^\\s*process=([^\\s]+)").find(block)?.groupValues?.get(1)
+            if (process != GAME) return@mapNotNull null
+            val row = Regex("timestamp=([0-9-]+ [0-9:.]+)\\s+pid=([1-9][0-9]*)").find(block) ?: return@mapNotNull null
+            val time = runCatching { LocalDateTime.parse(row.groupValues[1], DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT))
+                .atZone(zone).toInstant().toEpochMilli() }.getOrNull() ?: return@mapNotNull null
+            if (time !in oldest..now + 5_000 || row.groupValues[2].toIntOrNull() == null) return@mapNotNull null
+            time to row.groupValues[2]
+        }
+        val latestExit = exits.maxByOrNull { it.first }
+        val launch = native?.takeIf { latestExit == null || latestExit.second == it.second || latestExit.first <= it.first }
+        val anchor = launch?.first ?: latestExit?.first
+        val padding = if (launch != null) 5_000L else 30_000L
+        val since = (anchor?.minus(padding) ?: (now - 60_000L)).coerceIn(oldest, now)
+        // Reused PIDs from earlier launches must not pull unrelated applications into the snapshot.
+        val pids = if (launch != null) setOf(launch.second) else latestExit?.let { setOf(it.second) } ?: emptySet()
+        return DiagnosticWindow(since, pids, if (launch != null) "latest_native_launch" else if (latestExit != null) "latest_game_exit" else "recent_60_seconds")
+    }
 
     fun relatedLogcat(raw: String, maxChars: Int = 96 * 1024, knownPids: Set<String> = emptySet()): String {
         val lines = raw.lines()
@@ -95,9 +129,9 @@ internal class GameDiagnosticCollector(private val run: (DiagnosticRequest) -> R
     companion object {
         const val NATIVE_LOG = "/storage/emulated/0/Android/data/com.ProjectMoon.LimbusCompany/cache/lcpatch-native.log"
         val sources = listOf("Root 權限", "原生模組事件", "crash buffer", "遊戲與程序退出 logcat", "tombstone", "系統程序退出資訊")
-        // Filter the retained ring buffer before RootShell applies its output bound.
-        // No -t/-T: a busy system must not evict the game's exit from our snapshot first.
-        fun logcatCommand(buffers: String, pids: Set<String>): String {
+        // Time seeking happens in logd before shell filtering and the output bound.
+        fun logcatCommand(buffers: String, pids: Set<String>, since: String): String {
+            require(Regex("[0-9]+[.][0-9]{3}").matches(since))
             val numeric = pids.filter { it.matches(Regex("[1-9][0-9]{0,9}")) }.take(128)
             val pattern = buildString {
                 append("com[.]ProjectMoon[.]LimbusCompany([: ,/)>]|$)|LCPatchCore|liblcpatch_core")
@@ -107,7 +141,7 @@ internal class GameDiagnosticCollector(private val run: (DiagnosticRequest) -> R
                     append("|(lmkd|ActivityManager|libprocessgroup|Zygote|DEBUG|tombstoned|crash_dump|AndroidRuntime).*pid[ =:]+($ids)([^0-9]|$)")
                 }
             }
-            return "set -o pipefail; logcat $buffers -d -v threadtime | { grep -E '$pattern'; status=\$?; " +
+            return "set -o pipefail; logcat $buffers -d -v threadtime -t '$since' | { grep -E '$pattern'; status=\$?; " +
                 "if [ \"\$status\" = 1 ]; then exit 0; else exit \"\$status\"; fi; }"
         }
         val tombstoneCommand = """
@@ -143,25 +177,27 @@ internal class GameDiagnosticCollector(private val run: (DiagnosticRequest) -> R
                 now, "未取得 Root 權限，無法完成遊戲診斷。${root.output.take(1000)}") }
         }
         val result = mutableListOf(DiagnosticSection(sources[0], DiagnosticStatus.COLLECTED, now, "Root 指令身分：uid=0"))
-        result += capture(sources[1], DiagnosticRequest("tail -n 300 '$NATIVE_LOG'", 96 * 1024)) { it.trim() }
+        val native = capture(sources[1], DiagnosticRequest("tail -n 300 '$NATIVE_LOG'", 96 * 1024)) { it.trim() }
+        result += native
         val exits = capture(sources[5], DiagnosticRequest("dumpsys activity exit-info ${GameDiagnosticParser.GAME}", 64 * 1024, keepTail = false)) {
             if (GameDiagnosticParser.hasExitRecords(it)) it.trim() else ""
         }
-        val historicPids = GameDiagnosticParser.exitPids(exits.text)
-        result += collectLogcat(sources[2], "-b crash", historicPids)
-        result += collectLogcat(sources[3], "-b main -b system -b events", historicPids)
+        val window = GameDiagnosticParser.recentWindow(native.text, exits.text, System.currentTimeMillis())
+        result += collectLogcat(sources[2], "-b crash", window)
+        result += collectLogcat(sources[3], "-b main -b system -b events", window)
         result += capture(sources[4], DiagnosticRequest(tombstoneCommand, 96 * 1024, keepTail = false)) { it.trim() }
         result += exits
         return result
     }
 
-    private fun collectLogcat(name: String, buffers: String, historicPids: Set<String>): DiagnosticSection {
-        val seedRequest = DiagnosticRequest(logcatCommand(buffers, historicPids), 64 * 1024)
+    private fun collectLogcat(name: String, buffers: String, window: DiagnosticWindow): DiagnosticSection {
+        val historicPids = window.pids
+        val seedRequest = DiagnosticRequest(logcatCommand(buffers, historicPids, window.logcatTime), 64 * 1024)
         val seed = run(seedRequest)
         if (!seed.success) return captureResponse(name, seedRequest, seed) { GameDiagnosticParser.relatedLogcat(it, knownPids = historicPids) }
         val pids = historicPids + GameDiagnosticParser.logcatPids(seed.output)
         if (pids.isEmpty()) return captureResponse(name, seedRequest, seed) { GameDiagnosticParser.relatedLogcat(it) }
-        val request = DiagnosticRequest(logcatCommand(buffers, pids), 96 * 1024)
+        val request = DiagnosticRequest(logcatCommand(buffers, pids, window.logcatTime), 96 * 1024)
         val response = run(request)
         // Preserve exit anchors separately from a potentially busy game's PID tail.
         val anchors = GameDiagnosticParser.relatedLogcat(seed.output, 32 * 1024, historicPids)
@@ -189,10 +225,10 @@ internal class GameDiagnosticCollector(private val run: (DiagnosticRequest) -> R
                 response.exitCode == 13 || Regex("permission denied|not permitted|SecurityException", RegexOption.IGNORE_CASE).containsMatchIn(response.output) -> DiagnosticStatus.DENIED
                 else -> DiagnosticStatus.UNAVAILABLE
             }
-            return DiagnosticSection(name, status, time, "指令退出碼：${response.exitCode ?: "無"}。${response.output.take(1500)}")
+            return DiagnosticSection(name, status, time, "指令退出碼：${response.exitCode ?: "無"}；僅保留已篩選的部分內容。", select(response.output))
         }
         if (Regex("Unknown command|Bad activity command", RegexOption.IGNORE_CASE).containsMatchIn(response.output)) {
-            return DiagnosticSection(name, DiagnosticStatus.UNAVAILABLE, time, "系統不支援此診斷指令。${response.output.take(1000)}")
+            return DiagnosticSection(name, DiagnosticStatus.UNAVAILABLE, time, "系統不支援此診斷指令。")
         }
         val selected = select(response.output)
         val truncated = response.truncated || selected.length >= 96 * 1024
