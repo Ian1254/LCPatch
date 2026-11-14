@@ -663,6 +663,8 @@ class MainActivity : ComponentActivity() {
                 Modifier.fillMaxSize().nestedScroll(visibleScrollBehavior.nestedScrollConnection)
             }
             val hyper = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
+            val headingCollapse = if (visibleListState.firstVisibleItemIndex > 0) 1f else
+                (visibleListState.firstVisibleItemScrollOffset / with(LocalDensity.current) { 64.dp.toPx() }).coerceIn(0f,1f)
             Box(Modifier.fillMaxSize()) {
                 key(visiblePage) {
                     LazyColumn(
@@ -676,7 +678,7 @@ class MainActivity : ComponentActivity() {
                         ),
                         verticalArrangement = Arrangement.spacedBy(if (hyper) 12.dp else 8.dp)
                     ) {
-                        if (!hyper && visiblePage in topPages) item { SystemPageHeading(if (visiblePage == OVERVIEW) "LCPatch" else pageTitle(visiblePage)) }
+                        if (!hyper && visiblePage in topPages) item { SystemPageHeading(if (visiblePage == OVERVIEW) "LCPatch" else pageTitle(visiblePage), collapseFraction=headingCollapse) }
                         if (visiblePage == SETTINGS) item { SectionLabel("運作環境") }
                         if (visiblePage == SETTINGS || visiblePage == ONBOARDING) item {
                             Card {
