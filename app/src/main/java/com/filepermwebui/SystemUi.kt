@@ -36,6 +36,7 @@ import top.yukonga.miuix.kmp.theme.*
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.colorFilter
 import com.kyant.backdrop.effects.vibrancy
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeInput
@@ -323,12 +324,22 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     val glass = when {
         hazeState != null -> Modifier.hazeBlur(input = HazeInput.Sources(hazeState), style = hazeStyle)
         backdrop != null -> Modifier.drawBackdrop(backdrop, shape = { shape },
-            effects = { blur((if (soft) 24.dp else 30.dp).toPx()); vibrancy() }, highlight = null, shadow = null)
+            effects = {
+                if (soft) { blur(24.dp.toPx()); vibrancy() }
+                else {
+                    // Observed COUI FRAMEWORK_BOTTOM_BAR fallback chain. Radius is
+                    // raw pixels; color filters act on the captured background only.
+                    blur(25f, edgeTreatment = TileMode.Mirror)
+                    colorFilter(ColorFilter.tint(Color(if (dark) 0x80666666 else 0xB3666666),
+                        if (dark) BlendMode.Overlay else BlendMode.ColorDodge))
+                    colorFilter(ColorFilter.tint(Color(if (dark) 0xB3262626 else 0x99F5F5F5), BlendMode.Luminosity))
+                }
+            }, highlight = null, shadow = null)
         else -> Modifier
     }
     val hasBlur = hazeState != null || backdrop != null
-    val fallback = Color(if (dark) { if (soft) 0xFF242424 else 0xFF1E1E1E } else 0xFFF7F7F7)
-    val tint = if (!hasBlur) fallback else (if (dark) Color(0xFF272727) else Color.White)
+    val fallback = Color(if (dark) { if (soft) 0xFF242424 else 0xFF1E1E1E } else if (soft) 0xFFF7F7F7 else 0xFFFAFAFA)
+    val tint = if (!hasBlur) fallback else if (!soft && backdrop != null && hazeState == null) Color.Transparent else (if (dark) Color(0xFF272727) else Color.White)
         .copy(alpha = if (soft) 0.62f else 0.52f)
     val rim = Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.23f else 0.82f),
         Color.White.copy(alpha = if (dark) 0.04f else 0.12f), Color.White.copy(alpha = if (dark) 0.10f else 0.42f)))
