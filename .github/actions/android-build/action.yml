@@ -4,11 +4,11 @@ description: Shared Android validation build for CI and release
 runs:
   using: composite
   steps:
-    - name: Set up Java 17
+    - name: Set up Java 21
       uses: actions/setup-java@v6
       with:
         distribution: temurin
-        java-version: '17'
+        java-version: '21'
 
     - name: Set up Android SDK
       uses: android-actions/setup-android@v4
@@ -53,6 +53,82 @@ runs:
         g++ -std=c++17 -Wall -Wextra -Werror native-refactor/tests/text_asset_paths_test.cpp -o /tmp/lcpatch-text-assets-test
         /tmp/lcpatch-text-assets-test
 
+    - name: Verify Android ICU regular expressions
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        #!/usr/bin/env python3
+        """Compile the PC supplement's literal patterns with ICU, as Android does.
+
+        JVM Pattern tests alone do not catch Android ICU's stricter brace syntax.
+        Requires the host ICU library (Windows 10+ or Ubuntu's libicu); no device.
+        """
+        import ctypes
+        import ctypes.util
+        import json
+        import re
+        import sys
+        from pathlib import Path
+
+
+        class ParseError(ctypes.Structure):
+            _fields_ = [("line", ctypes.c_int32), ("offset", ctypes.c_int32),
+                        ("pre", ctypes.c_uint16 * 16), ("post", ctypes.c_uint16 * 16)]
+
+
+        def load_icu():
+            if sys.platform == "win32":
+                library = ctypes.WinDLL("icu.dll")
+            else:
+                name = ctypes.util.find_library("icui18n")
+                if not name:
+                    raise RuntimeError("ICU regex library was not found")
+                library = ctypes.CDLL(name)
+            for suffix in [""] + [f"_{version}" for version in range(100, 59, -1)]:
+                try:
+                    opener = getattr(library, "uregex_open" + suffix)
+                    closer = getattr(library, "uregex_close" + suffix)
+                    error_name = getattr(library, "u_errorName" + suffix)
+                    opener.argtypes = [ctypes.c_void_p, ctypes.c_int32, ctypes.c_uint32,
+                                       ctypes.POINTER(ParseError), ctypes.POINTER(ctypes.c_int32)]
+                    opener.restype = ctypes.c_void_p
+                    closer.argtypes = [ctypes.c_void_p]
+                    error_name.argtypes = [ctypes.c_int32]
+                    error_name.restype = ctypes.c_char_p
+                    return opener, closer, error_name
+                except AttributeError:
+                    pass
+            raise RuntimeError("ICU regex exports were not found")
+
+
+        def main():
+            source = Path.cwd() / "app/src/main/java/com/filepermwebui/PcTranslationSupplement.kt"
+            patterns = re.findall(r'Regex\("((?:\\.|[^"\\])*)"\)', source.read_text(encoding="utf-8"))
+            if not patterns:
+                raise RuntimeError("No literal supplement patterns found")
+            opener, closer, error_name = load_icu()
+            for literal in patterns:
+                pattern = json.loads('"' + literal + '"')
+                raw = pattern.encode("utf-16le")
+                data = ctypes.create_string_buffer(raw)
+                error = ctypes.c_int32(0)
+                parse = ParseError()
+                compiled = opener(data, len(raw) // 2, 0, ctypes.byref(parse), ctypes.byref(error))
+                if error.value > 0:
+                    raise RuntimeError(f"Android-incompatible regex {pattern!r}: {error_name(error.value).decode()} at {parse.offset}")
+                if compiled:
+                    closer(compiled)
+            print(f"PASS: {len(patterns)} PC supplement patterns compile with ICU")
+
+
+        if __name__ == "__main__":
+            main()
+        PY
+
     - name: Test, lint and assemble
       shell: bash
       run: ./gradlew --no-daemon testDebugUnitTest lintVitalRelease assembleRelease
+
+    - name: Render Compose interface previews
+      shell: bash
+      run: ./gradlew --no-daemon updateDebugScreenshotTest
