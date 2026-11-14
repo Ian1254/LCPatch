@@ -144,11 +144,7 @@ internal val LocalSystemPanelBackdrop = staticCompositionLocalOf<Backdrop?> { nu
 internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 
 @Composable private fun SystemWindowSurface(content: @Composable () -> Unit) {
-    val scene = rememberBarBackdrop()
-    CompositionLocalProvider(LocalSystemWindowBackdrop provides scene) {
-        Box(Modifier.fillMaxSize().then(if (scene != null) Modifier.layerBackdrop(scene) else Modifier)
-            .background(MiuixTheme.colorScheme.surface)) { content() }
-    }
+    Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) { content() }
 }
 
 @Composable internal fun SystemMaterialScope(enabled: Boolean, content: @Composable BoxScope.() -> Unit) {
@@ -180,15 +176,17 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 }
 
 @Composable internal fun SystemPageHeading(title: String, subtitle: String? = null, collapseFraction: Float = 0f) {
-    val visibility = (1f-collapseFraction*2f).coerceIn(0f,1f)
-    val titleColor = MiuixTheme.colorScheme.onSurface
-    val summaryColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 12.dp)) {
+    val hidden = collapseFraction >= .5f
+    val surface = MiuixTheme.colorScheme.surface
+    Column(Modifier.fillMaxWidth().drawWithContent {
+        drawContent()
+        if (hidden) drawRect(surface)
+    }.then(if(hidden) Modifier.clearAndSetSemantics {} else Modifier).padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 12.dp)) {
         Text(title, fontSize = 32.sp, lineHeight = 42.sp,
             fontWeight = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) FontWeight.Normal else FontWeight.SemiBold,
-            color = titleColor.copy(alpha=titleColor.alpha*visibility))
+            color = MiuixTheme.colorScheme.onSurface)
         if (subtitle != null) Text(subtitle, modifier = Modifier.padding(top = 4.dp), fontSize = 13.sp,
-            color = summaryColor.copy(alpha=summaryColor.alpha*visibility))
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
