@@ -1,5 +1,6 @@
 // Included inside the core's anonymous namespace after ELF/image helpers.
-// Bootstrap only on a real Resources/TextAsset icall on the game's managed thread.
+// Bootstrap from existing font/localization callbacks on an attached game thread.
+// Never patch the shared IL2CPP resolver or call domain_get before a real runtime callback.
 // No runtime_invoke hook, worker-thread managed allocation, or fixed game RVA.
 struct TextAssetApi {
     void *(*domainGet)() = nullptr;
@@ -29,10 +30,11 @@ TextGetter gAssetName = nullptr;
 const void *gAssetNameMethod = nullptr;
 std::atomic<unsigned> gTextInstallState{0};
 std::atomic<unsigned> gTextSwaps{0};
-std::atomic<unsigned> gIcallObserved{0};
+std::atomic<unsigned> gBootstrapObserved{0};
+std::atomic<bool> gTextConfigured{false};
+bool gTextPrepared = false; // Only the setup worker reads/writes this flag.
 std::atomic<unsigned> gTextMisses{0};
 std::atomic<unsigned> gTextThreadSkips{0};
-std::atomic<unsigned> gResolverBootstrapState{0}; // waiting, installing, installed, unavailable
 unsigned gTextInstallAttempts = 0; // installer state 1 owns this counter
 thread_local bool gInTextInstall = false;
 std::unordered_map<std::string, std::string> gTextIndex;
@@ -83,7 +85,14 @@ void *hookedTextAsset(void *object, const void *method) {
             breadcrumb("WARN", "core.textasset.thread_skip", "Background TextAsset reader retained; name access requires Unity main thread");
         return original(object, method);
     }
-    if (gVerificationReady.load(std::memory_order_acquire) &&
+    // Use the same fail-closed verification policy as ordinary file redirects.
+    // Unknown/unready guard state must never substitute resource contents.
+    if (!gVerificationProfile.load(std::memory_order_acquire)) return original(object, method);
+    if (!gVerificationReady.load(std::memory_order_acquire) && verificationEntryReady()) {
+        if (!gVerificationReady.exchange(true, std::memory_order_acq_rel))
+            breadcrumb("INFO", "core.io.verify_guard.ready", "source=TextAsset; read-only stack guard");
+    }
+    if (!gVerificationReady.load(std::memory_order_acquire) ||
         lcpatch::isResourceVerificationRead(gVerificationRange, gVerificationImage))
         return original(object, method);
     void *name = gAssetName(object, gAssetNameMethod);
@@ -170,9 +179,12 @@ void tryInstallTextAssetHook() {
         void *trampoline = nullptr;
         const bool installed = installHook(entry, reinterpret_cast<void *>(hookedTextAsset), &trampoline,
             "UnityEngine.TextAsset.get_text");
-        // Failed routing is restored before publishing the original entry, so
-        // every installation outcome releases any callback already in flight.
-        if (!installed) DobbyDestroy(entry);
+        // Best-effort rollback is logged separately; installation failure is
+        // not proof that the vendor hook library restored the code successfully.
+        if (!installed) {
+            const int restored = DobbyDestroy(entry);
+            breadcrumb("WARN", "core.textasset.rollback", "destroy_result=%d", restored);
+        }
         gTextOriginal.store(reinterpret_cast<TextGetter>(installed ? trampoline : entry), std::memory_order_release);
         gTextInstallState.store(installed ? 2 : 3, std::memory_order_release);
         breadcrumb(installed ? "INFO" : "WARN", "core.textasset.ready", "installed=%d indexed=%zu", installed, gTextIndex.size());
@@ -186,66 +198,23 @@ void tryInstallTextAssetHook() {
     gInTextInstall = false;
 }
 
-void *hookedResolveIcall(const char *name) {
-    void *result = publishedOriginal(gResolveIcall)(name);
-    if (name && (std::strstr(name, "UnityEngine.ResourcesAPIInternal::Load") == name ||
-                 std::strstr(name, "UnityEngine.AssetBundle::LoadAsset") == name ||
-                 std::strstr(name, "UnityEngine.TextAsset::") == name)) {
-        if (gIcallObserved.fetch_add(1, std::memory_order_relaxed) < 4)
-            breadcrumb("INFO", "core.textasset.bootstrap.trigger", "name=%s", name);
-        tryInstallTextAssetHook();
-    }
-    return result;
+// The normal font and localization readers supply a real runtime context.
+// A loaded ELF is not proof that IL2CPP has initialized: domain_get itself can
+// allocate the domain in Unity, so it must never be used as a worker readiness poll.
+void armTextAssetBootstrap() {
+    if (!gTextPrepared) return;
+    // Dobby's process-wide entry list is not synchronized. Arm only after all
+    // setup-worker font hooks finish; the callback CAS serializes later installs.
+    gTextConfigured.store(true, std::memory_order_release);
+    breadcrumb("INFO", "core.textasset.bootstrap.armed", "Setup hooks complete; waiting for attached game callback");
 }
 
-lcpatch::SharedIcallEntry sharedIcallEntry(uintptr_t publicEntry) {
-    return lcpatch::findSharedIcallResolver(publicEntry, [](uintptr_t address, uint32_t &instruction) {
-        if (!rangeContains(gTextImage.executable, gTextImage.count, address, 16) ||
-            !rangeContains(gTextImage.readable, gTextImage.readableCount, address, 16))
-            return false;
-        std::memcpy(&instruction, reinterpret_cast<const void *>(address), sizeof(instruction));
-        // Protected game code can map before its entry is decrypted. Do not
-        // install a hook on UDF/zero bytes or block the font worker waiting for it.
-        return true;
-    });
-}
-
-bool installSharedIcallObserver() {
-    void *exportEntry = imageExport(gTextImage, "il2cpp_resolve_icall");
-    if (!exportEntry) {
-        breadcrumb("WARN", "core.textasset.unavailable", "Missing export: il2cpp_resolve_icall");
-        gResolverBootstrapState.store(3, std::memory_order_release);
-        return false;
-    }
-    const auto selected = sharedIcallEntry(reinterpret_cast<uintptr_t>(exportEntry));
-    if (!selected.entry) {
-        if (!selected.pending) {
-            breadcrumb("WARN", "core.textasset.unavailable", "reason=%s; public-export-only fallback is not used", selected.reason);
-            gResolverBootstrapState.store(3, std::memory_order_release);
-        }
-        return false;
-    }
-    void *trampoline = nullptr;
-    void *target = reinterpret_cast<void *>(selected.entry);
-    const bool installed = installHook(target, reinterpret_cast<void *>(hookedResolveIcall), &trampoline,
-        "InternalCalls.Resolve (TextAsset bootstrap)");
-    if (!installed) DobbyDestroy(target);
-    gResolveIcall.store(reinterpret_cast<ResolveIcall>(installed ? trampoline : target), std::memory_order_release);
-    gResolverBootstrapState.store(installed ? 2 : 3, std::memory_order_release);
-    breadcrumb(installed ? "INFO" : "WARN", "core.textasset.bootstrap", "mode=shared_resolver waiting=%d indexed=%zu public=+0x%lx implementation=+0x%lx",
-        installed, gTextIndex.size(), static_cast<unsigned long>(reinterpret_cast<uintptr_t>(exportEntry) - gTextImage.base),
-        static_cast<unsigned long>(selected.entry - gTextImage.base));
-    return installed;
-}
-
-void *waitForIcallResolver(void *) {
-    for (unsigned attempt = 0; attempt < 120; ++attempt) {
-        if (installSharedIcallObserver() || gResolverBootstrapState.load(std::memory_order_acquire) == 3) return nullptr;
-        usleep(25000);
-    }
-    gResolverBootstrapState.store(3, std::memory_order_release);
-    breadcrumb("WARN", "core.textasset.unavailable", "reason=resolver_code_not_ready after 3000 ms; original assets retained");
-    return nullptr;
+void observeTextAssetBootstrap(const char *source) {
+    if (!gTextConfigured.load(std::memory_order_acquire) || gInTextInstall ||
+        gTextInstallState.load(std::memory_order_acquire) != 0 || !gTextApi.currentThread()) return;
+    if (gBootstrapObserved.fetch_add(1, std::memory_order_relaxed) < 4)
+        breadcrumb("INFO", "core.textasset.bootstrap.trigger", "source=%s attached=1", source);
+    tryInstallTextAssetHook();
 }
 
 void configureTextAssetHook(const UnitySearch &image) {
@@ -277,17 +246,15 @@ void configureTextAssetHook(const UnitySearch &image) {
     TEXT_API(stringChars, "il2cpp_string_chars");
     TEXT_API(stringNewLen, "il2cpp_string_new_len");
 #undef TEXT_API
-    // Generated IL2CPP wrappers resolve icalls through InternalCalls::Resolve
-    // directly, bypassing the exported il2cpp_resolve_icall veneer. Observe the
-    // validated common implementation, not only callers of the public export.
-    gResolverBootstrapState.store(1, std::memory_order_release);
-    if (installSharedIcallObserver() || gResolverBootstrapState.load(std::memory_order_acquire) == 3) return;
-    pthread_t worker{};
-    if (pthread_create(&worker, nullptr, waitForIcallResolver, nullptr) == 0) {
-        pthread_detach(worker);
-        breadcrumb("INFO", "core.textasset.bootstrap.wait", "Waiting for protected resolver code; font and file setup continue");
-    } else {
-        gResolverBootstrapState.store(3, std::memory_order_release);
-        breadcrumb("WARN", "core.textasset.unavailable", "reason=resolver_worker_creation_failed");
+    // Resolve through the public API without modifying its code or its shared
+    // implementation. Generated wrappers need not pass through this export:
+    // the targeted TextAsset getter is installed from a real game callback.
+    void *resolver = imageExport(image, "il2cpp_resolve_icall");
+    if (!resolver) {
+        breadcrumb("WARN", "core.textasset.unavailable", "Missing export: il2cpp_resolve_icall");
+        return;
     }
+    gResolveIcall.store(reinterpret_cast<ResolveIcall>(resolver), std::memory_order_release);
+    gTextPrepared = true;
+    breadcrumb("INFO", "core.textasset.bootstrap", "mode=existing_callbacks waiting=1 indexed=%zu resolver_unmodified=1", gTextIndex.size());
 }
