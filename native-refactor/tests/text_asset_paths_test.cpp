@@ -48,5 +48,33 @@ int main() {
     assert(lcpatch::findSharedIcallResolver(0x1000U, read).entry == 0x1100U);
     code[0x1100U] = 0x17ffffc0U; // B back to 0x1000
     assert(std::string(lcpatch::findSharedIcallResolver(0x1000U, read).reason) == "resolver_veneer_cycle");
-    std::cout << "TextAsset allowlist, collision, traversal and shared-resolver veneer checks passed\n";
+    std::unordered_map<uintptr_t, uint32_t> wrapper{{0x2000U,0x94000040U},{0x2004U,0xd65f03c0U},{0x2100U,0xd61f0020U}};
+    const auto wrapperRead = [&wrapper](uintptr_t at, uint32_t &word) {
+        const auto i = wrapper.find(at); if (i == wrapper.end()) return false; word = i->second; return true;
+    };
+    assert(lcpatch::findTextBytesReturn(0x2000U,0x2100U,wrapperRead) == 0x2004U);
+    wrapper[0x2100U] = 0xd65f03c0U;
+    assert(!lcpatch::findTextBytesReturn(0x2000U,0x2100U,wrapperRead)); // normal return
+    wrapper[0x2100U] = 0xa9bf7bfdU; wrapper[0x2104U] = 0x14000001U; wrapper[0x2108U] = 0xd61f0020U;
+    assert(!lcpatch::findTextBytesReturn(0x2000U,0x2100U,wrapperRead)); // cannot scan past function tail
+    wrapper[0x2100U] = 0xd61f03c0U;
+    assert(!lcpatch::findTextBytesReturn(0x2000U,0x2100U,wrapperRead)); // BR LR is not native dispatch
+    wrapper[0x2100U] = 0xd61f0020U; wrapper[0x2004U] = 0x9400003fU; wrapper[0x2008U] = 0xd65f03c0U;
+    assert(!lcpatch::findTextBytesReturn(0x2000U,0x2100U,wrapperRead)); // ambiguous calls
+    wrapper[0x2000U] = 0x14000040U;
+    assert(!lcpatch::findTextBytesReturn(0x2000U,0x2100U,wrapperRead)); // text tail branch is unsupported
+    wrapper[0x2000U] = 0;
+    assert(!lcpatch::findTextBytesReturn(0x2000U,0x2100U,wrapperRead)); // protected code
+    assert(!lcpatch::findTextBytesReturn(0x2001U,0x2100U,wrapperRead));
+    wrapper[0x2200U] = 0x97ffffc0U; wrapper[0x2204U] = 0xd65f03c0U;
+    assert(lcpatch::findTextBytesReturn(0x2200U,0x2100U,wrapperRead) == 0x2204U); // signed backward BL
+    wrapper[0x2300U] = 0x17ffffc0U; // B to text body at0x2200
+    assert(lcpatch::findTextBytesReturn(0x2300U,0x2100U,wrapperRead) == 0x2204U);
+    wrapper[0x2300U] = 0x14000001U; wrapper[0x2304U] = 0x17ffffffU;
+    assert(!lcpatch::findTextBytesReturn(0x2300U,0x2100U,wrapperRead)); // veneer cycle
+    assert(lcpatch::textAssetDisplayResource("LoginUIText"));
+    assert(lcpatch::textAssetDisplayResource("BattleHint_NormalBattle"));
+    assert(!lcpatch::textAssetDisplayResource("UserAgreements"));
+    assert(!lcpatch::textAssetDisplayResource("LocalizeFileList"));
+    std::cout << "TextAsset allowlist, traversal, resolver veneer and text-only bytes caller checks passed\n";
 }
