@@ -7,11 +7,15 @@ import java.io.File
 import java.nio.file.Files
 import java.util.zip.ZipFile
 import org.junit.Assume.assumeTrue
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
@@ -146,24 +150,24 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
     true, true, "1.119.0", false, "已啟用", "已授權", "已連接", true, true, 2383, "PC 翻譯與目前漢化一致")
 
 /** The shell and panels below are the same composables used by MainActivity. */
-@Composable private fun ScreenFixture(style: SystemUiStyle, dark: Boolean, page: Int = 2, scrolled: Boolean = false) {
+@Composable private fun ScreenFixture(style: SystemUiStyle, dark: Boolean, page: Int = 2, scrolled: Boolean = false, atEnd: Boolean = false) {
     SystemUiTheme(style, if (dark) "dark" else "light") {
         val backdrop = rememberBarBackdrop()
-        val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (scrolled) 2 else 0)
+        val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (atEnd) 1000 else if (scrolled) 2 else 0)
         SystemCanvas {
             Scaffold(containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = { TopLevelProgressiveBar(backdrop, pageTitles = listOf("LCPatch", "日誌", "設定"),
-                    pagePosition = page.toFloat(), collapseFraction = if (style == SystemUiStyle.HyperOS4 || scrolled) 1f else 0f) },
+                    pagePosition = page.toFloat(), collapseFraction = if (style == SystemUiStyle.HyperOS4 || scrolled || atEnd) 1f else 0f) },
                 bottomBar = { SystemBottomNavigation(page, listOf("概觀", "日誌", "設定"),
                     listOf(MiuixIcons.Home, Icons.Default.List, MiuixIcons.Settings),
                     true, backdrop = backdrop, onSelected = {}) }
             ) { padding ->
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier),
-                    contentPadding = PaddingValues(start = if (style == SystemUiStyle.HyperOS4) 12.dp else 16.dp,
-                        end = if (style == SystemUiStyle.HyperOS4) 12.dp else 16.dp,
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(bottom=padding.calculateBottomPadding()).clipToBounds().then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier).background(MiuixTheme.colorScheme.surface),
+                    contentPadding = PaddingValues(start = systemPageGutter(),
+                        end = systemPageGutter(),
                         top = padding.calculateTopPadding() + if (style == SystemUiStyle.HyperOS4) 12.dp else (-8).dp,
-                        bottom = padding.calculateBottomPadding() + 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (style != SystemUiStyle.HyperOS4) item { SystemPageHeading(listOf("LCPatch", "日誌", "設定")[page]) }
                     when (page) {
                         0 -> {
@@ -195,14 +199,14 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
                             item { SystemSectionLabel("漢化") }
                             item { SystemCard {
                                 SystemDropdownPreference("覆蓋語言文件", listOf("日本語", "한국어", "English"), 0, {})
-                                SystemArrowPreference("匯入漢化包", "ZIP 檔案", onClick = {})
+                                SystemArrowPreference("匯入漢化包", value = "ZIP 檔案", onClick = {})
                                 SystemSwitchPreference("補齊 PC 版翻譯", "套用時補入缺少的翻譯，保留既有中文", checked = true, onCheckedChange = {})
-                                SystemArrowPreference("更換字型", "內建中文字型", onClick = {})
+                                SystemArrowPreference("更換字型", value = "內建中文字型", onClick = {})
                             } }
                             item { SystemSectionLabel("應用程式") }
                             item { SystemCard {
-                                SystemArrowPreference("介面與顯示", style.label, onClick = {})
-                                SystemArrowPreference("診斷文件儲存位置", "預設位置", onClick = {})
+                                SystemArrowPreference("介面與顯示", value = style.label, onClick = {})
+                                SystemArrowPreference("診斷文件儲存位置", value = "預設位置", onClick = {})
                                 SystemArrowPreference("應用程式更新", onClick = {})
                                 SystemArrowPreference("關於", onClick = {})
                             } }
@@ -289,3 +293,102 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
 @Composable fun ColorSmallLargeFont() = ScreenFixture(SystemUiStyle.ColorOS17, false)
 @PreviewTest @Preview(name = "HyperLandscape", widthDp = 852, heightDp = 393)
 @Composable fun HyperLandscape() = ScreenFixture(SystemUiStyle.HyperOS4, false, 0)
+
+@Composable private fun ActionStatesFixture(style: SystemUiStyle, dark: Boolean) {
+    SystemUiTheme(style, if(dark) "dark" else "light") {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(systemPageGutter()),
+            verticalArrangement=Arrangement.spacedBy(16.dp)) {
+            SystemPageHeading("下載與更新")
+            SystemCard(insideMargin=PaddingValues(20.dp)) {
+                Text("零協會漢化",fontSize=20.sp)
+                Text("下載完成後即可套用漢化。",Modifier.padding(top=8.dp),fontSize=14.sp)
+                Spacer(Modifier.height(20.dp))
+                SystemProgressActionButton("下載漢化",onClick={})
+                Spacer(Modifier.height(12.dp))
+                SystemProgressActionButton("正在下載 · 42%",.42f,true,onClick={})
+                Spacer(Modifier.height(12.dp))
+                SystemProgressActionButton("正在處理漢化內容…",busy=true,onClick={})
+                Spacer(Modifier.height(12.dp))
+                SystemProgressActionButton("尚未選擇漢化包",enabled=false,onClick={})
+            }
+            SystemNotice("下載未完成，請檢查連線後重試。",true,{}, {})
+            SystemSheetSurface("清除所有日誌？",alert=true) {
+                Text("將一併清除 App 日誌與已保存的遊戲診斷快照，此操作無法復原。",Modifier.padding(24.dp),fontSize=14.sp)
+                Row(Modifier.fillMaxWidth().padding(20.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                    SystemSecondaryButton("取消",{},Modifier.weight(1f))
+                    SystemButton({},Modifier.weight(1f)) { Text("確認清除",fontSize=16.sp) }
+                }
+            }
+        }
+    }
+}
+@PreviewTest @Preview(name="HyperActionsLight",widthDp=393,heightDp=1000)
+@Composable fun HyperActionsLight()=ActionStatesFixture(SystemUiStyle.HyperOS4,false)
+@PreviewTest @Preview(name="HyperActionsDark",widthDp=393,heightDp=1000)
+@Composable fun HyperActionsDark()=ActionStatesFixture(SystemUiStyle.HyperOS4,true)
+@PreviewTest @Preview(name="ColorActionsLight",widthDp=393,heightDp=1000)
+@Composable fun ColorActionsLight()=ActionStatesFixture(SystemUiStyle.ColorOS17,false)
+@PreviewTest @Preview(name="ColorActionsDark",widthDp=393,heightDp=1000)
+@Composable fun ColorActionsDark()=ActionStatesFixture(SystemUiStyle.ColorOS17,true)
+@PreviewTest @Preview(name="HyperFont200",widthDp=360,heightDp=1000,fontScale=2f)
+@Composable fun HyperFont200()=ScreenFixture(SystemUiStyle.HyperOS4,true)
+@PreviewTest @Preview(name="ColorFont200",widthDp=360,heightDp=1000,fontScale=2f)
+@Composable fun ColorFont200()=ScreenFixture(SystemUiStyle.ColorOS17,false)
+@PreviewTest @Preview(name="ColorAnchoredChoices",widthDp=360,heightDp=360)
+@Composable fun ColorAnchoredChoices()=SystemUiTheme(SystemUiStyle.ColorOS17,"light") {
+    Column(Modifier.padding(24.dp)) { SystemChoiceMenuSurface(listOf("日本語","한국어","English"),0,{}) }
+}
+@PreviewTest @Preview(name="ColorRadioAlert",widthDp=393,heightDp=360)
+@Composable fun ColorRadioAlert()=SystemUiTheme(SystemUiStyle.ColorOS17,"dark") {
+    SystemSheetSurface("覆蓋語言文件",Modifier.padding(16.dp),alert=true) {
+        SystemSelectionRows(listOf("日本語","한국어","English"),0,{})
+    }
+}
+@PreviewTest @Preview(name="HyperOpaqueFallback",widthDp=393,heightDp=420)
+@Composable fun HyperOpaqueFallback()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
+    SystemMaterialScope(false) { SystemSheetSurface("漢化內容",Modifier.padding(16.dp)) {
+        Text("已準備就緒，可以開始套用漢化。",Modifier.padding(24.dp),fontSize=16.sp)
+        SystemProgressActionButton("套用漢化",onClick={})
+    } }
+}
+
+/** The sampled scene is a sibling, never the ancestor recording the material itself. */
+@PreviewTest @Preview(name="HyperSceneGlass",widthDp=393,heightDp=520)
+@Composable fun HyperSceneGlass()=SystemUiTheme(SystemUiStyle.HyperOS4,"light") {
+    val scene=rememberBarBackdrop()
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().then(if(scene!=null) Modifier.layerBackdrop(scene) else Modifier)
+            .background(MiuixTheme.colorScheme.surface).padding(20.dp),verticalArrangement=Arrangement.spacedBy(20.dp)) {
+            repeat(6) { i -> SystemCard(insideMargin=PaddingValues(20.dp)) { Text("背景內容 ${i+1}",fontSize=24.sp); Text("漢化已啟用 · 日本語",fontSize=16.sp) } }
+        }
+        CompositionLocalProvider(LocalSystemPanelBackdrop provides scene) {
+            SystemSheetSurface("漢化詳情",Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(12.dp)) {
+                Text("目前漢化內容已準備就緒。",Modifier.padding(24.dp),fontSize=16.sp)
+                SystemSecondaryButton("關閉",{},Modifier.fillMaxWidth().padding(20.dp))
+            }
+        }
+    }
+}
+
+@Composable private fun AppearanceFixture(style: SystemUiStyle,dark: Boolean) = SystemUiTheme(style,if(dark) "dark" else "light") {
+    Column(Modifier.fillMaxSize()) {
+        if (style==SystemUiStyle.ColorOS17) SystemColorTopBar("介面與顯示") { top.yukonga.miuix.kmp.basic.Icon(SystemGlyph.Back.vector(),"返回",Modifier.size(24.dp)) }
+        else top.yukonga.miuix.kmp.basic.SmallTopAppBar(title="介面與顯示",navigationIcon={ top.yukonga.miuix.kmp.basic.Icon(SystemGlyph.Back.vector(),"返回",Modifier.size(24.dp)) })
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(systemPageGutter())) {
+            SystemDisplaySettingsPanel(if(dark) "dark" else "light",style,{},"floating",{},true,{},false,{},{})
+        }
+    }
+}
+@PreviewTest @Preview(name="ColorAppearance",widthDp=393,heightDp=852)
+@Composable fun ColorAppearance()=AppearanceFixture(SystemUiStyle.ColorOS17,false)
+@PreviewTest @Preview(name="HyperAppearance",widthDp=393,heightDp=852)
+@Composable fun HyperAppearance()=AppearanceFixture(SystemUiStyle.HyperOS4,true)
+
+@PreviewTest @Preview(name="HyperLastRow",widthDp=393,heightDp=852)
+@Composable fun HyperLastRow()=ScreenFixture(SystemUiStyle.HyperOS4,false,atEnd=true)
+@PreviewTest @Preview(name="ColorLastRow",widthDp=393,heightDp=852)
+@Composable fun ColorLastRow()=ScreenFixture(SystemUiStyle.ColorOS17,true,atEnd=true)
+@PreviewTest @Preview(name="ColorActionsFont200",widthDp=360,heightDp=1000,fontScale=2f)
+@Composable fun ColorActionsFont200()=ActionStatesFixture(SystemUiStyle.ColorOS17,false)
+@PreviewTest @Preview(name="Hyper320",widthDp=320,heightDp=720)
+@Composable fun Hyper320()=ScreenFixture(SystemUiStyle.HyperOS4,false)
