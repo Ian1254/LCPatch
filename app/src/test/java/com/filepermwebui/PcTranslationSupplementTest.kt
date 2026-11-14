@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
@@ -153,22 +154,24 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
 @Composable private fun ScreenFixture(style: SystemUiStyle, dark: Boolean, page: Int = 2, scrolled: Boolean = false, atEnd: Boolean = false) {
     SystemUiTheme(style, if (dark) "dark" else "light") {
         val backdrop = rememberBarBackdrop()
-        val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (atEnd) 1000 else if (scrolled) 2 else 0)
+        val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (atEnd) { if (style == SystemUiStyle.HyperOS4) 5 else 6 } else if (scrolled) 2 else 0)
+        val collapse = if(style == SystemUiStyle.HyperOS4 || listState.firstVisibleItemIndex > 0) 1f else
+            (listState.firstVisibleItemScrollOffset / with(LocalDensity.current) { 64.dp.toPx() }).coerceIn(0f,1f)
         SystemCanvas {
             Scaffold(containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = { TopLevelProgressiveBar(backdrop, pageTitles = listOf("LCPatch", "日誌", "設定"),
-                    pagePosition = page.toFloat(), collapseFraction = if (style == SystemUiStyle.HyperOS4 || scrolled || atEnd) 1f else 0f) },
+                    pagePosition = page.toFloat(), collapseFraction = collapse) },
                 bottomBar = { SystemBottomNavigation(page, listOf("概觀", "日誌", "設定"),
                     listOf(MiuixIcons.Home, Icons.Default.List, MiuixIcons.Settings),
                     true, backdrop = backdrop, onSelected = {}) }
             ) { padding ->
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(bottom=padding.calculateBottomPadding()).clipToBounds().then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier).background(MiuixTheme.colorScheme.surface),
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(top=padding.calculateTopPadding(),bottom=padding.calculateBottomPadding()).clipToBounds().then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier).background(MiuixTheme.colorScheme.surface),
                     contentPadding = PaddingValues(start = systemPageGutter(),
                         end = systemPageGutter(),
-                        top = padding.calculateTopPadding() + if (style == SystemUiStyle.HyperOS4) 12.dp else (-8).dp,
+                        top = if (style == SystemUiStyle.HyperOS4) 12.dp else 0.dp,
                         bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (style != SystemUiStyle.HyperOS4) item { SystemPageHeading(listOf("LCPatch", "日誌", "設定")[page],collapseFraction=if(scrolled || atEnd) 1f else 0f) }
+                    if (style != SystemUiStyle.HyperOS4) item { SystemPageHeading(listOf("LCPatch", "日誌", "設定")[page],collapseFraction=collapse) }
                     when (page) {
                         0 -> {
                             item { SystemTranslationPanel(sampleOverview, {}, {}, {}) }
