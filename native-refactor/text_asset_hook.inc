@@ -47,18 +47,27 @@ Fn publishedOriginal(const std::atomic<Fn> &slot) {
     return target;
 }
 
-std::string readTextAssetFile(const std::string &path, size_t maximum) {
+std::string readTextAssetFile(const std::string &path, size_t maximum, const char **failureReason = nullptr, int *failureErrno = nullptr) {
+    if (failureReason) *failureReason = "ok";
+    if (failureErrno) *failureErrno = 0;
+    const auto failed = [&](const char *reason, int error) {
+        if (failureReason) *failureReason = reason;
+        if (failureErrno) *failureErrno = error;
+    };
     const int fd = static_cast<int>(syscall(SYS_openat, AT_FDCWD, path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
-    if (fd < 0) return {};
+    if (fd < 0) { failed("open_failed", errno); return {}; }
     struct stat info{};
     std::string text;
-    if (fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_size > 0 &&
-        static_cast<uint64_t>(info.st_size) <= maximum) {
+    if (fstat(fd, &info) != 0) failed("stat_failed", errno);
+    else if (!S_ISREG(info.st_mode)) failed("not_regular_file", 0);
+    else if (info.st_size <= 0) failed("empty_file", 0);
+    else if (static_cast<uint64_t>(info.st_size) > maximum) failed("size_limit", 0);
+    else {
         text.resize(static_cast<size_t>(info.st_size));
         size_t position = 0;
         while (position < text.size()) {
             const auto count = syscall(SYS_read, fd, &text[position], text.size() - position);
-            if (count <= 0) { text.clear(); break; }
+            if (count <= 0) { failed(count < 0 ? "read_failed" : "unexpected_eof", count < 0 ? errno : 0); text.clear(); break; }
             position += static_cast<size_t>(count);
         }
     }
@@ -240,9 +249,13 @@ void *waitForIcallResolver(void *) {
 }
 
 void configureTextAssetHook(const UnitySearch &image) {
-    gTextIndex = lcpatch::parseAssetIndex(readTextAssetFile(std::string(kRuntimeLocalize) + "/.lcpatch-text-assets.tsv", 4U * 1024U * 1024U));
+    const char *indexFailure = nullptr;
+    int indexErrno = 0;
+    const auto indexText = readTextAssetFile(std::string(kRuntimeLocalize) + "/.lcpatch-text-assets.tsv", 4U * 1024U * 1024U, &indexFailure, &indexErrno);
+    gTextIndex = lcpatch::parseAssetIndex(indexText);
     if (gTextIndex.empty()) {
-        breadcrumb("WARN", "core.textasset.unavailable", "No resource index; reapply translation in LCPatch");
+        breadcrumb("WARN", "core.textasset.unavailable", "index_unavailable reason=%s errno=%d; repair applied pack in LCPatch and restart game",
+            indexText.empty() ? indexFailure : "parse_empty", indexErrno);
         return;
     }
     gTextImage = image;
