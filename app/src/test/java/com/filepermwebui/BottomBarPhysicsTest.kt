@@ -6,6 +6,15 @@ import org.junit.Test
 class BottomBarPhysicsTest {
     private fun settle(p: BottomBarPhysics) { repeat(360) { p.advance(1f / 120f) } }
 
+    @Test fun gripReleaseExpandsCollapsesAndOnlyDismissesAnAlreadyCollapsedSheet() {
+        assertEquals(SheetDragOutcome.Keep,sheetDragOutcome(true,.4f,0f))
+        assertEquals(SheetDragOutcome.Collapse,sheetDragOutcome(true,2f,1600f))
+        assertEquals(SheetDragOutcome.Dismiss,sheetDragOutcome(false,2f,0f))
+        assertEquals(SheetDragOutcome.Expand,sheetDragOutcome(false,-.7f,0f))
+        assertEquals(SheetDragOutcome.Expand,sheetDragOutcome(false,0f,-900f))
+        assertEquals(SheetDragOutcome.Keep,sheetDragOutcome(false,.5f,0f))
+    }
+
     @Test fun reducedMotionStopsAnActiveDragAndRemovesResidualVelocity() {
         val p=BottomBarPhysics(0f)
         p.beginDrag(); p.dragBy(1.4f,.016f); p.advance(.016f)
