@@ -5,8 +5,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal data class CoverageReport(var addedFiles: Int = 0, var addedRecords: Int = 0, var filledFields: Int = 0, var unresolvedFields: Int = 0,
-    var placeholderConflicts: Int = 0, var alignedFields: Int = 0) {
-    override fun toString() = "新增檔案 $addedFiles；新增條目 $addedRecords；補齊文字 $filledFields；與 PC 一致 $alignedFields；待確認文字 $unresolvedFields；格式參數不符 $placeholderConflicts"
+    var placeholderConflicts: Int = 0, var alignedFields: Int = 0, var speakerFields: Int = 0, var unresolvedSpeakers: Int = 0) {
+    override fun toString() = "新增檔案 $addedFiles；新增條目 $addedRecords；補齊文字 $filledFields；與 PC 一致 $alignedFields；待確認文字 $unresolvedFields；格式參數不符 $placeholderConflicts；角色名稱 $speakerFields；待確認角色 $unresolvedSpeakers"
 }
 
 // Display fields observed in LLC 2026111301. Structural IDs, model/voice keys,
@@ -114,5 +114,66 @@ internal fun supplementTranslationDirectory(target: File, reference: File, prefi
             if (report.filledFields + report.addedRecords > before) destination.writeText(encode(json.toString()))
         }
     }
+    val speakers=completeScenarioSpeakers(target,decode,encode)
+    report.speakerFields=speakers.fields
+    report.unresolvedSpeakers=speakers.unresolved
     return report
+}
+
+internal data class SpeakerCoverage(var fields: Int=0,var unresolved: Int=0)
+
+/** Resolve story speakers by the upstream's exact model ID, never by row order.
+ * Existing explicit labels, including masked identities, are retained. Conflicting model IDs
+ * are rejected rather than choosing an arbitrary translation. */
+internal fun completeScenarioSpeakers(root: File, decode: (String)->String = { it }, encode: (String)->String = { it }): SpeakerCoverage {
+    val result=SpeakerCoverage()
+    root.walkTopDown().filter { it.isFile && it.name.removePrefix("JP_").removePrefix("KR_").removePrefix("EN_")=="ScenarioModelCodes-AutoCreated.json" }.toList().forEach { models ->
+        val rows=JSONObject(decode(models.readText())).optJSONArray("dataList") ?: return@forEach
+        val names=mutableMapOf<String,Pair<String,String>>()
+        val conflicts=mutableSetOf<String>()
+        for(i in 0 until rows.length()) {
+            val row=rows.optJSONObject(i) ?: continue
+            val id=row.opt("id") as? String ?: continue
+            val name=row.opt("name") as? String ?: continue
+            val nick=row.opt("nickName") as? String ?: ""
+            val pair=name to nick
+            if(names.put(id,pair)?.let { it!=pair }==true) conflicts.add(id)
+        }
+        conflicts.forEach(names::remove)
+        val stories=File(models.parentFile,"StoryData")
+        stories.walkTopDown().filter { it.isFile && it.extension.equals("json",true) }.forEach { file ->
+            val value=org.json.JSONTokener(decode(file.readText())).nextValue()
+            val before=result.fields
+            fun visit(node: Any?) {
+                when(node) {
+                    is JSONArray -> for(i in 0 until node.length()) visit(node.opt(i))
+                    is JSONObject -> {
+                        val model=(node.opt("model") as? String)?.takeIf(String::isNotBlank)
+                        if(model!=null && node.has("content")) {
+                            val pair=names[model]
+                            if(pair==null) {
+                                if(!node.has("teller") || !node.has("title")) result.unresolved++
+                            } else {
+                                listOf("teller" to pair.first,"title" to pair.second).forEach { (key,text) ->
+                                    val old=node.opt(key)
+                                    if(old==null) {
+                                        if(old==null || parameters.findAll(old as String).map { it.value }.toList()==parameters.findAll(text).map { it.value }.toList()) {
+                                            if(old!=text) { node.put(key,text); result.fields++ }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        node.keys().asSequence().toList().forEach { key ->
+                            val child=node.opt(key)
+                            if(child is JSONArray || child is JSONObject) visit(child)
+                        }
+                    }
+                }
+            }
+            visit(value)
+            if(result.fields>before) file.writeText(encode(value.toString()))
+        }
+    }
+    return result
 }
