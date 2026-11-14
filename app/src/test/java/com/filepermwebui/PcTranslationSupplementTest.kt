@@ -154,8 +154,9 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
 @Composable private fun ScreenFixture(style: SystemUiStyle, dark: Boolean, page: Int = 2, scrolled: Boolean = false, atEnd: Boolean = false) {
     SystemUiTheme(style, if (dark) "dark" else "light") {
         val backdrop = rememberBarBackdrop()
-        val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (atEnd) { if (style == SystemUiStyle.HyperOS4) 5 else 6 } else if (scrolled) 2 else 0)
-        val collapse = if(style == SystemUiStyle.HyperOS4 || listState.firstVisibleItemIndex > 0) 1f else
+        // Snapshot the settled state without Layoutlib's initial backward-fill pass.
+        val listState = rememberLazyListState()
+        val collapse = if(style == SystemUiStyle.HyperOS4 || scrolled || atEnd || listState.firstVisibleItemIndex > 0) 1f else
             (listState.firstVisibleItemScrollOffset / with(LocalDensity.current) { 64.dp.toPx() }).coerceIn(0f,1f)
         SystemCanvas {
             Scaffold(containerColor = Color.Transparent,
@@ -166,12 +167,13 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
                     listOf(MiuixIcons.Home, Icons.Default.List, MiuixIcons.Settings),
                     true, backdrop = backdrop, onSelected = {}) }
             ) { padding ->
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(top=padding.calculateTopPadding(),bottom=padding.calculateBottomPadding()).clipToBounds().then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier).background(MiuixTheme.colorScheme.surface),
+                Box(Modifier.fillMaxSize().then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier).background(MiuixTheme.colorScheme.surface)) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(top=padding.calculateTopPadding(),bottom=padding.calculateBottomPadding()).clipToBounds(),
                     contentPadding = PaddingValues(start = systemPageGutter(),
                         end = systemPageGutter(),
                         top = if (style == SystemUiStyle.HyperOS4) 12.dp else 0.dp,
                         bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (style != SystemUiStyle.HyperOS4) item { SystemPageHeading(listOf("LCPatch", "日誌", "設定")[page],collapseFraction=collapse) }
+                    if (style != SystemUiStyle.HyperOS4) item { Spacer(Modifier.height(if(scrolled || atEnd) 0.dp else 64.dp)) }
                     when (page) {
                         0 -> {
                             item { SystemTranslationPanel(sampleOverview, {}, {}, {}) }
@@ -215,6 +217,7 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
                             } }
                         }
                     }
+                }
                 }
             }
         }
@@ -387,9 +390,9 @@ private val sampleOverview = OverviewUiState("零協會漢化（LCPatch 整理�
 @PreviewTest @Preview(name="HyperAppearance",widthDp=393,heightDp=852)
 @Composable fun HyperAppearance()=AppearanceFixture(SystemUiStyle.HyperOS4,true)
 
-@PreviewTest @Preview(name="HyperLastRow",widthDp=393,heightDp=852)
+@PreviewTest @Preview(name="HyperLastRow",widthDp=393,heightDp=1000)
 @Composable fun HyperLastRow()=ScreenFixture(SystemUiStyle.HyperOS4,false,atEnd=true)
-@PreviewTest @Preview(name="ColorLastRow",widthDp=393,heightDp=852)
+@PreviewTest @Preview(name="ColorLastRow",widthDp=393,heightDp=1000)
 @Composable fun ColorLastRow()=ScreenFixture(SystemUiStyle.ColorOS17,true,atEnd=true)
 @PreviewTest @Preview(name="ColorActionsFont200",widthDp=360,heightDp=1000,fontScale=2f)
 @Composable fun ColorActionsFont200()=ActionStatesFixture(SystemUiStyle.ColorOS17,false)
