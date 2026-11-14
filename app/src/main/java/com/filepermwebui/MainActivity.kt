@@ -667,12 +667,12 @@ class MainActivity : ComponentActivity() {
                 key(visiblePage) {
                     LazyColumn(
                         state = visibleListState,
-                        modifier = listModifier.padding(bottom = padding.calculateBottomPadding()).clipToBounds(),
+                        modifier = listModifier.clipToBounds(),
                         contentPadding = PaddingValues(
                             start = systemPageGutter(),
                             end = systemPageGutter(),
                             top = padding.calculateTopPadding() + 12.dp,
-                            bottom = 16.dp
+                            bottom = padding.calculateBottomPadding() + 16.dp
                         ),
                         verticalArrangement = Arrangement.spacedBy(if (hyper) 12.dp else 8.dp)
                     ) {
@@ -700,15 +700,9 @@ class MainActivity : ComponentActivity() {
                                         refreshCatalog()
                                     }
                                 )
-                                if (translationEnabled) {
-                                    Text(
-                                        "切換運作模式前，請先至概觀頁停用漢化。",
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
-                                    )
-                                }
+                                SystemModeHelp()
                                 if (!rootMode) {
+                                    SystemSecondaryEntry("文件載入設定",value=if(nativeBackend=="shizuku") "Shizuku" else "系統資料夾授權") {
                                     OverlayDropdownPreference(
                                         title = "文件載入方式",
                                         items = listOf("Shizuku", "系統資料夾授權（SAF）"),
@@ -744,6 +738,7 @@ class MainActivity : ComponentActivity() {
                                         text = if (gameFolder == null) "授權遊戲 Localize 資料夾" else "重新選擇遊戲資料夾",
                                         onClick = { gameFolderPicker.launch(gameFolder) })
                                     Text("位置：Android/data/com.ProjectMoon.LimbusCompany/files/Assets/Resources_moved/Localize\n若系統限制選取 Android/data，可從已下載漢化匯出 ZIP，交由具權限的檔案管理器套用。", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    }
                                     }
                                 }
                             }
@@ -999,7 +994,8 @@ class MainActivity : ComponentActivity() {
                 else -> conversionScrollBehavior
             }
 
-            CompositionLocalProvider(LocalSystemWindowBackdrop provides activeBarBackdrop) {
+            val activePanelBackdrop=if(blurEnabled) branchBarBackdrop else null
+            CompositionLocalProvider(LocalSystemWindowBackdrop provides activePanelBackdrop) {
             SystemMaterialScope(blurEnabled) {
                 Scaffold(
                     containerColor = Color.Transparent,
@@ -1014,19 +1010,7 @@ class MainActivity : ComponentActivity() {
                                 collapseFraction = collapse)
                         } else {
                             TintedBar(activeBarBackdrop, hazeState = activeHazeState) {
-                                val navigationIcon: @Composable () -> Unit = {
-                                    if (visiblePage != ONBOARDING || onboardingDone) {
-                                        IconButton(onClick = ::navigateBack) {
-                                            Icon(MiuixIcons.Back, contentDescription = "返回")
-                                        }
-                                    }
-                                }
-                                SmallTopAppBar(
-                                    title = visibleTitle,
-                                    color = Color.Transparent,
-                                    scrollBehavior = visibleScrollBehavior,
-                                    navigationIcon = navigationIcon
-                                )
+                                SystemInnerTopBar(visibleTitle,::navigateBack,visiblePage!=ONBOARDING||onboardingDone)
                             }
                         }
                     },
@@ -1054,7 +1038,7 @@ class MainActivity : ComponentActivity() {
                                 if (activeHazeState != null) Modifier.hazeSource(activeHazeState) else Modifier
                             )
                             .then(
-                                if (activeBarBackdrop != null) Modifier.layerBackdrop(activeBarBackdrop) else Modifier
+                                if (activePanelBackdrop != null) Modifier.layerBackdrop(activePanelBackdrop) else Modifier
                             )
                             .background(MiuixTheme.colorScheme.surface)
                     ) {
@@ -1107,10 +1091,7 @@ class MainActivity : ComponentActivity() {
         item { SystemQuickActions(onDownload, onDownloaded) }
         item { SystemSectionLabel("運作狀態") }
         item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onGameFolder, loadAction) }
-        item {
-            Text("遊戲語言請設為「${targetLanguage.label}」", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
+
     }
 
     private fun LazyListScope.settings(
@@ -1149,7 +1130,7 @@ class MainActivity : ComponentActivity() {
         item {
             Card {
                 ArrowPreference(modifier = PreferenceItemModifier, title = "介面與顯示", summary = "深淺模式、底欄與模糊效果", onClick = onDisplay)
-                ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", value = logs.selectedFolderLabel(), onClick = onFolder)
+                ArrowPreference(modifier = PreferenceItemModifier, title = "診斷文件儲存位置", value = if(logs.selectedFolder()!=null) "已設定" else "未設定", onClick = onFolder)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "關於", summary = "版本與元件", onClick = onAbout)
             }
@@ -1175,14 +1156,12 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.logPage(events: List<LogEvent>, busy: Boolean, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
         item { SystemLogActions(busy, share, save, clear) }
-        item { InfoCard("遊戲閃退診斷", "分享或儲存時會重新收集遊戲相關系統記錄。文件會標示每項資料是否取得、逾時或權限不足；沒有模組事件時也可以匯出。") }
-        if (events.isEmpty()) {
-            item { InfoCard("尚無模組事件", "這不代表遊戲沒有閃退，仍可分享診斷文件取得系統收集結果。") }
-        } else {
-            val errorCount = events.count { it.level == "ERROR" }
-            val warningCount = events.count { it.level == "WARN" }
-            item { SectionLabel("最近事件 · ${events.size} 筆（錯誤 $errorCount · 警告 $warningCount）") }
-            items(events) { LogCard(it) }
+        item { SystemLogGuide(events.size,events.count { it.level=="ERROR" },events.count { it.level=="WARN" }) }
+        if(events.isNotEmpty()) {
+            item { SectionLabel("最近記錄") }
+            items(events.chunked(8)) { group ->
+                SystemLogGroup(group)
+            }
         }
     }
 
@@ -1361,7 +1340,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable private fun InfoCard(title: String, body: String, translucent: Boolean = false) {
-        Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp)) {
+        Card(insideMargin=PaddingValues(20.dp)) {
             Text(title,fontSize=16.sp,lineHeight=24.sp,fontWeight=FontWeight.Medium)
             Spacer(Modifier.height(6.dp))
             Text(body,fontSize=14.sp,lineHeight=22.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
