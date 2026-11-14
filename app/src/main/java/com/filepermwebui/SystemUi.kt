@@ -236,10 +236,64 @@ private val LocalGrouped = staticCompositionLocalOf { false }
     }
 }
 
+/** Original portable approximation of the observed directional edge/inner-band
+ * mechanisms. Screen/soft-light respond to the pixels beneath the stroke; this
+ * does not sample native uniforms or claim to reproduce an OEM shader preset. */
+private fun Modifier.acrylicSurfaceEdges(shape: Shape, dark: Boolean, sheet: Boolean = false): Modifier = drawWithCache {
+    val outline = shape.createOutline(size, layoutDirection, this)
+    val diagonal = Offset(size.width, size.height)
+    val nearBrush = Brush.linearGradient(
+        0f to Color.White.copy(alpha = if (dark) 0.27f else 0.68f),
+        0.38f to Color.White.copy(alpha = if (dark) 0.10f else 0.24f),
+        0.72f to Color.Transparent,
+        1f to Color.White.copy(alpha = if (dark) 0.06f else 0.13f),
+        start = Offset.Zero, end = diagonal
+    )
+    val farBrush = Brush.linearGradient(
+        0f to Color.Transparent,
+        0.45f to Color.Transparent,
+        1f to Color.Black.copy(alpha = if (dark) 0.22f else 0.12f),
+        start = Offset.Zero, end = diagonal
+    )
+    val innerBrush = Brush.linearGradient(
+        0f to Color.Transparent,
+        0.24f to Color.Transparent,
+        1f to Color.Black.copy(alpha = if (dark) 0.22f else 0.13f),
+        start = Offset.Zero, end = Offset(size.width * 0.32f, size.height)
+    )
+    val lowerBandBrush = Brush.verticalGradient(
+        0f to Color.Transparent,
+        0.52f to Color.Transparent,
+        1f to Color.Black.copy(alpha = if (dark) 0.075f else 0.035f)
+    )
+    fun edgePaint(brush: Brush, width: Float, mode: BlendMode) = Paint().apply {
+        style = PaintingStyle.Stroke
+        strokeWidth = width
+        blendMode = mode
+        brush.applyTo(size, this, 1f)
+    }
+    // All strokes are clipped by the surface outline. A wide, faint band and a
+    // narrow near/far rim remain independent, instead of a uniform bright border.
+    val innerPaint = edgePaint(innerBrush, (if (sheet) 12.dp else 7.dp).toPx(), BlendMode.Softlight)
+    val lowerPaint = edgePaint(lowerBandBrush, (if (sheet) 5.dp else 3.dp).toPx(), BlendMode.Multiply)
+    val nearPaint = edgePaint(nearBrush, 0.8.dp.toPx(), BlendMode.Screen)
+    val farPaint = edgePaint(farBrush, 0.7.dp.toPx(), BlendMode.Multiply)
+    onDrawWithContent {
+        drawContent()
+        drawContext.canvas.drawOutline(outline, innerPaint)
+        drawContext.canvas.drawOutline(outline, lowerPaint)
+        drawContext.canvas.drawOutline(outline, nearPaint)
+        drawContext.canvas.drawOutline(outline, farPaint)
+    }
+}
+
 @Composable internal fun SystemSheetSurface(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
-    Column(modifier.widthIn(max = 480.dp).fillMaxWidth().clip(RoundedCornerShape(if (soft) 36.dp else 28.dp))
-        .background(MiuixTheme.colorScheme.surfaceContainer).clickable { }.padding(top = 10.dp, bottom = 10.dp)) {
+    val shape = RoundedCornerShape(if (soft) 36.dp else 28.dp)
+    Column(modifier.widthIn(max = 480.dp).fillMaxWidth().clip(shape)
+        .background(MiuixTheme.colorScheme.surfaceContainer)
+        .then(if (soft) Modifier else Modifier.acrylicSurfaceEdges(shape, LocalSystemUiDark.current, sheet = true))
+        .clickable { }.padding(top = 10.dp, bottom = 10.dp)) {
         Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp).size(32.dp, 4.dp)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.16f), CircleShape))
         Text(title, modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp), fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold)
@@ -348,7 +402,8 @@ private val LocalGrouped = staticCompositionLocalOf { false }
         BoxWithConstraints(Modifier.widthIn(max = if (floating) maxBarWidth else 600.dp).fillMaxWidth()
             .shadow(if (floating) 8.dp else 0.dp, shape, ambientColor = Color.Black.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.12f))
             .clip(shape).then(glass).background(tint)
-            .then(if (floating) Modifier.border(0.6.dp, rim, shape) else Modifier)
+            .then(if (!floating) Modifier else if (soft) Modifier.border(0.6.dp, rim, shape)
+                else Modifier.acrylicSurfaceEdges(shape, dark))
             .padding(horizontal = horizontal, vertical = 4.dp)) {
             val cell = (maxWidth - itemGap * (labels.size - 1)) / labels.size
             val stride = cell + itemGap
