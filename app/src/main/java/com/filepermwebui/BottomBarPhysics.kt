@@ -42,6 +42,13 @@ internal class BottomBarPhysics(initialPosition: Float) {
         abs(right.position - target - 1.0) > 0.0001 ||
         abs(left.velocity) + abs(right.velocity) > 0.001 || abs(trail) > 0.0001
 
+    fun snapTo(index: Int) {
+        target=index.coerceIn(0,2).toDouble()
+        left.position=target; right.position=target+1.0
+        left.velocity=0.0; right.velocity=0.0
+        dragging=false; trail=0.0; direction=0.0; pointerPosition=target
+    }
+
     fun beginDrag() {
         dragging = true
         pointerPosition = position.toDouble().coerceIn(0.0, 2.0)
