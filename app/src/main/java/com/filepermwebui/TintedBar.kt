@@ -97,9 +97,9 @@ internal fun TopLevelProgressiveBar(
     actions: @Composable () -> Unit = {}
 ) {
     val hyper = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
-    val titleAlpha = if (hyper) collapseFraction else ((collapseFraction-.5f)*2f).coerceIn(0f,1f)
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val barHeight = statusInset + maxOf(56.dp, with(LocalDensity.current) { (if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 18.sp else 24.sp).toDp() } + 32.dp)
+    val titleLine = if (hyper) 24.sp else (42f-10f*collapseFraction.coerceIn(0f,1f)).sp
+    val barHeight = statusInset + maxOf(56.dp, with(LocalDensity.current) { titleLine.toDp() } + 16.dp)
     val surface = MiuixTheme.colorScheme.surface
 
     Box(Modifier.fillMaxWidth().height(barHeight)) {
@@ -127,7 +127,7 @@ internal fun TopLevelProgressiveBar(
         }
 
         Box(
-            Modifier.fillMaxWidth().height(barHeight).clipToBounds(),
+            Modifier.fillMaxWidth().height(barHeight),
             contentAlignment = Alignment.TopStart
         ) {
             val density = LocalDensity.current
@@ -141,12 +141,13 @@ internal fun TopLevelProgressiveBar(
                             .offset {
                                 IntOffset(
                                     (delta * with(density) { 120.dp.toPx() }).roundToInt(),
-                                    0
+                                    with(density) { (if(hyper) 0.dp else (48f*(1f-collapseFraction.coerceIn(0f,1f))).dp).roundToPx() }
                                 )
                             }
-                            .graphicsLayer { alpha = (1f - abs(delta)).coerceIn(0f, 1f) * titleAlpha },
+                            .graphicsLayer { alpha = (1f - abs(delta)).coerceIn(0f, 1f)  },
                         color = MiuixTheme.colorScheme.onSurface,
-                        fontSize = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 18.sp else 24.sp,
+                        fontSize = if (hyper) 18.sp else (32f-8f*collapseFraction.coerceIn(0f,1f)).sp,
+                        lineHeight = titleLine,
                         fontWeight = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) FontWeight.Medium else FontWeight.SemiBold
                     )
                 }
