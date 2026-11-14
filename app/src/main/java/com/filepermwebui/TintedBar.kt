@@ -96,6 +96,8 @@ internal fun TopLevelProgressiveBar(
     collapseFraction: Float = 1f,
     actions: @Composable () -> Unit = {}
 ) {
+    val hyper = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
+    val titleAlpha = if (hyper) collapseFraction else ((collapseFraction-.5f)*2f).coerceIn(0f,1f)
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val barHeight = statusInset + maxOf(56.dp, with(LocalDensity.current) { (if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 18.sp else 24.sp).toDp() } + 32.dp)
     val surface = MiuixTheme.colorScheme.surface
@@ -142,7 +144,7 @@ internal fun TopLevelProgressiveBar(
                                     0
                                 )
                             }
-                            .graphicsLayer { alpha = (1f - abs(delta)).coerceIn(0f, 1f) * collapseFraction },
+                            .graphicsLayer { alpha = (1f - abs(delta)).coerceIn(0f, 1f) * titleAlpha },
                         color = MiuixTheme.colorScheme.onSurface,
                         fontSize = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 18.sp else 24.sp,
                         fontWeight = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) FontWeight.Medium else FontWeight.SemiBold
