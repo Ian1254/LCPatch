@@ -97,7 +97,7 @@ internal fun TopLevelProgressiveBar(
     actions: @Composable () -> Unit = {}
 ) {
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val barHeight = statusInset + 56.dp
+    val barHeight = statusInset + maxOf(56.dp, with(LocalDensity.current) { (if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 18.sp else 24.sp).toDp() } + 32.dp)
     val surface = MiuixTheme.colorScheme.surface
 
     Box(Modifier.fillMaxWidth().height(barHeight)) {
