@@ -18,6 +18,10 @@ clearer layer separation, squared middle menu rows and a true standard bottom ba
 - Dropdowns use a single clipped group. The selected background fills the row;
   only the first/last rows inherit the group's exterior rounded corners. Settings
   row feedback is clipped to the whole card, with square internal joins.
+- Secondary menus use a darker near-black tint over a 24dp sampled blur. Sheets
+  also use a darker translucent tint; outlines retain separation from cards.
+  Disabled or unsupported blur remains solid. Menu width is explicit and bounded
+  to avoid zero-width intrinsic measurement in the Linux preview renderer.
 - Canvas, card, dock, popup, sheet, selected row, primary and secondary actions
   have explicit roles. Raised surfaces use distinct luminance, outlines/shadows;
   sheet scrims separate them from their parent. Text actions use a readable ink
