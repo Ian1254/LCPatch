@@ -4,11 +4,11 @@ description: Shared Android validation build for CI and release
 runs:
   using: composite
   steps:
-    - name: Set up Java 17
+    - name: Set up Java 21
       uses: actions/setup-java@v6
       with:
         distribution: temurin
-        java-version: '17'
+        java-version: '21'
 
     - name: Set up Android SDK
       uses: android-actions/setup-android@v4
@@ -53,6 +53,14 @@ runs:
         g++ -std=c++17 -Wall -Wextra -Werror native-refactor/tests/text_asset_paths_test.cpp -o /tmp/lcpatch-text-assets-test
         /tmp/lcpatch-text-assets-test
 
+    - name: Verify Android ICU regular expressions
+      shell: bash
+      run: python3 tools/verify_android_regex.py
+
     - name: Test, lint and assemble
       shell: bash
       run: ./gradlew --no-daemon testDebugUnitTest lintVitalRelease assembleRelease
+
+    - name: Render Compose interface previews
+      shell: bash
+      run: ./gradlew --no-daemon updateDebugScreenshotTest
