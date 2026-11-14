@@ -179,8 +179,9 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
     }
 }
 
-@Composable internal fun SystemPageHeading(title: String, subtitle: String? = null) {
-    Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 12.dp)) {
+@Composable internal fun SystemPageHeading(title: String, subtitle: String? = null, collapseFraction: Float = 0f) {
+    Column(Modifier.fillMaxWidth().graphicsLayer { alpha = (1f-collapseFraction*2f).coerceIn(0f,1f) }
+        .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 12.dp)) {
         Text(title, fontSize = 32.sp, lineHeight = 42.sp,
             fontWeight = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) FontWeight.Normal else FontWeight.SemiBold,
             color = MiuixTheme.colorScheme.onSurface)
