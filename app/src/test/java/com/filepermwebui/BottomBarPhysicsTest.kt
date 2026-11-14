@@ -6,6 +6,18 @@ import org.junit.Test
 class BottomBarPhysicsTest {
     private fun settle(p: BottomBarPhysics) { repeat(360) { p.advance(1f / 120f) } }
 
+    @Test fun reducedMotionStopsAnActiveDragAndRemovesResidualVelocity() {
+        val p=BottomBarPhysics(0f)
+        p.beginDrag(); p.dragBy(1.4f,.016f); p.advance(.016f)
+        p.snapTo(2)
+        assertFalse(p.dragging); assertFalse(p.active)
+        assertEquals(2f,p.leftPosition,0f); assertEquals(3f,p.rightPosition,0f)
+        repeat(60) { p.advance(1f/60f) }
+        assertEquals(2f,p.position,0f)
+        p.select(0); settle(p)
+        assertEquals(0f,p.position,.0001f)
+    }
+
     @Test fun bothRimsDiscardExcessTravelAndReverseImmediately() {
         for (rim in listOf(0, 2)) {
             val p = BottomBarPhysics(rim.toFloat())
