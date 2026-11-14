@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <link.h>
 #include <pthread.h>
+#include <sched.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
