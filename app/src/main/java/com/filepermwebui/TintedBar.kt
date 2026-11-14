@@ -68,8 +68,8 @@ private fun HazeExperimentalTopBlur(state: HazeState, height: Dp) {
         Box(
             Modifier.matchParentSize().background(
                 Brush.verticalGradient(
-                    0f to surface.copy(alpha = 0.94f),
-                    1f to surface.copy(alpha = 0.84f)
+                    0f to surface.copy(alpha = 0.76f),
+                    1f to surface.copy(alpha = 0.12f)
                 )
             )
         )
@@ -96,7 +96,7 @@ internal fun TopLevelProgressiveBar(
     collapseFraction: Float = 1f,
     actions: @Composable () -> Unit = {}
 ) {
-    val hyper = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
+    val hyper = true
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val titleLine = if (hyper) 24.sp else (42f-10f*collapseFraction.coerceIn(0f,1f)).sp
     val barHeight = statusInset + maxOf(56.dp, with(LocalDensity.current) { titleLine.toDp() } + 16.dp)
@@ -110,20 +110,12 @@ internal fun TopLevelProgressiveBar(
                 backdrop = backdrop,
                 modifier = Modifier.fillMaxWidth(),
                 height = barHeight,
-                tintIntensity = 0.86f,
+                tintIntensity = 0.42f,
                 tintColor = surface,
                 edgeFadeStart = 0.76f
             ) {}
         } else {
-            Box(
-                Modifier.fillMaxWidth().height(barHeight).background(
-                    Brush.verticalGradient(
-                        0f to surface.copy(alpha = 0.94f),
-                        0.78f to surface.copy(alpha = 0.70f),
-                        1f to surface.copy(alpha = 0.84f)
-                    )
-                )
-            )
+            Box(Modifier.fillMaxWidth().height(barHeight).background(surface))
         }
 
         Box(
@@ -182,14 +174,7 @@ internal fun TintedBar(
                 edgeFadeStart = 0.80f
             ) {}
         } else {
-            Box(
-                Modifier.matchParentSize().background(
-                    Brush.verticalGradient(
-                        0f to surface.copy(alpha = 0.94f),
-                        1f to surface.copy(alpha = 0.84f)
-                    )
-                )
-            )
+            Box(Modifier.matchParentSize().background(surface))
         }
         content()
     }
