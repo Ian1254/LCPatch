@@ -1,5 +1,9 @@
 package com.lcpatch
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.AnimatedVisibility
@@ -202,7 +206,7 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 }
 
 @Composable private fun PreferenceRow(title: String, summary: String?, value: String?, modifier: Modifier,
-    enabled: Boolean, trailing: @Composable () -> Unit, action: Modifier) {
+    enabled: Boolean, trailing: @Composable () -> Unit, action: Modifier, last: Boolean = false) {
     val inset = (16.dp - LocalCardInset.current).coerceAtLeast(0.dp)
     val glyph: SystemGlyph? = null
     val divider = MiuixTheme.colorScheme.dividerLine
@@ -210,7 +214,7 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
     val soft = LocalSystemUiStyle.current == SystemUiStyle.HyperOS4
     Row(modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.45f).then(action)
         .drawBehind {
-            if (grouped && soft) {
+            if (grouped && soft && !last) {
                 val left = inset.toPx() + if (glyph != null) 44.dp.toPx() else 0f
                 drawLine(divider, Offset(left, size.height - 0.5f), Offset(size.width - inset.toPx(), size.height - 0.5f), 0.5.dp.toPx())
             }
@@ -230,10 +234,10 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 }
 
 @Composable internal fun SystemArrowPreference(title: String, summary: String? = null, modifier: Modifier = Modifier,
-    enabled: Boolean = true, value: String? = null, onClick: () -> Unit) {
+    enabled: Boolean = true, value: String? = null, last: Boolean = false, onClick: () -> Unit) {
     PreferenceRow(title,summary,value,modifier,enabled,
         trailing={ Icon(SystemGlyph.Chevron.vector(),null,Modifier.size(18.dp),tint=MiuixTheme.colorScheme.onSurfaceVariantSummary) },
-        action=Modifier.clickable(enabled=enabled,role=Role.Button,onClick=onClick))
+        action=Modifier.clickable(enabled=enabled,role=Role.Button,onClick=onClick),last=last)
 }
 
 @Composable internal fun SystemToggle(checked: Boolean, enabled: Boolean = true) {
@@ -241,9 +245,9 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 }
 
 @Composable internal fun SystemSwitchPreference(title: String, summary: String? = null, modifier: Modifier = Modifier,
-    enabled: Boolean = true, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    enabled: Boolean = true, checked: Boolean, last: Boolean = false, onCheckedChange: (Boolean) -> Unit) {
     PreferenceRow(title,summary,null,modifier,enabled,trailing={ SystemToggle(checked,enabled) },
-        action=Modifier.toggleable(checked,enabled=enabled,role=Role.Switch,onValueChange=onCheckedChange))
+        action=Modifier.toggleable(checked,enabled=enabled,role=Role.Switch,onValueChange=onCheckedChange),last=last)
 }
 
 @Composable internal fun SystemButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
@@ -337,8 +341,13 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 
 /** Released v1.2.2 uses Miuix's overlay dropdown, including its value placement. */
 @Composable internal fun SystemDropdownPreference(title: String, items: List<String>, selectedIndex: Int,
-    onSelectedIndexChange: (Int) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, summary: String? = null) {
-    MiuixDropdownPreference(title=title,items=items,selectedIndex=selectedIndex,modifier=modifier,
+    onSelectedIndexChange: (Int) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, summary: String? = null, last: Boolean = false) {
+    val divider=MiuixTheme.colorScheme.dividerLine
+    val grouped=LocalGrouped.current
+    val inset=(16.dp-LocalCardInset.current).coerceAtLeast(0.dp)
+    MiuixDropdownPreference(title=title,items=items,selectedIndex=selectedIndex,modifier=modifier.drawBehind {
+            if(grouped && !last) drawLine(divider,Offset(inset.toPx(),size.height-.5f),Offset(size.width-inset.toPx(),size.height-.5f),.5.dp.toPx())
+        },
         enabled=enabled,summary=summary,onSelectedIndexChange=onSelectedIndexChange)
 }
 
@@ -517,11 +526,15 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
 
 @Composable internal fun SystemLogOverflow(busy: Boolean,share: ()->Unit,save: ()->Unit,clear: ()->Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val view=LocalView.current
     val ink=MiuixTheme.colorScheme.onSurface
     Box {
         Box(Modifier.size(48.dp).clip(CircleShape).alpha(if(busy) .4f else 1f)
             .semantics { contentDescription=if(busy) "正在收集診斷" else "更多日誌操作";stateDescription=if(expanded) "已展開" else "已收合" }
-            .clickable(enabled=!busy,role=Role.Button) { expanded=true },Alignment.Center) {
+            .clickable(enabled=!busy,role=Role.Button) {
+                view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+                expanded=true
+            },Alignment.Center) {
             Box(Modifier.size(24.dp).drawBehind {
                 repeat(3) { i -> drawCircle(ink,1.6.dp.toPx(),Offset(size.width/2, (5f+i*7f)*density)) }
             })
@@ -550,7 +563,7 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
 @Composable internal fun SystemLogGuide(total: Int, errors: Int, warnings: Int) {
     var details by remember { mutableStateOf(false) }
     SystemCard {
-        SystemArrowPreference("診斷與記錄說明",value=if(total==0) "尚無記錄" else "共 $total 筆",onClick={details=true})
+        SystemArrowPreference("診斷與記錄說明",last=true,value=if(total==0) "尚無記錄" else "共 $total 筆",onClick={details=true})
     }
     if(details) SystemModal("診斷與記錄說明",{details=false}) {
         Column(Modifier.padding(horizontal=24.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -562,9 +575,9 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
     }
 }
 
-@Composable internal fun SystemModeHelp() {
+@Composable internal fun SystemModeHelp(last: Boolean=true) {
     var details by remember { mutableStateOf(false) }
-    SystemArrowPreference("運作方式說明",onClick={details=true})
+    SystemArrowPreference("運作方式說明",last=last,onClick={details=true})
     if(details) SystemModal("運作方式說明",{details=false}) {
         Text("切換運作模式前，請先至概觀頁停用漢化。Root 模式透過模組載入；無 root 模式需先授權遊戲資料夾或 Shizuku。",
             Modifier.padding(horizontal=24.dp,vertical=8.dp),fontSize=14.sp,lineHeight=22.sp)
@@ -574,7 +587,7 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
 
 @Composable internal fun SystemSecondaryEntry(title: String, value: String? = null, content: @Composable ColumnScope.() -> Unit) {
     var details by remember { mutableStateOf(false) }
-    SystemArrowPreference(title,value=value,onClick={details=true})
+    SystemArrowPreference(title,value=value,last=true,onClick={details=true})
     if(details) SystemModal(title,{details=false}) {
         Column(Modifier.fillMaxWidth().padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp),content=content)
         SystemDialogDone({details=false})
@@ -634,33 +647,51 @@ internal data class OverviewUiState(
     onLaunch: () -> Unit, onDownload: () -> Unit) {
     val selected = state.name != "尚未選擇"
     val accent = MiuixTheme.colorScheme.primary
-    var showDetails by remember { mutableStateOf(false) }
     SystemCard {
         SystemSwitchPreference("啟用漢化", checked = state.enabled,
             enabled = !state.busy && (state.rootMode || state.enabled), onCheckedChange = onEnabled)
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text(if (selected) state.name else "尚未選擇漢化", fontSize = 18.sp, lineHeight = 26.sp,
-                fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(if (selected) "${state.script} · 版本 ${state.packVersion?:"未知"}" else "先下載或匯入語言包，再套用漢化。",
-                Modifier.padding(top = 5.dp), fontSize = 13.sp, lineHeight = 20.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                val healthy = state.enabled && (!state.rootMode || state.ready && state.fontReady)
-                Spacer(Modifier.weight(1f))
-                Text(if (healthy) "漢化已啟用" else if (!state.enabled) "漢化已停用" else "需要重新套用",
-                    Modifier.padding(end=4.dp), fontSize = 12.sp,
-                    color = if (healthy) Color(if (LocalSystemUiDark.current) 0xFF75D5A8 else 0xFF29815D)
-                        else MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Text("詳情", Modifier.clip(CircleShape).clickable(role = Role.Button) { showDetails = true }
-                    .padding(horizontal = 14.dp, vertical = 14.dp), fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.primary)
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                Text(if(selected) state.name else "尚未選擇漢化",Modifier.weight(1f),fontSize=18.sp,lineHeight=26.sp,
+                    fontWeight=FontWeight.Medium,maxLines=2,overflow=TextOverflow.Ellipsis)
+                if(selected) {
+                    Spacer(Modifier.width(12.dp))
+                    val healthy=state.enabled && (!state.rootMode || state.ready && state.fontReady)
+                    Text(if(healthy) "漢化已啟用" else if(!state.enabled) "漢化已停用" else "需要重新套用",
+                        fontSize=12.sp,lineHeight=18.sp,color=if(healthy) Color(if(LocalSystemUiDark.current) 0xFF75D5A8 else 0xFF29815D)
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
             }
+            Text(if(selected) "版本 ${state.packVersion?:"未知"}" else "先下載或匯入語言包，再套用漢化。",
+                Modifier.padding(top=5.dp,bottom=20.dp),fontSize=13.sp,lineHeight=20.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
             SystemButton(if (state.gameInstalled) onLaunch else onDownload, Modifier.fillMaxWidth(), enabled = !state.busy) {
                 Text(if (state.gameInstalled) "啟動遊戲" else "取得漢化資源", fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
-    if (showDetails) SystemModal("漢化詳情", { showDetails = false }) {
+}
+
+@Composable internal fun SystemQuickActions(onDownload: () -> Unit, onDownloaded: () -> Unit) {
+    SystemCard {
+        SystemArrowPreference("下載漢化", onClick = onDownload)
+        SystemArrowPreference("已下載漢化", last=true,onClick = onDownloaded)
+    }
+}
+
+@Composable internal fun SystemEnvironmentPanel(state: OverviewUiState, onCheckScope: () -> Unit,
+    onRequestRoot: () -> Unit, onGameFolder: () -> Unit, loadAction: String) {
+    var showDetails by remember { mutableStateOf(false) }
+    var translationDetails by remember {mutableStateOf(false)}
+    val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled
+    SystemCard {
+        SystemArrowPreference(if (state.rootMode) "環境與權限" else "文件載入方式",
+            value = if (healthy) "已就緒" else "待設定", onClick = {
+                showDetails = true
+                if(state.rootMode) { onCheckScope();onRequestRoot() }
+            })
+        SystemArrowPreference("漢化詳情",last=true,onClick={translationDetails=true})
+    }
+    if (translationDetails) SystemModal("漢化詳情", { translationDetails = false }) {
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("遊戲版本：${state.gameVersion}", fontSize = 14.sp)
             Text("遊戲語言請設為「${state.language}」", fontSize = 14.sp)
@@ -669,27 +700,7 @@ internal data class OverviewUiState(
                 Text(state.coverage, fontSize = 13.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             } else Text(state.loadStatus, fontSize = 14.sp)
         }
-        SystemDialogDone({ showDetails = false })
-    }
-}
-
-@Composable internal fun SystemQuickActions(onDownload: () -> Unit, onDownloaded: () -> Unit) {
-    SystemCard {
-        SystemArrowPreference("下載漢化", onClick = onDownload)
-        SystemArrowPreference("已下載漢化", onClick = onDownloaded)
-    }
-}
-
-@Composable internal fun SystemEnvironmentPanel(state: OverviewUiState, onCheckScope: () -> Unit,
-    onRequestRoot: () -> Unit, onGameFolder: () -> Unit, loadAction: String) {
-    var showDetails by remember { mutableStateOf(false) }
-    val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled
-    SystemCard {
-        SystemArrowPreference(if (state.rootMode) "環境與權限" else "文件載入方式",
-            value = if (healthy) "已就緒" else "待設定", onClick = {
-                showDetails = true
-                if(state.rootMode) { onCheckScope();onRequestRoot() }
-            })
+        SystemDialogDone({ translationDetails = false })
     }
     if (showDetails) SystemModal(if (state.rootMode) "環境與權限" else "文件載入", { showDetails = false }) {
         SystemEnvironmentDialogBody(state,onGameFolder,loadAction) { showDetails=false }
@@ -799,7 +810,7 @@ internal data class OverviewUiState(
                 )
                 SystemSwitchPreference(
                     modifier = Modifier,
-                    title = "相容模糊",
+                    title = "相容模糊", last=true,
                     summary = if (hazeRendererEnabled) "使用較柔和的模糊；效果不合適時可以關閉"
                         else "使用標準玻璃效果",
                     enabled = blurEnabled,
@@ -864,4 +875,77 @@ internal data class OverviewUiState(
         items=TranslationRepository.CONVERSIONS.map {it.label.removePrefix("轉為")},
         selectedIndex=if(script=="簡體") 1 else 0,
         onSelectedIndexChange={index ->TranslationRepository.CONVERSIONS.getOrNull(index)?.let(onConversion)})
+}
+
+@Composable internal fun SystemDeletePackIcon(enabled: Boolean,onClick: ()->Unit) {
+    Box(Modifier.size(48.dp).alpha(if(enabled) 1f else .4f).clip(CircleShape).clickable(enabled=enabled,role=Role.Button,onClick=onClick).semantics {contentDescription="刪除漢化包"},contentAlignment=Alignment.Center) {
+        top.yukonga.miuix.kmp.basic.Icon(Icons.Default.Delete,"刪除漢化包",Modifier.size(24.dp),
+            tint=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    }
+}
+
+@Composable internal fun SystemDownloadedPackCard(name: String,version: String?,active: Boolean,busy: Boolean,enabled: Boolean,progress: ApplyProgress?,onApply: ()->Unit,onDelete: ()->Unit,onExport: (() -> Unit)?=null) {
+    SystemCard(insideMargin=PaddingValues(18.dp)) {
+        Text(name,fontSize=18.sp,lineHeight=26.sp)
+        Text("版本 ${version?:"未知"}",Modifier.padding(top=5.dp),fontSize=13.sp,lineHeight=20.sp,
+            color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+            SystemButton(onApply,Modifier.height(48.dp),enabled=enabled) {
+                top.yukonga.miuix.kmp.basic.Icon(if(active) Icons.Default.Refresh else Icons.Default.Check,null,
+                    Modifier.size(20.dp),tint=Color.White)
+                Spacer(Modifier.width(8.dp))
+                Text(if(busy) "套用中…" else if(active) "重新套用" else "套用",fontSize=15.sp,color=Color.White)
+            }
+            Spacer(Modifier.weight(1f))
+            SystemDeletePackIcon(enabled,onDelete)
+        }
+        if(busy) SystemLanguageProgress(progress)
+        if(onExport!=null) SystemTextButton("匯出漢化 ZIP",onExport,Modifier.fillMaxWidth(),enabled)
+    }
+}
+
+
+@Composable internal fun SystemUpdateCard(version: String,channel: String,status: String,healthy: Boolean,
+    enabled: Boolean,onChannel: (String)->Unit,content: @Composable ColumnScope.()->Unit={}) {
+    var open by remember {mutableStateOf(false)}
+    val view=LocalView.current
+    SystemCard(insideMargin=PaddingValues(20.dp)) {
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.Top) {
+            androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.ic_launcher),null,
+                Modifier.size(50.dp).clip(RoundedCornerShape(13.dp)))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("LCPatch",fontSize=21.sp,lineHeight=28.sp)
+                Text(version,fontSize=12.sp,lineHeight=20.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
+            Box {
+                Row(Modifier.heightIn(min=48.dp).offset(y=(-10).dp).clip(RoundedCornerShape(8.dp))
+                    .alpha(if(enabled) 1f else .4f).clickable(enabled=enabled,role=Role.Button) {view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);open=true}
+                    .semantics {contentDescription="更新渠道";stateDescription=if(channel=="beta") "測試版" else "正式版"},
+                    verticalAlignment=Alignment.CenterVertically) {
+                    Text(if(channel=="beta") "測試版" else "正式版",fontSize=14.sp,lineHeight=20.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Spacer(Modifier.width(6.dp))
+                    val ink=MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    Box(Modifier.size(16.dp).drawBehind {
+                        val path=Path().apply {moveTo(size.width*.25f,size.height*.32f);lineTo(size.width*.5f,size.height*.1f);lineTo(size.width*.75f,size.height*.32f)
+                            moveTo(size.width*.25f,size.height*.68f);lineTo(size.width*.5f,size.height*.9f);lineTo(size.width*.75f,size.height*.68f)}
+                        drawPath(path,ink,style=androidx.compose.ui.graphics.drawscope.Stroke(1.6.dp.toPx(),cap=StrokeCap.Round))
+                    })
+                }
+                top.yukonga.miuix.kmp.overlay.OverlayListPopup(show=open,onDismissRequest={open=false},renderInRootScaffold=true) {
+                    top.yukonga.miuix.kmp.basic.ListPopupColumn {
+                        listOf("正式版","測試版").forEachIndexed {index,label ->
+                            top.yukonga.miuix.kmp.basic.DropdownImpl(text=label,optionSize=2,isSelected=(channel=="beta")== (index==1),index=index,
+                                dropdownColors=top.yukonga.miuix.kmp.basic.DropdownDefaults.dropdownColors(),enabled=enabled,dialogMode=false,
+                                onSelectedIndexChange={open=false;onChannel(if(it==1) "beta" else "stable")})
+                        }
+                    }
+                }
+            }
+        }
+        Text(status,Modifier.padding(top=22.dp),fontSize=14.sp,lineHeight=22.sp,
+            color=if(healthy) Color(if(LocalSystemUiDark.current) 0xFF81B5A4 else 0xFF287D61) else MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        content()
+    }
 }
