@@ -61,31 +61,16 @@ internal class NativeFileInstaller(private val localize: File) {
         if (!hasBackup()) return
         val language = File(backup, "language").readText().trim()
         val target = languageDirectory(language)
-        if (File(backup, "mode").takeIf(File::isFile)?.readText()?.trim() == "overlay") {
-            val lines = File(backup, "manifest").readLines().filter(String::isNotBlank)
-            for (line in lines) {
-                val fields = line.split('\t')
-                require(fields.size == 2 && fields[1] in setOf("original", "added")) {
-                    "無法辨識原生文件備份清單"
-                }
-                val destination = checkedFile(target, fields[0])
-                if (fields[1] == "original") {
-                    val source = checkedFile(File(backup, "original"), fields[0])
-                    check(source.isFile) { "原始文件備份缺失：${fields[0]}" }
-                    atomicCopy(source, destination)
-                } else if (destination.exists()) {
-                    check(destination.isFile && destination.delete()) { "無法清除新加入的漢化文件" }
-                }
-            }
-        } else {
-            // Compatibility with the whole-directory backup produced by 1.2.3.
-            val original = File(backup, "original")
-            if (original.isDirectory) {
-                check(next.deleteRecursively()) { "無法清除暫存目錄" }
-                original.copyRecursively(next, overwrite = true)
-                swapLegacy(next, target)
-            }
+        // The first successful apply keeps a complete baseline. Restoring the whole
+        // directory also removes any files introduced by earlier reapplications.
+        // This is only called on explicit user disable or an unsuccessful write.
+        val original = File(backup, "original")
+        check(original.isDirectory && original.listFiles()?.isNotEmpty() == true) {
+            "原始語言目錄備份不完整；為避免資料遺失，未進行還原"
         }
+        check(next.deleteRecursively()) { "無法清除還原暫存目錄" }
+        check(original.copyRecursively(next, overwrite = true)) { "無法準備原始文件還原" }
+        swapLegacy(next, target)
         check(backup.deleteRecursively()) { "原始文件已還原，但無法清理備份" }
     }
 
@@ -105,12 +90,24 @@ internal class NativeFileInstaller(private val localize: File) {
         require(target.isDirectory && target.listFiles()?.isNotEmpty() == true) {
             "請先在遊戲下載 ${language.uppercase()} 語言資源"
         }
-        check(!hasBackup()) { "已有原生漢化備份；請先手動停用舊漢化再重新套用" }
-        // An interrupted backup without its final marker cannot have modified any game file.
-        if (backup.exists()) check(backup.deleteRecursively()) { "無法清理未完成的備份" }
+        val existingBackup = hasBackup()
+        if (existingBackup) {
+            val previousLanguage = File(backup, "language").readText().trim()
+            check(previousLanguage == language) {
+                "備份為 ${previousLanguage.uppercase()}；請先手動停用舊漢化才能切換語言"
+            }
+            val original = File(backup, "original")
+            check(original.isDirectory && original.listFiles()?.isNotEmpty() == true) {
+                "原始語言備份不完整；為避免覆蓋原始文件，已停止套用"
+            }
+        } else if (backup.exists()) {
+            // No recovery marker means the previous operation did not begin writing.
+            check(backup.deleteRecursively()) { "無法清理未完成的備份" }
+        }
         check(stage.deleteRecursively()) { "無法清理暫存檔案" }
         check(stage.mkdirs()) { "無法準備漢化暫存目錄" }
 
+        var startedWrites = false
         try {
             val paths = linkedSetOf<String>()
             var totalBytes = 0L
@@ -139,33 +136,31 @@ internal class NativeFileInstaller(private val localize: File) {
                 }
             }
             require(paths.isNotEmpty()) { "漢化包沒有 JSON 文件" }
-            check(backup.mkdirs()) { "無法建立原始文件備份" }
-            // Keep a full baseline for safe downgrades to 1.2.3, whose restore
-            // implementation replaces the directory using backup/original.
-            val originalDirectory = File(backup, "original")
-            check(target.copyRecursively(originalDirectory, overwrite = true)) { "無法完整備份原始語言目錄" }
-            val manifest = ArrayList<String>(paths.size)
             for (relative in paths) {
                 val destination = checkedFile(target, relative)
                 require(!destination.exists() || destination.isFile) { "語言資源路徑不是文件" }
-                manifest += "$relative\t${if (destination.isFile) "original" else "added"}"
             }
-            File(backup, "manifest").writeText(manifest.joinToString("\n") + "\n")
-            File(backup, "mode").writeText("overlay")
-            // Publish the recovery marker only after every original is durably backed up.
-            File(backup, "language").writeText(language)
+            if (!existingBackup) {
+                check(backup.mkdirs()) { "無法建立原始文件備份" }
+                // Do not overwrite this baseline on any later reapply.
+                val originalDirectory = File(backup, "original")
+                check(target.copyRecursively(originalDirectory, overwrite = true)) { "無法完整備份原始語言目錄" }
+                File(backup, "mode").writeText("overlay")
+                File(backup, "language").writeText(language)
+            }
             progress(0, paths.size)
             paths.forEachIndexed { index, relative ->
+                startedWrites = true
                 atomicCopy(checkedFile(stage, relative), checkedFile(target, relative))
                 if ((index + 1) % 10 == 0 || index + 1 == paths.size) {
                     progress(index + 1, paths.size)
                 }
             }
         } catch (error: Exception) {
-            if (hasBackup()) {
+            if (startedWrites && hasBackup()) {
                 runCatching { restore() }.onFailure { error.addSuppressed(it) }
-            } else {
-                backup.deleteRecursively()
+            } else if (!existingBackup && backup.exists()) {
+                check(backup.deleteRecursively()) { "無法清理套用失敗的暫存備份" }
             }
             throw error
         } finally {

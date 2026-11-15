@@ -50,6 +50,51 @@ class NativeFileInstallerTest {
         } finally { root.deleteRecursively() }
     }
 
+    @Test fun reapplyKeepsTheFirstBaselineAndDoesNotRequireManualDisable() {
+        val root = Files.createTempDirectory("lcpatch-overlay-reapply").toFile()
+        try {
+            val japanese = File(root, "jp").apply { mkdirs() }
+            val original = File(japanese, "JP_MainUIText.json").apply { writeText("原始內容") }
+            val installer = NativeFileInstaller(root)
+
+            archive("JP_MainUIText.json" to "第一次翻譯").inputStream().use {
+                installer.applyOverlay(it, "jp")
+            }
+            assertEquals("第一次翻譯", original.readText())
+            assertTrue(installer.hasBackup())
+
+            archive("JP_MainUIText.json" to "第二次翻譯", "JP_Extra.json" to "新增").inputStream().use {
+                installer.applyOverlay(it, "jp")
+            }
+            assertEquals("第二次翻譯", original.readText())
+            assertTrue(File(japanese, "JP_Extra.json").isFile)
+
+            installer.restore()
+            assertEquals("原始內容", original.readText())
+            assertFalse(File(japanese, "JP_Extra.json").exists())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun legacyBackupCanBeReusedWithoutLosingOriginal() {
+        val root = Files.createTempDirectory("lcpatch-legacy-reapply").toFile()
+        try {
+            val target = File(root, "jp").apply { mkdirs() }
+            File(target, "JP_MainUIText.json").writeText("舊漢化")
+            val backup = File(root, ".lcpatch-native-backup")
+            File(backup, "original").mkdirs()
+            File(backup, "original/JP_MainUIText.json").writeText("原文")
+            File(backup, "language").writeText("jp")
+            val installer = NativeFileInstaller(root)
+
+            archive("JP_MainUIText.json" to "新漢化").inputStream().use {
+                installer.applyOverlay(it, "jp")
+            }
+            assertEquals("新漢化", File(target, "JP_MainUIText.json").readText())
+            installer.restore()
+            assertEquals("原文", File(root, "jp/JP_MainUIText.json").readText())
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun invalidPackLeavesOriginalFileUnmodified() {
         val root = Files.createTempDirectory("lcpatch-overlay-invalid").toFile()
         try {
