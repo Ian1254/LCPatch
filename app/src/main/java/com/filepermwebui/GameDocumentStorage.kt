@@ -19,6 +19,10 @@ internal class GameDocumentStorage(private val context: Context) {
 
     fun selected(): Uri? = prefs.getString("game_tree", null)?.let(Uri::parse)
 
+    fun authorized(): Boolean = selected()?.let { uri ->
+        runCatching { tree(uri); true }.getOrDefault(false)
+    } ?: false
+
     fun select(uri: Uri) {
         check(!hasBackup()) { "請先還原目前漢化，再更換遊戲資料夾" }
         val id = DocumentsContract.getTreeDocumentId(uri).replace('\\', '/').trimEnd('/')

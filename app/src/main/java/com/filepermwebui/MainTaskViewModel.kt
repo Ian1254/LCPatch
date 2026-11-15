@@ -19,6 +19,7 @@ data class UiNotice(
 
 /** Keeps long-running translation UI state alive across Activity recreation. */
 class MainTaskViewModel(application: Application) : AndroidViewModel(application) {
+    var consumedBackgroundRevision = 0L
     private var noticeSequence = 0L
     val transfer = mutableStateOf<TransferProgress?>(null)
     val applyProgress = mutableStateOf<ApplyProgress?>(null)

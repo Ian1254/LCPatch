@@ -79,14 +79,24 @@ class TranslationApplyService : Service() {
                 .setOnlyAlertOnce(true)
                 .build()
             manager.notify(PREPARE_ID, notification)
+            BackgroundApplyState.prepared(packPath)
+        }
+
+        fun cancelPreparation(context: Context) {
+            context.getSystemService(NotificationManager::class.java).cancel(PREPARE_ID)
+            BackgroundApplyState.clearPrepared()
         }
 
         fun start(context: Context, packPath: String) {
+            if (!BackgroundApplyState.begin(packPath)) return
             val intent = Intent(context, TranslationApplyService::class.java).apply {
                 action = ACTION_APPLY
                 putExtra(EXTRA_PACK_PATH, packPath)
             }
-            context.startForegroundService(intent)
+            try { context.startForegroundService(intent) } catch (error: Exception) {
+                BackgroundApplyState.finish(error.message ?: "無法啟動套用", true)
+                throw error
+            }
         }
     }
 
@@ -120,7 +130,7 @@ class TranslationApplyService : Service() {
             .setVisibility(Notification.VISIBILITY_PRIVATE)
 
     private fun progressNotification(done: Int, count: Int): Notification {
-        val text = if (count > 0) "正在寫入日語／韓語資源 · $done / $count 個檔案"
+        val text = if (count > 0) "正在寫入${TranslationRepository(this).targetLanguage().label}資源 · $done / $count 個檔案"
             else "正在準備與備份漢化文件"
         return baseNotification("正在套用漢化", text)
             .setOngoing(true)
@@ -129,6 +139,7 @@ class TranslationApplyService : Service() {
     }
 
     @Synchronized private fun reportProgress(done: Int, count: Int) {
+        BackgroundApplyState.progress(ApplyProgress("正在寫入語言資源", done, count))
         completed = done
         total = count
         val now = SystemClock.elapsedRealtime()
@@ -166,7 +177,7 @@ class TranslationApplyService : Service() {
                     ?: error("找不到指定的已下載漢化包")
                 repository.apply(entry, nativeProgress = { done, count ->
                     reportProgress(done, count)
-                })
+                }, progress = { value -> BackgroundApplyState.progress(value) })
                 resultDetail = "已寫入 $completed / $total 個 JSON；可以切回原本的遊戲"
                 LogRepository.append(this@TranslationApplyService, "INFO",
                     "translation.background_applied", resultDetail)
@@ -189,8 +200,9 @@ class TranslationApplyService : Service() {
                     .setAutoCancel(true)
                     .setStyle(Notification.BigTextStyle().bigText(resultDetail))
                     .build())
+                BackgroundApplyState.finish(resultDetail, resultTitle != "漢化套用完成")
                 running = false
-                stopSelf(startId)
+                stopSelf()
             }
         }
         return START_NOT_STICKY

@@ -66,6 +66,7 @@ class TranslationRepository(private val context: Context) {
 
     private val gameStorage = GameDocumentStorage(context)
     fun gameFolder(): Uri? = gameStorage.selected()
+    fun gameFolderAuthorized(): Boolean = gameStorage.authorized()
     fun setGameFolder(uri: Uri) = gameStorage.select(uri)
     fun nativeBackend(): String = prefs.getString("native_backend", "shizuku") ?: "shizuku"
     fun setNativeBackend(value: String) {

@@ -260,6 +260,23 @@ class AutomaticLlcPreparationTest {
 private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", "日本語", true,
     true, true, "1.119.0", false, "已啟用", "已授權", "已連接", true, true, 2383, "PC 翻譯與目前漢化一致", "2026111401")
 
+@Composable private fun ShizukuFlowFixture(dark: Boolean, writing: Boolean) = SystemUiTheme(SystemUiStyle.HyperOS4, if(dark) "dark" else "light") {
+    val progress=if(writing) ApplyProgress("正在寫入語言資源", 1100, 3838) else null
+    val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="Shizuku · 已授權",loadReady=true)
+    Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        SystemTranslationPanel(state, {}, {}, {}, progress, waitingForGame=!writing)
+        SystemDownloadedPackCard("零協會漢化","2026111401",writing,writing,!writing,progress,{}, {},
+            actionLabel=if(writing) "重新套用" else "已選擇",selected=true)
+        SystemEnvironmentPanel(state,{}, {}, {}, "授權／檢查 Shizuku")
+    }
+}
+
+@PreviewTest @Preview(name="ShizukuWaiting",widthDp=393,heightDp=852)
+@Composable fun ShizukuWaiting()=ShizukuFlowFixture(true,false)
+
+@PreviewTest @Preview(name="ShizukuWritingLight",widthDp=393,heightDp=852)
+@Composable fun ShizukuWritingLight()=ShizukuFlowFixture(false,true)
+
 /** The shell and panels below are the same composables used by MainActivity. */
 @Composable private fun ScreenFixture(style: SystemUiStyle, dark: Boolean, page: Int = 2, scrolled: Boolean = false, atEnd: Boolean = false, floating: Boolean = true) {
     SystemUiTheme(style, if (dark) "dark" else "light") {
