@@ -120,7 +120,7 @@ internal fun supplementTranslationDirectory(target: File, reference: File, prefi
     return report
 }
 
-internal data class SpeakerCoverage(var fields: Int=0,var unresolved: Int=0)
+internal data class SpeakerCoverage(var fields: Int=0,var unresolved: Int=0,var productionNotes: Int=0)
 
 /** Resolve story speakers by the upstream's exact model ID, never by row order.
  * Existing explicit labels, including masked identities, are retained. Conflicting model IDs
@@ -152,7 +152,8 @@ internal fun completeScenarioSpeakers(root: File, decode: (String)->String = { i
                         if(model!=null && node.has("content")) {
                             val pair=names[model]
                             if(pair==null) {
-                                if(!node.has("teller") || !node.has("title")) result.unresolved++
+                                if(isScenarioProductionNote(node)) result.productionNotes++
+                                else if(!node.has("teller") || !node.has("title")) result.unresolved++
                             } else {
                                 listOf("teller" to pair.first,"title" to pair.second).forEach { (key,text) ->
                                     val old=node.opt(key)
@@ -177,3 +178,7 @@ internal fun completeScenarioSpeakers(root: File, decode: (String)->String = { i
     }
     return result
 }
+
+/** Upstream negative-ID sound/CG annotations are not speaking characters. */
+internal fun isScenarioProductionNote(row: JSONObject): Boolean =
+    row.opt("id") is Number && row.optInt("id")==-1 && row.optString("model") in setOf("//효과음","//CG")
