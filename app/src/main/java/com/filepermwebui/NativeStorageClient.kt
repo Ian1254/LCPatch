@@ -28,7 +28,7 @@ internal object NativeStorageClient {
             !managerInstalled(context) -> "未安裝 Stellar"
             !Shizuku.pingBinder() -> "未啟動或相容層未開啟"
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED -> "已授權"
-            else -> "尚未授權"
+            else -> "未授權"
         }
     }.getOrDefault("未啟動")
 

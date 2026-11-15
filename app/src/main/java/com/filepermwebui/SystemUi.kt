@@ -12,6 +12,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -234,10 +238,56 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 }
 
 @Composable internal fun SystemArrowPreference(title: String, summary: String? = null, modifier: Modifier = Modifier,
-    enabled: Boolean = true, value: String? = null, last: Boolean = false, onClick: () -> Unit) {
+    enabled: Boolean = true, value: String? = null, last: Boolean = false, authorization: Boolean? = null, onClick: () -> Unit) {
     PreferenceRow(title,summary,value,modifier,enabled,
-        trailing={ Icon(SystemGlyph.Chevron.vector(),null,Modifier.size(18.dp),tint=MiuixTheme.colorScheme.onSurfaceVariantSummary) },
+        trailing={
+            if(authorization != null) {
+                SystemStatusLabel(if(authorization) "已授權" else "未授權", authorization)
+                Spacer(Modifier.width(8.dp))
+            }
+            Icon(SystemGlyph.Chevron.vector(),null,Modifier.size(18.dp),tint=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        },
         action=Modifier.clickable(enabled=enabled,role=Role.Button,onClick=onClick),last=last)
+}
+
+/** Text conveys the state; the matching glyph is decorative for accessibility. */
+@Composable internal fun SystemStatusLabel(text: String, positive: Boolean? = null, loading: Boolean = false) {
+    val color = when(positive) {
+        true -> Color(if(LocalSystemUiDark.current) 0xFF75D5A8 else 0xFF24734F)
+        false -> Color(if(LocalSystemUiDark.current) 0xFFF47777 else 0xFFB3261E)
+        null -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+    }
+    val rotation = if(loading) {
+        val transition = rememberInfiniteTransition(label="status spinner")
+        val angle by transition.animateFloat(0f,360f,
+            infiniteRepeatable(tween(1000,easing=LinearEasing)),label="status rotation")
+        angle
+    } else 0f
+    Row(verticalAlignment=Alignment.CenterVertically, modifier=Modifier.semantics(mergeDescendants=true) {}) {
+        Text(text,fontSize=12.sp,lineHeight=18.sp,color=color,maxLines=1)
+        if(loading || positive != null) {
+            Spacer(Modifier.width(6.dp))
+            Canvas(Modifier.size(16.dp).rotate(rotation).clearAndSetSemantics {}) {
+                val stroke=1.5.dp.toPx()
+                val inset=stroke/2
+                if(loading) drawArc(color,startAngle=-90f,sweepAngle=270f,useCenter=false,
+                    topLeft=Offset(inset,inset),size=androidx.compose.ui.geometry.Size(size.width-stroke,size.height-stroke),
+                    style=androidx.compose.ui.graphics.drawscope.Stroke(stroke,cap=StrokeCap.Round))
+                else {
+                    drawCircle(color,radius=(size.minDimension-stroke)/2,
+                        style=androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                    fun point(x: Float,y: Float)=Offset(size.width*x,size.height*y)
+                    if(positive == true) {
+                        drawLine(color,point(.27f,.51f),point(.43f,.66f),stroke,StrokeCap.Round)
+                        drawLine(color,point(.43f,.66f),point(.74f,.34f),stroke,StrokeCap.Round)
+                    } else {
+                        drawLine(color,point(.34f,.34f),point(.66f,.66f),stroke,StrokeCap.Round)
+                        drawLine(color,point(.66f,.34f),point(.34f,.66f),stroke,StrokeCap.Round)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable internal fun SystemToggle(checked: Boolean, enabled: Boolean = true) {
@@ -657,9 +707,11 @@ internal data class OverviewUiState(
                 if(selected) {
                     Spacer(Modifier.width(12.dp))
                     val healthy=state.enabled && (!state.rootMode || state.ready && state.fontReady)
-                    Text(if(workProgress != null) "正在套用" else if(waitingForGame) "等待套用" else if(healthy) "漢化已啟用" else if(!state.enabled) "漢化已停用" else "需要重新套用",
-                        fontSize=12.sp,lineHeight=18.sp,color=if(healthy) Color(if(LocalSystemUiDark.current) 0xFF75D5A8 else 0xFF29815D)
-                            else MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    val loading=workProgress != null || waitingForGame
+                    SystemStatusLabel(
+                        text=if(workProgress != null) "正在套用" else if(waitingForGame) "等待套用" else if(healthy) "已啟用" else if(!state.enabled) "已停用" else "需要重新套用",
+                        positive=if(loading) null else healthy,
+                        loading=loading)
                 }
             }
             Text(if(selectedPack != null && !selected) packVersionLabel(selectedPack.version) else if(selectedPack != null && selectedPack.name != state.name) "${selectedPack.name} · ${packVersionLabel(selectedPack.version)}" else if(selected) packVersionLabel(state.packVersion) else "下載漢化包後即可直接套用。",
@@ -684,10 +736,10 @@ internal data class OverviewUiState(
     onRequestRoot: () -> Unit, onAuthorize: () -> Unit, loadAction: String) {
     var showDetails by remember { mutableStateOf(false) }
     var translationDetails by remember {mutableStateOf(false)}
-    val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled && state.loadReady
+    val authorized = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" else state.loadReady
     SystemCard {
         SystemArrowPreference(if (state.rootMode) "環境與權限" else "Stellar 與權限",
-            value = if (healthy) "已就緒" else "待設定", onClick = {
+            authorization = authorized, onClick = {
                 showDetails = true
                 if(state.rootMode) { onCheckScope();onRequestRoot() }
             })
