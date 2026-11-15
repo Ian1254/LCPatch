@@ -24,11 +24,62 @@ import kotlinx.coroutines.launch
  */
 class TranslationApplyService : Service() {
     companion object {
+        const val ACTION_NOTIFICATION_APPLY = "com.lcpatch.APPLY_FROM_NOTIFICATION"
+        const val EXTRA_NOTIFICATION_PACK = "pack_path"
         private const val ACTION_APPLY = "com.lcpatch.APPLY_NATIVE_OVERLAY"
         private const val EXTRA_PACK_PATH = "pack_path"
         private const val CHANNEL_ID = "lcpatch_translation_apply"
+        private const val RESULT_CHANNEL_ID = "lcpatch_translation_result"
         private const val PROGRESS_ID = 12401
         private const val RESULT_ID = 12402
+        private const val PREPARE_ID = 12403
+
+        private fun ensureChannels(manager: NotificationManager) {
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "漢化套用進度", NotificationManager.IMPORTANCE_LOW)
+            )
+            manager.createNotificationChannel(
+                NotificationChannel(RESULT_CHANNEL_ID, "漢化套用結果", NotificationManager.IMPORTANCE_DEFAULT)
+            )
+        }
+
+        /**
+         * One entry point before launching the game. The notification stays available
+         * while the game downloads its original resources; no timer or exit watcher.
+         */
+        fun prepare(context: Context, packPath: String) {
+            require(packPath.isNotBlank()) { "缺少已下載漢化包" }
+            val manager = context.getSystemService(NotificationManager::class.java)
+            ensureChannels(manager)
+            check(manager.areNotificationsEnabled() &&
+                manager.getNotificationChannel(CHANNEL_ID)?.importance != NotificationManager.IMPORTANCE_NONE) {
+                "LCPatch 的通知已被關閉；請在系統設定開啟後再使用引導套用"
+            }
+            val destination = Intent(context, MainActivity::class.java).apply {
+                action = ACTION_NOTIFICATION_APPLY
+                putExtra(EXTRA_NOTIFICATION_PACK, packPath)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            val action = PendingIntent.getActivity(
+                context, 12403, destination,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = Notification.Builder(context, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("漢化已準備好")
+                .setContentText("遊戲到標題畫面後，點「套用漢化」；不用手動切回 LCPatch")
+                .setStyle(Notification.BigTextStyle().bigText(
+                    "讓遊戲完成原始語言資源下載與啟動驗證。看到標題畫面後，從通知欄點「套用漢化」。"
+                ))
+                .setContentIntent(action)
+                .addAction(Notification.Action.Builder(
+                    android.R.drawable.ic_menu_save, "套用漢化", action
+                ).build())
+                .setAutoCancel(false)
+                .setOnlyAlertOnce(true)
+                .build()
+            manager.notify(PREPARE_ID, notification)
+        }
 
         fun start(context: Context, packPath: String) {
             val intent = Intent(context, TranslationApplyService::class.java).apply {
@@ -50,9 +101,7 @@ class TranslationApplyService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "漢化套用進度", NotificationManager.IMPORTANCE_LOW)
-        )
+        ensureChannels(manager)
     }
 
     private fun openAppIntent(): PendingIntent =
@@ -96,6 +145,7 @@ class TranslationApplyService : Service() {
         }
         if (running) return START_NOT_STICKY
         running = true
+        manager.cancel(PREPARE_ID)
         manager.cancel(RESULT_ID)
         val notification = progressNotification(0, 0)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -130,7 +180,12 @@ class TranslationApplyService : Service() {
                     "translation.background_apply_failed", resultDetail)
             } finally {
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                manager.notify(RESULT_ID, baseNotification(resultTitle, resultDetail)
+                manager.notify(RESULT_ID, Notification.Builder(this@TranslationApplyService, RESULT_CHANNEL_ID)
+                    .setSmallIcon(if (resultTitle == "漢化套用完成")
+                        android.R.drawable.stat_sys_download_done else android.R.drawable.stat_notify_error)
+                    .setContentTitle(resultTitle)
+                    .setContentText(resultDetail)
+                    .setContentIntent(openAppIntent())
                     .setAutoCancel(true)
                     .setStyle(Notification.BigTextStyle().bigText(resultDetail))
                     .build())

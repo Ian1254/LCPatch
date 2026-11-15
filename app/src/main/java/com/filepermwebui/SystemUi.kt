@@ -884,7 +884,7 @@ internal data class OverviewUiState(
     }
 }
 
-@Composable internal fun SystemDownloadedPackCard(name: String,version: String?,active: Boolean,busy: Boolean,enabled: Boolean,progress: ApplyProgress?,onApply: ()->Unit,onDelete: ()->Unit,onExport: (() -> Unit)?=null) {
+@Composable internal fun SystemDownloadedPackCard(name: String,version: String?,active: Boolean,busy: Boolean,enabled: Boolean,progress: ApplyProgress?,onApply: ()->Unit,onDelete: ()->Unit,onExport: (() -> Unit)?=null,actionLabel: String?=null,onReapply: (() -> Unit)?=null) {
     SystemCard(insideMargin=PaddingValues(18.dp)) {
         Text(name,fontSize=18.sp,lineHeight=26.sp)
         Text("版本 ${version?:"未知"}",Modifier.padding(top=5.dp),fontSize=13.sp,lineHeight=20.sp,
@@ -895,12 +895,13 @@ internal data class OverviewUiState(
                 top.yukonga.miuix.kmp.basic.Icon(if(active) Icons.Default.Refresh else Icons.Default.Check,null,
                     Modifier.size(20.dp),tint=Color.White)
                 Spacer(Modifier.width(8.dp))
-                Text(if(busy) "套用中…" else if(active) "重新套用" else "套用",fontSize=15.sp,color=Color.White)
+                Text(if(busy) "套用中…" else actionLabel ?: if(active) "重新套用" else "套用",fontSize=15.sp,color=Color.White)
             }
             Spacer(Modifier.weight(1f))
             SystemDeletePackIcon(enabled,onDelete)
         }
         if(busy) SystemLanguageProgress(progress)
+        if(onReapply!=null) SystemTextButton("重新套用到目前遊戲",onReapply,Modifier.fillMaxWidth(),enabled)
         if(onExport!=null) SystemTextButton("匯出漢化 ZIP",onExport,Modifier.fillMaxWidth(),enabled)
     }
 }
