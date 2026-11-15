@@ -183,6 +183,7 @@ class MainActivity : ComponentActivity() {
         var diagnosticBusy by remember { mutableStateOf(false) }
         var showClearLogDialog by rememberSaveable { mutableStateOf(false) }
         var notice by taskState.notice
+        var noticeDetailsOpen by remember(notice?.id) { mutableStateOf(false) }
         var latestRelease by taskState.latestRelease
         var checkingUpdate by taskState.checkingUpdate
         var updateProgress by taskState.updateProgress
@@ -408,9 +409,9 @@ class MainActivity : ComponentActivity() {
             if (page == DOWNLOAD && catalog.isEmpty() && !catalogLoading) refreshCatalog()
             if (page == DOWNLOADED || page == CONVERSION) downloadedPacks = translations.downloaded()
         }
-        LaunchedEffect(notice) {
+        LaunchedEffect(notice,noticeDetailsOpen) {
             notice?.let { current ->
-                if (current.kind != UiNoticeKind.Error) {
+                if (current.kind != UiNoticeKind.Error && !noticeDetailsOpen) {
                     delay(2800)
                     taskState.dismissNotice()
                 }
@@ -953,7 +954,8 @@ class MainActivity : ComponentActivity() {
                             bottom = padding.calculateBottomPadding() + 12.dp
                         )
                     SystemNotice(currentNotice.message, currentNotice.kind == UiNoticeKind.Error,
-                        if (taskState.retryAction != null) taskState::retry else null, taskState::dismissNotice, noticeModifier)
+                        if (taskState.retryAction != null) taskState::retry else null, taskState::dismissNotice, noticeModifier,
+                        onDetailsVisibleChange={noticeDetailsOpen=it})
                 }
             }
         }
@@ -1010,7 +1012,7 @@ class MainActivity : ComponentActivity() {
                                 collapseFraction = collapse)
                         } else {
                             TintedBar(activeBarBackdrop, hazeState = activeHazeState) {
-                                SystemInnerTopBar(visibleTitle,::navigateBack,visiblePage!=ONBOARDING||onboardingDone)
+                                SystemInnerTopBar(visibleTitle,::navigateBack,visiblePage!=ONBOARDING||onboardingDone,visibleScrollBehavior)
                             }
                         }
                     },
