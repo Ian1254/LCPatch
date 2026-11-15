@@ -4,6 +4,33 @@ This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
 
+## test.17: dated logs, shared overflow, installed identity and refresh
+
+- The top-level title and action now share one centered horizontal row.
+- Log records are grouped by local calendar date, with individual lazy rows and
+  inset separators; there is no arbitrary eight-record chunk. Record details
+  remain secondary. Duplicate records and malformed timestamps are retained.
+- Log overflow uses Miuix OverlayListPopup, ListPopupColumn and DropdownImpl,
+  matching the existing preference menu's interaction and transition path.
+- Settings → 漢化 → 繁簡轉換 converts the currently installed bytes, snapshots
+  them first and reuses the existing validation and atomic runtime replacement.
+  Downloaded-package conversion selectors and the obsolete selection page are removed.
+  Disabled translations remain disabled. Native mode retains source glyphs.
+- Download resources removes the summary/refresh card and uses native
+  PullToRefresh with an accessibility refresh action. Empty/error states retain
+  clear feedback and error retry; refresh cannot overlap installation.
+- Overview displays the installed source version, persisted only after successful
+  application. Legacy runtime coverage can recover an official release identity.
+  Unidentified old imports show an unknown version, never the online latest.
+- Tests cover local-day boundaries, duplicate retention, invalid timestamps and
+  installed metadata precedence. Preview renders use the production entry,
+  settings, logs, title and menu components. No device/emulator testing.
+
+Local release build and lint passed. All 82 JVM cases completed: 78 passed and
+four platform/fixture cases skipped, with no failures. The four new installed
+identity and calendar-date cases passed. 26 component renders cover the new
+download content, conversion setting, aligned header and dated log rows.
+
 ## test.16: released standard selection, automatic inspection and live progress
 
 - Restore the released Miuix NavigationBar container and its resting item
