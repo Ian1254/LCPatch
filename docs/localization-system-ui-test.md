@@ -1,4 +1,35 @@
-# Localization expansion and hyper / color test build
+# Localization expansion and hyper interface validation
+
+## 1.2.3 release candidate — release notes approved
+
+The user reviewed the release notes, requested changing “調整 hyper 介面” to
+“調整介面”, and explicitly authorized publishing. Version is 1.2.3, code 76.
+The candidate must pass signed Actions validation before its main merge and
+the existing stable-release workflow.
+
+- Updates use one divider-free app card with a compact aligned channel popup.
+  Entry/channel changes check automatically; generation gating and cancellation
+  reject stale results. Existing download/install, notes and error retry remain.
+- Downloaded cards use real installed-source metadata, compact icon buttons and
+  a deletion confirmation. Only a direct downloaded-pack directory is removable;
+  canonical path checks reject escapes, and recursive local deletion does not
+  follow symlinks. Installed game data stays intact. Language switching can
+  snapshot installed data even after the corresponding download was deleted.
+- Overview no longer shows script type. Its status aligns with the pack name;
+  translation details now belong to the operating-status group. Shared rows and
+  native dropdowns use an explicit final-row separator contract.
+- The twelve unresolved speaker records in the actual official fixture are
+  eleven `//효과음` and one `//CG` rows, all numeric ID -1. These are counted
+  separately as production notes without rewriting their content. Unknown real
+  speaker models continue to increment unresolved counts.
+- Local release build/lint passed. Final regression compilation/lint and all
+  85 JVM cases completed with 81 successes, four platform/fixture skips, zero failures.
+  New cases cover deletion isolation, real-row versus annotation classification,
+  and outdated channel results. The actual official archive also reports zero
+  unresolved speaker models. No device/emulator checks were run.
+- 34 preview renders use shared production cards and overview components. They
+  cover the one-card update layout, compact pack controls and grouped separators.
+  Signed Actions validation is still required before a main merge/publishing.
 
 This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
