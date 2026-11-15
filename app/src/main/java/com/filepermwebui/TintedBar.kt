@@ -118,35 +118,21 @@ internal fun TopLevelProgressiveBar(
             Box(Modifier.fillMaxWidth().height(barHeight).background(surface))
         }
 
-        Box(
-            Modifier.fillMaxWidth().height(barHeight),
-            contentAlignment = Alignment.TopStart
+        androidx.compose.foundation.layout.Row(
+            Modifier.fillMaxWidth().height(barHeight).padding(top=statusInset,start=24.dp,end=12.dp),
+            verticalAlignment=Alignment.CenterVertically
         ) {
-            val density = LocalDensity.current
-            pageTitles.forEachIndexed { index, title ->
-                val delta = index - pagePosition
-                if (abs(delta) < 1.15f) {
-                    Text(
-                        text = title,
-                        modifier = Modifier
-                            .padding(start = 24.dp, top = statusInset + 16.dp)
-                            .offset {
-                                IntOffset(
-                                    (delta * with(density) { 120.dp.toPx() }).roundToInt(),
-                                    with(density) { (if(hyper) 0.dp else (48f*(1f-collapseFraction.coerceIn(0f,1f))).dp).roundToPx() }
-                                )
-                            }
-                            .graphicsLayer { alpha = (1f - abs(delta)).coerceIn(0f, 1f)  },
-                        color = MiuixTheme.colorScheme.onSurface,
-                        fontSize = if (hyper) 18.sp else (32f-8f*collapseFraction.coerceIn(0f,1f)).sp,
-                        lineHeight = titleLine,
-                        fontWeight = if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) FontWeight.Medium else FontWeight.SemiBold
-                    )
+            Box(Modifier.weight(1f).height(barHeight-statusInset),contentAlignment=Alignment.CenterStart) {
+                val density=LocalDensity.current
+                pageTitles.forEachIndexed { index,title ->
+                    val delta=index-pagePosition
+                    if(abs(delta)<1.15f) Text(title,
+                        Modifier.offset {IntOffset((delta*with(density) {120.dp.toPx()}).roundToInt(),0)}
+                            .graphicsLayer {alpha=(1f-abs(delta)).coerceIn(0f,1f)},
+                        color=MiuixTheme.colorScheme.onSurface,fontSize=18.sp,lineHeight=titleLine,fontWeight=FontWeight.Medium)
                 }
             }
-        }
-        Box(Modifier.align(Alignment.TopEnd).padding(top = statusInset + 10.dp, end = 12.dp)) {
-            actions()
+            Box(contentAlignment=Alignment.Center) {actions()}
         }
     }
 }
