@@ -175,8 +175,8 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 
 /** Released v1.2.2 secondary header components and layout. */
 @Composable internal fun SystemInnerTopBar(title: String,onBack: ()->Unit,showBack: Boolean=true,
-    scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior? = null) {
-    top.yukonga.miuix.kmp.basic.SmallTopAppBar(title=title,color=Color.Transparent,
+    scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior? = null, actions: @Composable RowScope.() -> Unit = {}) {
+    top.yukonga.miuix.kmp.basic.SmallTopAppBar(title=title,color=Color.Transparent, actions=actions,
         scrollBehavior=scrollBehavior?:top.yukonga.miuix.kmp.basic.MiuixScrollBehavior(),
         navigationIcon={
             if(showBack) top.yukonga.miuix.kmp.basic.IconButton(onClick=onBack) {
@@ -579,15 +579,15 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
     var details by remember { mutableStateOf(false) }
     SystemArrowPreference("運作方式說明",last=last,onClick={details=true})
     if(details) SystemModal("運作方式說明",{details=false}) {
-        Text("切換運作模式前，請先至概觀頁停用漢化。Root 模式透過模組載入；無 root 模式需先授權遊戲資料夾或 Shizuku。",
+        Text("Root 模式透過模組載入；離開 Root 模式前請先停用模組漢化。無 Root 模式直接覆蓋語言文件，須授權 Shizuku 或遊戲資料夾。",
             Modifier.padding(horizontal=24.dp,vertical=8.dp),fontSize=14.sp,lineHeight=22.sp)
         SystemDialogDone({details=false})
     }
 }
 
-@Composable internal fun SystemSecondaryEntry(title: String, value: String? = null, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun SystemSecondaryEntry(title: String, value: String? = null, last: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     var details by remember { mutableStateOf(false) }
-    SystemArrowPreference(title,value=value,last=true,onClick={details=true})
+    SystemArrowPreference(title,value=value,last=last,onClick={details=true})
     if(details) SystemModal(title,{details=false}) {
         Column(Modifier.fillMaxWidth().padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp),content=content)
         SystemDialogDone({details=false})
@@ -640,30 +640,32 @@ internal data class OverviewUiState(
     val name: String, val script: String, val language: String, val enabled: Boolean,
     val rootMode: Boolean, val gameInstalled: Boolean, val gameVersion: String, val busy: Boolean,
     val scopeStatus: String, val rootStatus: String, val loadStatus: String,
-    val ready: Boolean, val fontReady: Boolean, val jsonFiles: Int, val coverage: String, val packVersion: String? = null
+    val ready: Boolean, val fontReady: Boolean, val jsonFiles: Int, val coverage: String, val packVersion: String? = null, val loadReady: Boolean = false
 )
 
 @Composable internal fun SystemTranslationPanel(state: OverviewUiState, onEnabled: (Boolean) -> Unit,
-    onLaunch: () -> Unit, onDownload: () -> Unit) {
+    onLaunch: () -> Unit, onDownload: () -> Unit, workProgress: ApplyProgress? = null, selectedPack: DownloadedTranslation? = null, waitingForGame: Boolean = false) {
     val selected = state.name != "尚未選擇"
     val accent = MiuixTheme.colorScheme.primary
     SystemCard {
-        SystemSwitchPreference("啟用漢化", checked = state.enabled,
-            enabled = !state.busy && (state.rootMode || state.enabled), onCheckedChange = onEnabled)
+        if(state.rootMode) SystemSwitchPreference("啟用漢化", checked = state.enabled,
+            enabled = !state.busy, onCheckedChange = onEnabled)
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                Text(if(selected) state.name else "尚未選擇漢化",Modifier.weight(1f),fontSize=18.sp,lineHeight=26.sp,
+                Text(if(selected) state.name else selectedPack?.name ?: "尚未選擇漢化",Modifier.weight(1f),fontSize=18.sp,lineHeight=26.sp,
                     fontWeight=FontWeight.Medium,maxLines=2,overflow=TextOverflow.Ellipsis)
                 if(selected) {
                     Spacer(Modifier.width(12.dp))
                     val healthy=state.enabled && (!state.rootMode || state.ready && state.fontReady)
-                    Text(if(healthy) "漢化已啟用" else if(!state.enabled) "漢化已停用" else "需要重新套用",
+                    Text(if(workProgress != null) "正在套用" else if(waitingForGame) "等待套用" else if(healthy) "漢化已啟用" else if(!state.enabled) "漢化已停用" else "需要重新套用",
                         fontSize=12.sp,lineHeight=18.sp,color=if(healthy) Color(if(LocalSystemUiDark.current) 0xFF75D5A8 else 0xFF29815D)
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
-            Text(if(selected) "版本 ${state.packVersion?:"未知"}" else "先下載或匯入語言包，再套用漢化。",
+            Text(if(selectedPack != null && !selected) packVersionLabel(selectedPack.version) else if(selectedPack != null && selectedPack.name != state.name) "${selectedPack.name} · ${packVersionLabel(selectedPack.version)}" else if(selected) packVersionLabel(state.packVersion) else "下載漢化包後即可直接套用。",
                 Modifier.padding(top=5.dp,bottom=20.dp),fontSize=13.sp,lineHeight=20.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            if(waitingForGame) Text("遊戲進入標題畫面後，點擊通知套用漢化",fontSize=13.sp,lineHeight=20.sp,modifier=Modifier.padding(bottom=12.dp),color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            if(workProgress != null) SystemLanguageProgress(workProgress)
             SystemButton(if (state.gameInstalled) onLaunch else onDownload, Modifier.fillMaxWidth(), enabled = !state.busy) {
                 Text(if (state.gameInstalled) "啟動遊戲" else "取得漢化資源", fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
@@ -679,10 +681,10 @@ internal data class OverviewUiState(
 }
 
 @Composable internal fun SystemEnvironmentPanel(state: OverviewUiState, onCheckScope: () -> Unit,
-    onRequestRoot: () -> Unit, onGameFolder: () -> Unit, loadAction: String) {
+    onRequestRoot: () -> Unit, onGameFolder: () -> Unit, loadAction: String, backend: String="shizuku", onBackend: ((String)->Unit)?=null) {
     var showDetails by remember { mutableStateOf(false) }
     var translationDetails by remember {mutableStateOf(false)}
-    val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled
+    val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled && state.loadReady
     SystemCard {
         SystemArrowPreference(if (state.rootMode) "環境與權限" else "文件載入方式",
             value = if (healthy) "已就緒" else "待設定", onClick = {
@@ -698,17 +700,19 @@ internal data class OverviewUiState(
             if (state.rootMode) {
                 Text("已準備 ${state.jsonFiles} 個文字資源；${if (state.fontReady) "字型已準備" else "字型尚未準備"}", fontSize = 14.sp)
                 Text(state.coverage, fontSize = 13.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            } else Text(state.loadStatus, fontSize = 14.sp)
+            } else Text("${packVersionLabel(state.packVersion)}；${if(state.enabled) "已套用" else "尚未套用"}", fontSize = 14.sp)
         }
         SystemDialogDone({ translationDetails = false })
     }
     if (showDetails) SystemModal(if (state.rootMode) "環境與權限" else "文件載入", { showDetails = false }) {
-        SystemEnvironmentDialogBody(state,onGameFolder,loadAction) { showDetails=false }
+        SystemEnvironmentDialogBody(state,onGameFolder,loadAction,backend,onBackend) { showDetails=false }
     }
 }
 
 @Composable internal fun SystemEnvironmentDialogBody(state: OverviewUiState,
-    onGameFolder: ()->Unit,loadAction: String,onClose: ()->Unit) {
+    onGameFolder: ()->Unit,loadAction: String,backend: String="shizuku",onBackend: ((String)->Unit)?=null,onClose: ()->Unit) {
+        if(!state.rootMode && onBackend!=null) SystemDropdownPreference("文件載入方式",listOf("Shizuku","系統資料夾授權（SAF）"),
+            if(backend=="shizuku") 0 else 1,{onBackend(if(it==0) "shizuku" else "saf")},enabled=!state.busy,last=true)
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Limbus Company  ${state.gameVersion}", fontSize = 14.sp)
             if(state.rootMode) {
@@ -717,7 +721,7 @@ internal data class OverviewUiState(
             } else Text(state.loadStatus,fontSize=14.sp)
         }
         if(!state.rootMode) Box(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp)) {
-            SystemSecondaryButton(loadAction,onGameFolder,Modifier.fillMaxWidth())
+            SystemSecondaryButton(loadAction,onGameFolder,Modifier.fillMaxWidth(),enabled=!state.busy)
         }
         SystemDialogDone(onClose)
 }
@@ -884,24 +888,45 @@ internal data class OverviewUiState(
     }
 }
 
-@Composable internal fun SystemDownloadedPackCard(name: String,version: String?,active: Boolean,busy: Boolean,enabled: Boolean,progress: ApplyProgress?,onApply: ()->Unit,onDelete: ()->Unit,onExport: (() -> Unit)?=null) {
+@Composable internal fun SystemPackDeleteActions(selecting: Boolean,busy: Boolean,hasPacks: Boolean,hasSelection: Boolean,allSelected: Boolean,
+    enter: ()->Unit,selectAll: ()->Unit,confirm: ()->Unit) {
+    Row(verticalAlignment=Alignment.CenterVertically) {
+        if(selecting) SystemTextButton(if(allSelected) "取消全選" else "全選",selectAll,enabled=!busy && hasPacks)
+        Box(Modifier.size(48.dp).clip(CircleShape).clickable(enabled=!busy && if(selecting) hasSelection else hasPacks,role=Role.Button,
+            onClick=if(selecting) confirm else enter).semantics {contentDescription=if(selecting) "刪除已選漢化包" else "批量刪除漢化包"},Alignment.Center) {
+            Icon(Icons.Default.Delete,null,Modifier.size(24.dp),tint=MiuixTheme.colorScheme.onSurface.copy(alpha=if(busy || !hasPacks || selecting && !hasSelection) .38f else 1f))
+        }
+    }
+}
+
+@Composable internal fun SystemDownloadedPackCard(name: String,version: String?,active: Boolean,busy: Boolean,enabled: Boolean,
+    progress: ApplyProgress?,onApply: ()->Unit,batchMode: Boolean=false) {
+    val blue=MiuixTheme.colorScheme.primary
+    val outline=MiuixTheme.colorScheme.onSurfaceVariantSummary
     SystemCard(insideMargin=PaddingValues(18.dp)) {
-        Text(name,fontSize=18.sp,lineHeight=26.sp)
-        Text("版本 ${version?:"未知"}",Modifier.padding(top=5.dp),fontSize=13.sp,lineHeight=20.sp,
-            color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-            SystemButton(onApply,Modifier.height(48.dp),enabled=enabled) {
-                top.yukonga.miuix.kmp.basic.Icon(if(active) Icons.Default.Refresh else Icons.Default.Check,null,
-                    Modifier.size(20.dp),tint=Color.White)
-                Spacer(Modifier.width(8.dp))
-                Text(if(busy) "套用中…" else if(active) "重新套用" else "套用",fontSize=15.sp,color=Color.White)
+            Column(Modifier.weight(1f)) {
+                Text(name,fontSize=18.sp,lineHeight=26.sp)
+                Text(packVersionLabel(version),Modifier.padding(top=5.dp),fontSize=13.sp,lineHeight=20.sp,
+                    color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
-            Spacer(Modifier.weight(1f))
-            SystemDeletePackIcon(enabled,onDelete)
+            Spacer(Modifier.width(12.dp))
+            val label=if(batchMode) "選取 $name" else if(active) "重新套用 $name" else "套用 $name"
+            if(!batchMode) SystemButton(onApply,enabled=enabled) {
+                Icon(if(active) Icons.Default.Refresh else Icons.Default.Check,null,Modifier.size(18.dp),tint=Color.White)
+                Spacer(Modifier.width(6.dp))
+                Text(if(busy) "套用中" else if(active) "重新套用" else "套用",fontSize=14.sp,color=Color.White)
+            } else Box(Modifier.size(48.dp).alpha(if(enabled) 1f else .38f).clip(CircleShape)
+                .semantics {contentDescription=label;stateDescription=if(busy) "套用中" else if(active) if(batchMode) "已選取" else "已套用" else if(batchMode) "未選取" else "未套用"}
+                .toggleable(active,enabled,role=Role.Checkbox,onValueChange={onApply()}),Alignment.Center) {
+                Canvas(Modifier.size(28.dp)) {
+                    if(active) drawCircle(blue)
+                    else drawCircle(outline,style=androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+                }
+                if(active) Icon(Icons.Default.Check,null,Modifier.size(18.dp),tint=Color.White)
+            }
         }
         if(busy) SystemLanguageProgress(progress)
-        if(onExport!=null) SystemTextButton("匯出漢化 ZIP",onExport,Modifier.fillMaxWidth(),enabled)
     }
 }
 

@@ -11,7 +11,7 @@ import java.util.zip.ZipInputStream
 import org.json.JSONObject
 import com.github.houbb.opencc4j.util.ZhConverterUtil
 
-data class TranslationEntry(val section: String, val name: String, val author: String, val description: String, val url: String, val script: String? = null, val version: String? = null)
+data class TranslationEntry(val section: String, val name: String, val author: String, val description: String, val url: String, val script: String? = null, val version: String? = null, val sourceDigest: String? = null)
 data class TransferProgress(val name: String, val bytes: Long, val total: Long, val bytesPerSecond: Long, val finished: Boolean = false)
 data class ApplyProgress(val stage: String, val current: Int, val total: Int) {
     val fraction: Float? get() = total.takeIf { it > 0 }?.let { (current.toFloat() / it).coerceIn(0f, 1f) }
@@ -66,11 +66,11 @@ class TranslationRepository(private val context: Context) {
 
     private val gameStorage = GameDocumentStorage(context)
     fun gameFolder(): Uri? = gameStorage.selected()
+    fun gameFolderAuthorized(): Boolean = gameStorage.authorized()
     fun setGameFolder(uri: Uri) = gameStorage.select(uri)
     fun nativeBackend(): String = prefs.getString("native_backend", "shizuku") ?: "shizuku"
     fun setNativeBackend(value: String) {
         require(value in setOf("shizuku", "saf"))
-        check(!translationEnabled()) { "請先停用目前漢化再切換載入方式" }
         prefs.edit().putString("native_backend", value).apply()
     }
 
@@ -78,7 +78,7 @@ class TranslationRepository(private val context: Context) {
 
     fun rootMode(): Boolean = prefs.getBoolean("root_mode", prefs.contains("active_name"))
     fun setRootMode(enabled: Boolean) {
-        check(enabled == rootMode() || !translationEnabled() || activeName() == "尚未選擇") { "請先停用目前漢化再切換模式" }
+        check(enabled == rootMode() || !rootMode() || !translationEnabled() || activeName() == "尚未選擇") { "請先停用目前漢化再切換模式" }
         prefs.edit().putBoolean("root_mode", enabled).apply()
     }
 
@@ -124,27 +124,6 @@ class TranslationRepository(private val context: Context) {
         }
     }
 
-    suspend fun exportPack(entry: DownloadedTranslation, uri: Uri) = withContext(Dispatchers.IO) {
-        val work = File(staging, "export-source").also { it.deleteRecursively() }
-        val prepared = File(staging, "export-prepared").also { it.deleteRecursively(); it.mkdirs() }
-        try {
-            readPack(entry, work)
-            prepareCharacters(work) {}
-            normalizeForLanguage(work, prepared, targetLanguage())
-            if (rootMode()) {
-                writeTextAssetIndex(File(prepared, "Localize/cn"))
-                val font = File(prepared, "Localize/cn/ChineseFont.ttf")
-                customFontFile()?.copyTo(font, overwrite = true) ?: copyBundledPuaFont(font)
-            }
-            validateJsonDirectory(prepared)
-            val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("無法寫入匯出文件")
-            zipDirectory(prepared, output)
-        } finally {
-            work.deleteRecursively()
-            prepared.deleteRecursively()
-        }
-    }
-
     suspend fun fetchCatalog(): List<TranslationEntry> = withContext(Dispatchers.IO) {
         if (!rootMode()) {
             val release = JSONObject(HttpClient.open("https://api.github.com/repos/pzwboy/LocalizeLimbusCompanyForAndroid/releases/latest", accept = "application/vnd.github+json").run {
@@ -155,8 +134,11 @@ class TranslationRepository(private val context: Context) {
             val asset = (0 until assets.length()).map { assets.getJSONObject(it) }
                 .singleOrNull { it.optString("name") == "${language.id}.zip" }
                 ?: error("無 root 來源缺少 ${language.id}.zip")
-            return@withContext listOf(TranslationEntry("漢化-普通", "日文字形漢化（${language.label}）", "pzwboy / ghcruise / 都市零協會",
-                "${release.optString("tag_name")} · 保留來源的相近漢字，透過遊戲原生語言文件載入", asset.getString("browser_download_url"), "日文字形"))
+            val entry=TranslationEntry("漢化-普通", "日文字形漢化（${language.label}）", "pzwboy / ghcruise / 都市零協會",
+                "${release.optString("tag_name")} · 保留來源的相近漢字，透過遊戲原生語言文件載入", asset.getString("browser_download_url"), "日文字形", release.optString("tag_name").takeIf {it.isNotBlank()}, asset.optString("digest").takeIf {it.matches(Regex("sha256:[a-f0-9]{64}"))})
+            try { recoverNativeSourceVersions(entry) } catch(error: kotlinx.coroutines.CancellationException) {throw error}
+            catch(error: Exception) {LogRepository.append(context,"WARN","translation.version_lookup_failed",error.message ?: "版本比對未完成，保留內容識別")}
+            return@withContext listOf(entry)
         }
         val primaryResult = runCatching {
             HttpClient.open(SOURCE).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
@@ -177,6 +159,46 @@ class TranslationRepository(private val context: Context) {
                     error(if (reason.isEmpty()) "目前沒有可用的漢化資源" else "無法取得漢化清單：$reason")
                 }
             }
+    }
+
+    /** Legacy test.1 packs had no upstream metadata. Match content, never assign today's tag by name alone. */
+    private fun recoverNativeSourceVersions(entry: TranslationEntry) {
+        val version=validPackVersion(entry.version) ?: releaseAssetVersion(entry.url) ?: return
+        val candidates=localPacks.list().mapNotNull {directory ->
+            val current=readLocalPackVersion(directory)
+            if(!current.startsWith("sha256:") || prefs.getString("version_checked.$current",null)==entry.url+entry.sourceDigest.orEmpty()) null else directory to current
+        }
+        if(candidates.isEmpty()) return
+        val key="source_identity.${entry.url}.${entry.sourceDigest ?: ""}"
+        val reference=prefs.getString(key,null) ?: run {
+            val archive=File(staging,"version-reference.zip")
+            val directory=File(staging,"version-reference")
+            try {
+                directory.deleteRecursively();directory.mkdirs()
+                val connection=HttpClient.open(entry.url)
+                try {
+                    connection.inputStream.use {input -> archive.outputStream().use {output ->
+                        val buffer=ByteArray(64*1024);var total=0L
+                        while(true) {val count=input.read(buffer);if(count<0) break;total+=count;require(total<=32L*1024*1024) {"版本比對來源過大"};output.write(buffer,0,count)}
+                    }}
+                } finally {connection.disconnect()}
+                entry.sourceDigest?.let {expected ->
+                    val digest=java.security.MessageDigest.getInstance("SHA-256")
+                    archive.inputStream().use {input -> val bytes=ByteArray(64*1024);while(true) {val n=input.read(bytes);if(n<0) break;digest.update(bytes,0,n)}}
+                    check("sha256:"+digest.digest().joinToString("") {"%02x".format(it)}==expected) {"版本比對來源校驗失敗"}
+                }
+                unpackLocalize(archive,directory)
+                directoryPackIdentity(directory).also {prefs.edit().putString(key,it).apply()}
+            } finally {archive.delete();directory.deleteRecursively()}
+        }
+        candidates.forEach {(directory,identity) ->
+            val matchedVersion=matchedSourceVersion(identity,reference,version)
+            if(matchedVersion!=null) {
+                ensurePackIdentity(directory,entry.url,matchedVersion)
+                if(directory.name==prefs.getString("native_active_name",null)) prefs.edit().putString("native_active_version",version).putString("native_active_source_path",directory.absolutePath).apply()
+            }
+            prefs.edit().putString("version_checked.$identity",entry.url+entry.sourceDigest.orEmpty()).apply()
+        }
     }
 
     private fun fetchOfficialLatest(): List<TranslationEntry> {
@@ -227,14 +249,12 @@ class TranslationRepository(private val context: Context) {
             val script = entry.script ?: inferScript(entry.name)
             File(prepared, ".lcpatch-script").writeText(script)
             prepareCharacters(prepared, preparation)
-            if(entry.version!=null || isOfficialLlcUrl(entry.url)) {
-                File(prepared,".lcpatch-upstream.json").writeText(JSONObject().put("schema",1).put("url",entry.url).apply {entry.version?.let {put("version",it)}}.toString())
-            }
+            val identifiedVersion=ensurePackIdentity(prepared,entry.url,entry.version ?: archivePackVersion(output))
             val publicPath = savePack(prepared, entry.name)
             output.delete()
             progress(TransferProgress(fileName, result.bytes, if (result.total > 0) result.total else result.bytes, 0, true))
             LogRepository.append(context, "INFO", "download.completed", "${entry.name} 已下載並解壓到獨立目錄")
-            DownloadedTranslation(entry.name, publicPath, script, rootMode())
+            DownloadedTranslation(entry.name, publicPath, script, rootMode(),identifiedVersion)
         } catch (error: Throwable) {
             val looksLikeZip = runCatching {
                 part.length() > 4 && part.inputStream().use { it.read() == 0x50 && it.read() == 0x4b }
@@ -274,7 +294,7 @@ class TranslationRepository(private val context: Context) {
         }
         val sourceMetadata=File(raw,".lcpatch-upstream.json").takeIf {it.isFile && it.length()<8192}?.readText()
             ?:File(raw,"Localize/cn/$VERSION_MARKER").takeIf {it.isFile && it.length()<8192}?.readText()
-        val installedVersion=installedPackVersion(sourceMetadata,null)
+        val installedVersion=installedPackVersion(sourceMetadata,null) ?: ensurePackIdentity(raw)
         File(unpacked,"Localize/cn/$VERSION_MARKER").writeText(
             sourceMetadata?:JSONObject().put("schema",1).toString())
         progress(ApplyProgress("正在驗證語言文件",0,0))
@@ -291,7 +311,7 @@ class TranslationRepository(private val context: Context) {
         require(inspection.ready) { "遊戲快取驗證失敗：找不到 ${targetLanguage().prefix} 漢化文件" }
         require(inspection.fontReady) { "遊戲快取驗證失敗：中文字型未寫入" }
         progress(ApplyProgress("套用完成", 1, 1))
-        prefs.edit().putString("active_name", displayName).putString("active_script", script).putString("active_version",installedVersion).apply()
+        prefs.edit().putString("active_name", displayName).putString("active_script", script).putString("active_version",installedVersion).putString("active_source_path",prefs.getString("applying_source_path",null)).apply()
         LogRepository.append(context, "INFO", "translation.applied", "已套用 $displayName")
         return displayName
     }
@@ -303,6 +323,8 @@ class TranslationRepository(private val context: Context) {
         val coverage=RootShell.run("cat ${quote("$directory/.lcpatch-coverage.txt")} 2>/dev/null || true",timeoutMs=15_000L,maxOutputChars=8192).output
         return metadata.takeIf {it.isNotBlank()} to coverage.takeIf {it.isNotBlank()}
     }
+
+    fun activePackPath(): String? = prefs.getString(if(rootMode()) "active_source_path" else "native_active_source_path",null)
 
     fun activeName(): String = prefs.getString(if (rootMode()) "active_name" else "native_active_name", "尚未選擇") ?: "尚未選擇"
     fun activeScript(): String = if (!rootMode()) "日文字形" else prefs.getString("active_script", null)?.takeIf { it in setOf("簡體", "繁體") }
@@ -320,7 +342,9 @@ class TranslationRepository(private val context: Context) {
         if (!rootMode()) return@withContext localPacks.list().map { file ->
             val script = File(file, ".lcpatch-script").takeIf(File::isFile)?.readText()?.trim()
                 ?.takeIf { it in setOf("簡體", "繁體") } ?: "日文字形"
-            DownloadedTranslation(file.name, file.absolutePath, script, File(file, PUA_MARKER).isFile,readLocalPackVersion(file))
+            val version=readLocalPackVersion(file)
+            if(file.name==activeName() && activeVersion()==null) prefs.edit().putString("native_active_version",version).putString("native_active_source_path",file.absolutePath).apply()
+            DownloadedTranslation(file.name, file.absolutePath, script, File(file, PUA_MARKER).isFile,version)
         }
         repairStorage()
         val result = executeRoot("find ${quote(PUBLIC_DOWNLOADS)} -mindepth 1 -maxdepth 1 -type d -print")
@@ -337,11 +361,35 @@ class TranslationRepository(private val context: Context) {
             val canonical = "$PUBLIC_DOWNLOADS/$cleanName"
             if (original != canonical) runRoot("mv -f ${quote(original)} ${quote(canonical)}")
             DownloadedTranslation(cleanName, canonical, readScript(canonical, cleanName), rootFileExists("$canonical/$PUA_MARKER"),
-                installedPackVersion(executeRoot("cat ${quote("$canonical/.lcpatch-upstream.json")} 2>/dev/null").output,null))
-        }.toList().distinctBy { it.path }.sortedBy { it.name.lowercase() }
+                rootDownloadedPackVersion(canonical))
+        }.toList().distinctBy { it.path }.sortedBy { it.name.lowercase() }.also {entries ->
+            if(activeVersion()==null) entries.firstOrNull {it.name==activeName() && it.version!=null}?.let {entry ->
+                prefs.edit().putString("active_version",entry.version).putString("active_source_path",entry.path).apply()
+            }
+        }
     }
 
-    suspend fun apply(entry: DownloadedTranslation, progress: suspend (ApplyProgress) -> Unit = {}): String = withContext(Dispatchers.IO) {
+    private fun rootDownloadedPackVersion(directory: String): String? {
+        val metadata=executeRoot("cat ${quote("$directory/.lcpatch-upstream.json")} 2>/dev/null").output
+        installedPackVersion(metadata,null)?.let {return it}
+        val coverage=executeRoot("cat ${quote("$directory/Localize/cn/.lcpatch-coverage.txt")} 2>/dev/null").output
+        installedPackVersion(null,coverage)?.let {return it}
+        val result=RootShell.run("cd ${quote(directory)} && find Localize -type f -name '*.json' ! -name '.*' -exec sha256sum {} \\;",timeoutMs=120_000L,maxOutputChars=4*1024*1024)
+        if(!result.success || result.truncated) return null
+        val records=mutableListOf<Pair<String,String>>()
+        for(line in result.output.lineSequence().filter {it.isNotBlank()}) {
+            val match=Regex("^([a-f0-9]{64})  (Localize/.*)$").matchEntire(line) ?: return null
+            records+=match.groupValues[2] to match.groupValues[1]
+        }
+        return records.takeIf {it.isNotEmpty()}?.let(::contentPackIdentity)
+    }
+
+    suspend fun apply(
+        entry: DownloadedTranslation,
+        nativeProgress: ((Int, Int) -> Unit)? = null,
+        progress: suspend (ApplyProgress) -> Unit = {}
+    ): String = withContext(Dispatchers.IO) {
+        prefs.edit().putString("applying_source_path",entry.path).apply()
         progress(ApplyProgress("正在讀取已下載漢化",0,0))
         if (!rootMode()) {
             val raw = File(staging, "native-source").also { it.deleteRecursively() }
@@ -357,17 +405,19 @@ class TranslationRepository(private val context: Context) {
                     progress(ApplyProgress("正在透過 Shizuku 寫入原生語言文件", 0, 0))
                     NativeStorageClient.use(context) { service ->
                         ParcelFileDescriptor.open(archive, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                            val error = service.apply(descriptor, targetLanguage().id)
-                            if (error.isNotEmpty() && !service.hasBackup()) {
-                                prefs.edit().remove("native_active_name").remove("native_active_language").apply()
+                            val callback = object : INativeProgressCallback.Stub() {
+                                override fun onProgress(completed: Int, total: Int) {
+                                    nativeProgress?.invoke(completed, total)
+                                }
                             }
+                            val error = service.apply(descriptor, targetLanguage().id, callback)
                             check(error.isEmpty()) { error }
                         }
                     }
                 } finally { archive.delete() }
             } else gameStorage.apply(directory, targetLanguage(), progress)
             prefs.edit().putString("native_active_name", entry.name).putString("native_active_language", targetLanguage().id)
-                .putString("native_active_version",installedPackVersion(File(raw,".lcpatch-upstream.json").takeIf {it.isFile && it.length()<8192}?.readText(),null)).apply()
+                .putString("native_active_version",entry.version ?: ensurePackIdentity(raw)).putString("native_active_source_path",entry.path).apply()
             LogRepository.append(context, "INFO", "translation.native_applied", "已寫入原生語言目錄：${entry.name}")
             return@withContext entry.name
         }
@@ -392,11 +442,12 @@ class TranslationRepository(private val context: Context) {
         unpackLocalize(cache, prepared)
         File(prepared, ".lcpatch-script").writeText(inferScript(label))
         prepareCharacters(prepared) {}
+        val identifiedVersion=ensurePackIdentity(prepared,version=archivePackVersion(cache))
         val publicPath = savePack(prepared, label)
         cache.delete()
         prefs.edit().putString("download.${cache.name}", label).apply()
         LogRepository.append(context, "INFO", "translation.imported", "已匯入並解壓 $label")
-        DownloadedTranslation(label, publicPath, if (rootMode()) inferScript(label) else "日文字形", rootMode())
+        DownloadedTranslation(label, publicPath, if (rootMode()) inferScript(label) else "日文字形", rootMode(),identifiedVersion)
     }
 
     fun targetLanguage(): OverrideLanguage {
@@ -476,7 +527,7 @@ class TranslationRepository(private val context: Context) {
     fun hasCustomFont(): Boolean = customFontFile() != null
 
     fun translationEnabled(): Boolean = if (rootMode()) prefs.getBoolean("translation_enabled", true)
-        else if (nativeBackend() == "saf") gameStorage.hasBackup() else prefs.contains("native_active_name")
+        else prefs.contains("native_active_name")
 
     fun migrateRuntime() {
         if (!rootMode()) return
@@ -531,15 +582,7 @@ class TranslationRepository(private val context: Context) {
     }
 
     suspend fun setTranslationEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
-        if (!rootMode()) {
-            require(!enabled) { "請從已下載漢化選擇套用" }
-            if (nativeBackend() == "shizuku") NativeStorageClient.use(context) { service ->
-                val error = service.restore()
-                check(error.isEmpty()) { error }
-            } else gameStorage.restore()
-            prefs.edit().remove("native_active_name").remove("native_active_language").apply()
-            return@withContext
-        }
+        check(rootMode()) { "無 Root 模式請直接套用漢化" }
         val command = if (enabled) {
             "am force-stop $GAME_PACKAGE && if ${validLanguageDirectoryTest(NATIVE_DISABLED)}; then rm -rf ${quote(NATIVE_COMPAT)} && mv ${quote(NATIVE_DISABLED)} ${quote(NATIVE_COMPAT)}; else ${validLanguageDirectoryTest(NATIVE_COMPAT)}; fi"
         } else {
@@ -838,15 +881,11 @@ internal fun officialReleaseUrl(value: String?): String? = value?.takeIf {
 }
 
 internal fun installedPackVersion(metadata: String?,coverage: String?): String? {
-    fun valid(value: String?): String? = value?.takeIf {
-        it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+-]{0,79}")) && it.lowercase() !in setOf("latest","null","unknown")
-    }
     val json=metadata?.takeIf {it.length<8192}?.let {runCatching {JSONObject(it)}.getOrNull()}?.takeIf {it.optInt("schema")==1}
-    valid(json?.optString("version"))?.let {return it}
-    val url=json?.optString("url")?.takeIf(::isOfficialLlcUrl) ?: officialReleaseUrl(coverage)
-    val tag=url?.substringAfter("/releases/download/","")?.substringBefore('/')
-    return valid(tag?.let {runCatching {java.net.URLDecoder.decode(it,"UTF-8")}.getOrNull()})
+    validPackVersion(json?.optString("version"))?.let {return it}
+    releaseAssetVersion(json?.optString("url"))?.let {return it}
+    releaseAssetVersion(officialReleaseUrl(coverage))?.let {return it}
+    return json?.optString("content_id")?.takeIf {it.matches(Regex("sha256:[a-f0-9]{64}"))}
 }
 
-internal fun readLocalPackVersion(directory: File): String? = installedPackVersion(
-    File(directory,".lcpatch-upstream.json").takeIf {it.isFile && it.length()<8192}?.readText(),null)
+internal fun readLocalPackVersion(directory: File): String = ensurePackIdentity(directory)

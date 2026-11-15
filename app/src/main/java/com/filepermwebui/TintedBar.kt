@@ -98,7 +98,7 @@ internal fun TopLevelProgressiveBar(
 ) {
     val hyper = true
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val titleLine = if (hyper) 24.sp else (42f-10f*collapseFraction.coerceIn(0f,1f)).sp
+    val titleLine = if (hyper) 32.sp else (42f-10f*collapseFraction.coerceIn(0f,1f)).sp
     val barHeight = statusInset + maxOf(56.dp, with(LocalDensity.current) { titleLine.toDp() } + 16.dp)
     val surface = MiuixTheme.colorScheme.surface
 
@@ -129,7 +129,7 @@ internal fun TopLevelProgressiveBar(
                     if(abs(delta)<1.15f) Text(title,
                         Modifier.offset {IntOffset((delta*with(density) {120.dp.toPx()}).roundToInt(),0)}
                             .graphicsLayer {alpha=(1f-abs(delta)).coerceIn(0f,1f)},
-                        color=MiuixTheme.colorScheme.onSurface,fontSize=18.sp,lineHeight=titleLine,fontWeight=FontWeight.Medium)
+                        color=MiuixTheme.colorScheme.onSurface,fontSize=26.sp,lineHeight=titleLine,fontWeight=FontWeight.Bold)
                 }
             }
             Box(contentAlignment=Alignment.Center) {actions()}

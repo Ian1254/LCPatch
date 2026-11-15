@@ -19,32 +19,23 @@ class NativeStorageService : INativeStorageService.Stub() {
         return NativeFileInstaller(File("/storage/emulated/$user/Android/data/com.ProjectMoon.LimbusCompany/files/Assets/Resources_moved/Localize"))
     }
 
-    private fun stopGame() {
-        val process = ProcessBuilder("am", "force-stop", "--user", "current", "com.ProjectMoon.LimbusCompany")
-            .redirectErrorStream(true).start()
-        if (!process.waitFor(10, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            error("無法關閉遊戲，未變更文件")
-        }
-        check(process.exitValue() == 0) { "無法關閉遊戲，未變更文件" }
-    }
-
-    @Synchronized override fun apply(archive: ParcelFileDescriptor, language: String): String = try {
+    @Synchronized override fun apply(
+        archive: ParcelFileDescriptor,
+        language: String,
+        callback: INativeProgressCallback
+    ): String = try {
         require(language in setOf("jp", "kr"))
-        stopGame()
-        ParcelFileDescriptor.AutoCloseInputStream(archive).use { installer().apply(it, language) }
+        ParcelFileDescriptor.AutoCloseInputStream(archive).use { input ->
+            installer().applyOverlay(input, language) { completed, total ->
+                // Notification UI must not be able to interrupt a file transaction.
+                runCatching { callback.onProgress(completed, total) }
+            }
+        }
         ""
     } catch (error: Exception) {
-        archive.close()
+        runCatching { archive.close() }
         error.message ?: "原生文件寫入失敗"
     }
 
-    @Synchronized override fun restore(): String = try {
-        stopGame()
-        installer().restore()
-        ""
-    } catch (error: Exception) { error.message ?: "原始文件還原失敗" }
-
-    override fun hasBackup(): Boolean = installer().hasBackup()
     override fun destroy() { kotlin.system.exitProcess(0) }
 }
