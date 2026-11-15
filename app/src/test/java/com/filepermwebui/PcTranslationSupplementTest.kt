@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,8 +28,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
 import com.android.tools.screenshot.PreviewTest
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -206,6 +214,7 @@ class AutomaticLlcPreparationTest {
             }
             val report=supplementTranslationDirectory(target,reference,"JP",{it},{it})
             assertTrue("Should resolve story speaker fields directly",report.speakerFields>0)
+            assertEquals("The official pack's twelve stage notes are not missing characters",0,report.unresolvedSpeakers)
             fun compare(expected: Any?,actual: Any?,path: String,key: String="") {
                 when(expected) {
                     is JSONObject -> {
@@ -303,14 +312,14 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
                                 SystemDropdownPreference("覆蓋語言文件", listOf("日本語", "한국어", "English"), 0, {})
                                 SystemActiveConversion("繁體",true,{})
                                 SystemArrowPreference("匯入漢化包", value = "ZIP 檔案", onClick = {})
-                                SystemArrowPreference("更換字型", value = "內建中文字型", onClick = {})
+                                SystemArrowPreference("更換字型", last=true,value = "內建中文字型", onClick = {})
                             } }
                             item { SystemSectionLabel("應用程式") }
                             item { SystemCard {
                                 SystemArrowPreference("介面與顯示", summary = "深淺模式、底欄與模糊效果", onClick = {})
                                 SystemArrowPreference("診斷文件儲存位置", value = "預設位置", onClick = {})
                                 SystemArrowPreference("應用程式更新", onClick = {})
-                                SystemArrowPreference("關於", onClick = {})
+                                SystemArrowPreference("關於", last=true,onClick = {})
                             } }
                         }
                     }
@@ -543,5 +552,155 @@ class InstalledIdentityAndLogDateTest {
                 }
             }
         }
+    }
+}
+
+// Visual proposal only: deletion/update actions are intentionally inert here.
+@Composable private fun ProposalDivider() {
+    Box(Modifier.fillMaxWidth().height(.5.dp).background(MiuixTheme.colorScheme.dividerLine))
+}
+
+@Composable private fun ProposalPack(name: String,active: Boolean=false,version: String?="2026111401") {
+    SystemDownloadedPackCard(name,version,active,false,true,null,{},{})
+}
+
+@Composable private fun ProposalDownloadedContent() {
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=14.dp,vertical=12.dp),
+        verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        item {ProposalPack("都市零協會官方簡體漢化",version="未知")}
+        item {ProposalPack("零協會漢化",true)}
+        item {ProposalPack("零協會漢化（LCPatch 整理版）",version="未知")}
+    }
+}
+
+@Composable private fun ProposalHeader(title: String) {
+    Box(Modifier.fillMaxWidth().height(56.dp),contentAlignment=androidx.compose.ui.Alignment.Center) {
+        Text(title,fontSize=20.sp,lineHeight=28.sp)
+        Box(Modifier.align(androidx.compose.ui.Alignment.CenterStart).padding(start=12.dp).size(48.dp),contentAlignment=androidx.compose.ui.Alignment.Center) {
+            top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Back,"返回",Modifier.size(26.dp),tint=MiuixTheme.colorScheme.onSurface)
+        }
+    }
+}
+
+@Composable private fun ProposalScreen(title: String,dark: Boolean=true,content: @Composable ()->Unit) {
+    SystemUiTheme(SystemUiStyle.HyperOS4,if(dark) "dark" else "light") {
+        SystemCanvas {
+            Column(Modifier.fillMaxSize()) {
+                Spacer(Modifier.height(26.dp))
+                ProposalHeader(title)
+                content()
+            }
+        }
+    }
+}
+
+@PreviewTest @Preview(name="DownloadedProposal",widthDp=393,heightDp=852)
+@Composable fun DownloadedProposal()=ProposalScreen("選擇套用") {ProposalDownloadedContent()}
+
+@PreviewTest @Preview(name="DownloadedLightProposal",widthDp=393,heightDp=852)
+@Composable fun DownloadedLightProposal()=ProposalScreen("選擇套用",false) {ProposalDownloadedContent()}
+
+@Composable private fun ProposalUpdateContent(checking: Boolean=false) {
+    Box(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=12.dp)) {
+        SystemUpdateCard(BuildConfig.VERSION_NAME,"beta",if(checking) "正在檢查更新…" else "已是最新版本",!checking,true,{})
+    }
+}
+
+@PreviewTest @Preview(name="UpdateProposal",widthDp=393,heightDp=852)
+@Composable fun UpdateProposal()=ProposalScreen("應用程式更新") {ProposalUpdateContent()}
+
+@PreviewTest @Preview(name="UpdateLightProposal",widthDp=393,heightDp=852)
+@Composable fun UpdateLightProposal()=ProposalScreen("應用程式更新",false) {ProposalUpdateContent()}
+
+@PreviewTest @Preview(name="DeleteProposal",widthDp=393,heightDp=852)
+@Composable fun DeleteProposal()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
+    Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
+        Column {
+            Spacer(Modifier.height(26.dp));ProposalHeader("選擇套用");ProposalDownloadedContent()
+        }
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.50f)))
+        SystemSheetSurface("刪除漢化包",Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(12.dp),true) {
+            Column(Modifier.padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                Text("零協會漢化",fontSize=17.sp,lineHeight=25.sp)
+                Text("確定刪除此漢化包？只會移除下載的檔案，已套用到遊戲的漢化不受影響。",
+                    fontSize=14.sp,lineHeight=22.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=18.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                SystemSecondaryButton("取消",{},Modifier.weight(1f))
+                SystemButton({},Modifier.weight(1f)) {Text("刪除")}
+            }
+        }
+    }
+}
+
+
+@PreviewTest @Preview(name="UpdateCheckingProposal",widthDp=393,heightDp=852)
+@Composable fun UpdateCheckingProposal()=ProposalScreen("應用程式更新") {ProposalUpdateContent(true)}
+
+@Composable private fun ProposalStatusRow(title: String,value: String?=null) {
+    Row(Modifier.fillMaxWidth().heightIn(min=60.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+        Text(title,Modifier.weight(1f),fontSize=16.sp,lineHeight=23.sp)
+        if(value!=null) Text(value,fontSize=13.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Spacer(Modifier.width(12.dp))
+        val ink=MiuixTheme.colorScheme.onSurfaceVariantSummary
+        Box(Modifier.size(14.dp).drawBehind {
+            val path=androidx.compose.ui.graphics.Path().apply {
+                moveTo(size.width*.35f,size.height*.15f);lineTo(size.width*.7f,size.height*.5f);lineTo(size.width*.35f,size.height*.85f)
+            }
+            drawPath(path,ink,style=androidx.compose.ui.graphics.drawscope.Stroke(width=1.6.dp.toPx(),cap=androidx.compose.ui.graphics.StrokeCap.Round))
+        })
+    }
+}
+
+@Composable private fun ProposalOverviewContent() { ScreenFixture(SystemUiStyle.HyperOS4,true,page=0) }
+
+@PreviewTest @Preview(name="OverviewProposal",widthDp=393,heightDp=852)
+@Composable fun OverviewProposal()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {ProposalOverviewContent()}
+
+@PreviewTest @Preview(name="OverviewLightProposal",widthDp=393,heightDp=852)
+@Composable fun OverviewLightProposal()=ScreenFixture(SystemUiStyle.HyperOS4,false,page=0)
+
+
+class ReleaseDataRegressionTest {
+    @Test fun productionAnnotationsAreNotUnresolvedSpeakersButRealRowsRemainUnresolved() {
+        val root=Files.createTempDirectory("speaker-notes").toFile()
+        try {
+            File(root,"ScenarioModelCodes-AutoCreated.json").writeText("{\"dataList\":[]}")
+            val stories=File(root,"StoryData").apply {mkdirs()}
+            val rows=org.json.JSONArray()
+            repeat(11) {rows.put(JSONObject().put("id",-1).put("model","//효과음").put("content","stage sound"))}
+            rows.put(JSONObject().put("id",-1).put("model","//CG").put("content","stage CG"))
+            rows.put(JSONObject().put("id",10).put("model","//CG").put("content","real row"))
+            rows.put(JSONObject().put("id",11).put("model","unknown").put("content","dialogue"))
+            val file=File(stories,"test.json").apply {writeText(rows.toString())}
+            val original=file.readText()
+            val result=completeScenarioSpeakers(root)
+            assertEquals(12,result.productionNotes);assertEquals(2,result.unresolved)
+            assertEquals(original,file.readText())
+        } finally {root.deleteRecursively()}
+    }
+    @Test fun deletingDownloadPreservesInstalledCopyAndRejectsEscapes() {
+        val root=Files.createTempDirectory("delete-pack").toFile()
+        try {
+            val packs=File(root,"packs").apply {mkdirs()}
+            val pack=File(packs,"pack").apply {mkdirs();File(this,"a.json").writeText("data")}
+            val runtime=File(root,"runtime").apply {pack.copyRecursively(this)}
+            // On hosts that permit symlinks, even nested links must not erase
+            // files outside the downloaded pack during deletion.
+            runCatching {Files.createSymbolicLink(File(pack,"runtime-link").toPath(),runtime.toPath())}
+            val store=LocalPackStorage(packs)
+            assertThrows(IllegalArgumentException::class.java) {store.delete(root.path)}
+            assertThrows(IllegalArgumentException::class.java) {store.delete(File(packs,"../runtime").path)}
+            assertThrows(IllegalArgumentException::class.java) {store.delete(File(packs,".internal").path)}
+            store.delete(pack.path)
+            assertFalse(pack.exists());assertEquals("data",File(runtime,"a.json").readText())
+        } finally {root.deleteRecursively()}
+    }
+    @Test fun oldChannelResponseCannotOverwriteNewerSelection() {
+        val requests=LatestUpdateRequest()
+        val stable=requests.begin();val beta=requests.begin()
+        assertFalse(requests.accepts(stable));assertTrue(requests.accepts(beta))
+        val stableAgain=requests.begin()
+        assertFalse(requests.accepts(beta));assertTrue(requests.accepts(stableAgain))
     }
 }
