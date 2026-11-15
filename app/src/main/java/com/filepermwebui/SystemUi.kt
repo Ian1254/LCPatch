@@ -579,7 +579,7 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
     var details by remember { mutableStateOf(false) }
     SystemArrowPreference("運作方式說明",last=last,onClick={details=true})
     if(details) SystemModal("運作方式說明",{details=false}) {
-        Text("Root 模式透過模組載入；離開 Root 模式前請先停用模組漢化。無 Root 模式直接覆蓋語言文件，須授權 Stellar 或遊戲資料夾。",
+        Text("Root 模式透過模組載入；離開 Root 模式前請先停用模組漢化。無 Root 模式直接覆蓋語言文件，須安裝並授權 Stellar。",
             Modifier.padding(horizontal=24.dp,vertical=8.dp),fontSize=14.sp,lineHeight=22.sp)
         SystemDialogDone({details=false})
     }
@@ -681,12 +681,12 @@ internal data class OverviewUiState(
 }
 
 @Composable internal fun SystemEnvironmentPanel(state: OverviewUiState, onCheckScope: () -> Unit,
-    onRequestRoot: () -> Unit, onGameFolder: () -> Unit, loadAction: String, backend: String="stellar", onBackend: ((String)->Unit)?=null) {
+    onRequestRoot: () -> Unit, onAuthorize: () -> Unit, loadAction: String) {
     var showDetails by remember { mutableStateOf(false) }
     var translationDetails by remember {mutableStateOf(false)}
     val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled && state.loadReady
     SystemCard {
-        SystemArrowPreference(if (state.rootMode) "環境與權限" else "文件載入方式",
+        SystemArrowPreference(if (state.rootMode) "環境與權限" else "Stellar 與權限",
             value = if (healthy) "已就緒" else "待設定", onClick = {
                 showDetails = true
                 if(state.rootMode) { onCheckScope();onRequestRoot() }
@@ -704,15 +704,13 @@ internal data class OverviewUiState(
         }
         SystemDialogDone({ translationDetails = false })
     }
-    if (showDetails) SystemModal(if (state.rootMode) "環境與權限" else "文件載入", { showDetails = false }) {
-        SystemEnvironmentDialogBody(state,onGameFolder,loadAction,backend,onBackend) { showDetails=false }
+    if (showDetails) SystemModal(if (state.rootMode) "環境與權限" else "Stellar 與權限", { showDetails = false }) {
+        SystemEnvironmentDialogBody(state,onAuthorize,loadAction) { showDetails=false }
     }
 }
 
 @Composable internal fun SystemEnvironmentDialogBody(state: OverviewUiState,
-    onGameFolder: ()->Unit,loadAction: String,backend: String="stellar",onBackend: ((String)->Unit)?=null,onClose: ()->Unit) {
-        if(!state.rootMode && onBackend!=null) SystemDropdownPreference("文件載入方式",listOf("Stellar","系統資料夾授權（SAF）"),
-            if(backend=="stellar") 0 else 1,{onBackend(if(it==0) "stellar" else "saf")},enabled=!state.busy,last=true)
+    onAuthorize: ()->Unit,loadAction: String,onClose: ()->Unit) {
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Limbus Company  ${state.gameVersion}", fontSize = 14.sp)
             if(state.rootMode) {
@@ -721,7 +719,7 @@ internal data class OverviewUiState(
             } else Text(state.loadStatus,fontSize=14.sp)
         }
         if(!state.rootMode) Box(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp)) {
-            SystemSecondaryButton(loadAction,onGameFolder,Modifier.fillMaxWidth(),enabled=!state.busy)
+            SystemSecondaryButton(loadAction,onAuthorize,Modifier.fillMaxWidth(),enabled=!state.busy)
         }
         SystemDialogDone(onClose)
 }

@@ -14,7 +14,7 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器，�
 
 - Android 9（API 28）以上，ARM64（`arm64-v8a`）裝置。
 - 已安裝 Limbus Company，並下載所選的遊戲語言資源。
-- 無 Root：推薦 [Stellar](https://github.com/roro2239/Stellar)，開啟其 **Shizuku 相容層**；亦支援系統允許的 SAF 資料夾授權。
+- 無 Root：推薦 [Stellar](https://github.com/roro2239/Stellar)，開啟其 **Shizuku 相容層**。
 - Root：Root 權限與支援 libxposed API 102 的 LSPosed 環境。
 
 Stellar 是外部服務管理器。LCPatch 使用它官方提供的相容層，保留 Shizuku API／provider 用戶端套件，不需要安裝 Shizuku Manager，也未接入計畫於 Stellar 2.0 棄用的獨立 Stellar API。請只啟動要使用的服務，避免兩個服務同時提供連線。安裝 Stellar 不會改變原本管理器的安裝狀態。
@@ -25,7 +25,7 @@ Stellar 使用方式與相容層開關見 [官方說明](https://github.com/roro
 
 1. 安裝並啟動 [Stellar](https://github.com/roro2239/Stellar/releases/latest)，確認「Shizuku 相容層」已開啟。Stellar 可透過 ADB／無線偵錯啟動，不要求 LCPatch 自行取得 Root。
 2. 在遊戲內切換至日本語或 한국어，完成對應語言資源下載。
-3. 在 LCPatch 選擇「無 Root」，由概觀的「文件載入方式」確認 Stellar 已連線並授予 LCPatch 權限。
+3. 在 LCPatch 選擇「無 Root」，由概觀的「Stellar 與權限」確認 Stellar 已連線並授予 LCPatch 權限。
 4. 在「設定 → 漢化」選擇對應的覆蓋語言；下載無 Root 專用漢化，或匯入包含 `Localize/jp`／`Localize/kr` 的 ZIP。
 5. 下載完成直接開始套用；已有漢化包可從「已下載漢化」按「套用／重新套用」。通知與畫面顯示實際處理進度及結果。
 6. 從概觀啟動遊戲時，可建立待套用通知；遊戲顯示標題畫面後，點擊整張通知再次套用，通知內沒有獨立動作按鈕。
@@ -34,7 +34,7 @@ Stellar 使用方式與相容層開關見 [官方說明](https://github.com/roro
 
 原生套用逐檔寫入 `files/Assets/Resources_moved/Localize/jp` 或 `kr`，不強制停止遊戲、不備份或還原原始語言目錄，也不因舊備份存在而阻擋重套。遊戲或語言資源更新後，如內容被覆寫，可重新套用。
 
-SAF 載入方式也集中在概觀的「文件載入方式」中。Android 11 以上的標準系統選擇器可能限制存取 `Android/data`；SAF 不繞過系統限制，必須實際取得所選 `Localize` 目錄的讀寫權限。漢化包只支援匯入，不再提供匯出 ZIP 功能。
+無 Root 統一使用 Stellar，不再提供 SAF 遊戲資料夾後端。漢化包只支援匯入，不提供匯出 ZIP 功能。
 
 ## Root／LSPosed 使用方式
 

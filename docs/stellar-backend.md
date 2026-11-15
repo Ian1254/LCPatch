@@ -10,9 +10,9 @@
 
 ## 行為
 
-- 無 Root 預設載入方式為 Stellar；舊的 `shizuku` 偏好值自動解讀為 `stellar`，SAF 設定維持原值。
+- 無 Root 僅使用 Stellar；移除 SAF 遊戲資料夾授權、寫入後端與載入方式選擇。舊的後端偏好值不再參與分流。
 - 保留已下載內容、已套用名稱／版本與原本選用包的記錄。
-- 先檢查 `roro.stellar.manager` 是否可用，再檢查相容層 Binder 與權限。
+- 從概觀「Stellar 與權限」操作；先檢查 `roro.stellar.manager` 是否可用，再檢查相容層 Binder 與權限。
 - 未安裝時授權入口開啟 Stellar 的官方下載頁；未連線時開啟管理器，提示啟動服務與相容層。
 - UserService 仍使用既有 Shizuku 用戶端協定，由 Stellar 的轉接層處理。需要在 Stellar 開啟「Shizuku 相容層」；不要同時啟動兩個提供相同協定的服務。
 - 服務改稱 Stellar，不改 Root／LSPosed native 核心、套用內容或直接套用流程。

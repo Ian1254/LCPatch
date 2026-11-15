@@ -250,9 +250,6 @@ class MainActivity : ComponentActivity() {
             packDeleteSelection=ArrayList(packDeleteSelection.filter {path -> downloadedPacks.any {it.path==path}})
         }
         var rootMode by remember { mutableStateOf(translations.rootMode()) }
-        var gameFolder by remember { mutableStateOf(translations.gameFolder()) }
-        var gameFolderReady by remember { mutableStateOf(false) }
-        var nativeBackend by remember { mutableStateOf(translations.nativeBackend()) }
         var stellarStatus by remember { mutableStateOf(NativeStorageClient.status(this@MainActivity)) }
         var activeName by remember { mutableStateOf(translations.activeName()) }
         var activeScript by remember { mutableStateOf(translations.activeScript()) }
@@ -388,13 +385,6 @@ class MainActivity : ComponentActivity() {
                 } else Shizuku.requestPermission(101)
             }.onFailure { taskState.error(it.message ?: "無法請求 Stellar 權限") }
         }
-        val gameFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            if (uri != null) taskState.launchTask {
-                runCatching { withContext(Dispatchers.IO) { translations.setGameFolder(uri) } }
-                    .onSuccess { gameFolder = uri; taskState.success("遊戲 Localize 資料夾已授權") }
-                    .onFailure { taskState.error("遊戲資料夾授權失敗：${it.message}") }
-            }
-        }
         val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if(uri!=null) {
                 runCatching {logs.setSelectedFolder(uri)}
@@ -505,7 +495,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         LaunchedEffect(Unit) { refreshCatalog() }
-        LaunchedEffect(page, resumeRevision, rootMode, gameFolder, nativeBackend) {
+        LaunchedEffect(page, resumeRevision, rootMode) {
             if (rootMode && (page == OVERVIEW || page == ONBOARDING)) {
                 // Restore accurate state after launch/resume without spamming notices.
                 refreshRootStatus(showNotice = false)
@@ -513,7 +503,6 @@ class MainActivity : ComponentActivity() {
             } else if (!rootMode) {
                 rootStatus = "未檢查"
                 stellarStatus = NativeStorageClient.status(this@MainActivity)
-                if(nativeBackend == "saf") gameFolderReady = withContext(Dispatchers.IO) { translations.gameFolderAuthorized() }
                 activeName = translations.activeName()
                 translationEnabled = translations.translationEnabled()
             }
@@ -559,7 +548,7 @@ class MainActivity : ComponentActivity() {
         }
         launchSelectedGame = launch@{
             if (applying || installingEntryKey != null) return@launch
-            if (rootMode || nativeBackend != "stellar") { launchGame(); return@launch }
+            if (rootMode) { launchGame(); return@launch }
             val pack = downloadedPacks.firstOrNull { it.path == selectedStellarPath }
                 ?: downloadedPacks.firstOrNull { it.name == activeName }
             if (pack == null) { launchGame(); return@launch }
@@ -724,16 +713,11 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                         downloadedPacks = translations.downloaded()
-                        if (!rootMode && nativeBackend == "stellar") {
+                        if (!rootMode) {
                             transfer=null
                             localApplyProgress=null
                             installingEntryKey=null
                             applyNativePack(downloaded.path)
-                            return@launchTask
-                        }
-                        if (!rootMode && (if (nativeBackend == "stellar") NativeStorageClient.status(this@MainActivity) != "已授權" else gameFolder == null)) {
-                            transfer = null
-                            taskState.success("下載完成；請先授權載入方式，再從已下載漢化套用")
                             return@launchTask
                         }
                         localApplying = true
@@ -861,9 +845,9 @@ class MainActivity : ComponentActivity() {
                             OVERVIEW -> overview(
                                 rootMode = rootMode,
                                 busy = applying || installingEntryKey != null,
-                                loadStatus = if (nativeBackend == "stellar") "Stellar · $stellarStatus" else if (gameFolder == null) "尚未授權遊戲資料夾" else "已選擇遊戲 Localize 資料夾",
-                                loadAction = if (nativeBackend == "stellar") "授權／檢查 Stellar" else "授權載入位置",
-                                onGameFolder = { if (nativeBackend == "stellar") requestStellar() else gameFolderPicker.launch(gameFolder) },
+                                loadStatus = "服務狀態：$stellarStatus",
+                                loadAction = "授權／檢查 Stellar",
+                                onAuthorize = ::requestStellar,
                                 overlayState = environmentOverlayState,
                                 game = game,
                                 events = events,
@@ -890,17 +874,10 @@ class MainActivity : ComponentActivity() {
                                 onDownload = { navigateTo(DOWNLOAD) },
                                 onDownloaded = { navigateTo(DOWNLOADED) },
                                 onLaunch = launchSelectedGame,
-                                loadReady = if(nativeBackend == "stellar") stellarStatus == "已授權" else gameFolderReady,
+                                loadReady = stellarStatus == "已授權",
                                 workProgress = if(backgroundApply.busy) backgroundApply.progress else null,
                                 waitingForGame = backgroundApply.waiting,
-                                selectedPack = if(!rootMode && nativeBackend == "stellar") downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null,
-                                backend = nativeBackend,
-                                onBackend = {value ->
-                                    if(!applying && installingEntryKey==null) {
-                                        TranslationApplyService.cancelPreparation(this@MainActivity)
-                                        translations.setNativeBackend(value);nativeBackend=value
-                                    }
-                                }
+                                selectedPack = if(!rootMode) downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null
                             )
                             SETTINGS -> settings(
                                 rootMode = rootMode,
@@ -974,8 +951,8 @@ class MainActivity : ComponentActivity() {
                                 applyProgress,
                                 applying,
                                 installingEntryKey,
-                                autoApply = rootMode || (nativeBackend == "saf" && gameFolder != null),
-                                stellarGuide = !rootMode && nativeBackend == "stellar",
+                                autoApply = true,
+                                stellarGuide = !rootMode,
                                 refresh = ::refreshCatalog,
                                 install = installTranslation
                             )
@@ -987,7 +964,7 @@ class MainActivity : ComponentActivity() {
                                 processingPackPath,
                                 applyingPackPath,
                                 rootMode = rootMode,
-                                stellarGuide = !rootMode && nativeBackend == "stellar",
+                                stellarGuide = !rootMode,
                                 activePath = translations.activePackPath(),
                                 installedVersion = translations.activeVersion(),
                                 deleteMode = packDeleteMode,
@@ -997,7 +974,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             ) { pack ->
                                 if (!applying && installingEntryKey == null) {
-                                    if (!rootMode && nativeBackend == "stellar") {
+                                    if (!rootMode) {
                                         applyNativePack(pack.path)
                                     } else {
                                         localApplying = true
@@ -1167,14 +1144,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun LazyListScope.overview(
-        rootMode: Boolean, busy: Boolean, loadStatus: String, loadAction: String, onGameFolder: () -> Unit,
+        rootMode: Boolean, busy: Boolean, loadStatus: String, loadAction: String, onAuthorize: () -> Unit,
         overlayState: EnvironmentStatusOverlayState,
         game: GameInfo, events: List<LogEvent>, activeName: String, activeScript: String,
         scopeStatus: String, rootStatus: String,
         onCheckScope: () -> Unit, onRequestRoot: () -> Unit,
         translationEnabled: Boolean, onTranslationEnabled: (Boolean) -> Unit,
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection,
-        onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?, waitingForGame: Boolean, selectedPack: DownloadedTranslation?, backend: String, onBackend: (String)->Unit
+        onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?, waitingForGame: Boolean, selectedPack: DownloadedTranslation?
     ) {
         val state = OverviewUiState(activeName, activeScript, targetLanguage.label, translationEnabled,
             rootMode, game.installed, game.version, busy, scopeStatus, rootStatus, loadStatus,
@@ -1182,7 +1159,7 @@ class MainActivity : ComponentActivity() {
         item { SystemTranslationPanel(state, onTranslationEnabled, onLaunch, onDownload, workProgress, selectedPack, waitingForGame) }
         item { SystemQuickActions(onDownload, onDownloaded) }
         item { SystemSectionLabel("運作狀態") }
-        item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onGameFolder, loadAction, backend, onBackend) }
+        item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onAuthorize, loadAction) }
 
     }
 
@@ -1342,7 +1319,7 @@ class MainActivity : ComponentActivity() {
         onRequestRoot: () -> Unit,
         onDone: () -> Unit
     ) {
-        if (!rootMode) item { InfoCard("無 root 使用方式", "下載後直接套用漢化。Stellar 可在通知查看進度；需要再次套用時，等遊戲標題畫面顯示後點擊通知。系統資料夾授權（SAF）透過已授權位置套用。") }
+        if (!rootMode) item { InfoCard("無 root 使用方式", "下載後直接套用漢化。Stellar 可在通知查看進度；需要再次套用時，等遊戲標題畫面顯示後點擊通知。") }
         if (rootMode) item { InfoCard("歡迎使用 LCPatch", "完成模組作用域與 Root 權限設定後，即可在 App 內下載並套用漢化。") }
         if (rootMode) item {
             Card(insideMargin = PaddingValues(18.dp)) {

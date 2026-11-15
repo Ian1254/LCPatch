@@ -1,4 +1,4 @@
-> 歷史審查文件：此處記錄早期版本，包含已移除的還原與匯出功能。目前流程請見 [README](../README.md) 與 [Stellar 適配說明](stellar-backend.md)。
+> 歷史審查文件：此處記錄早期版本，包含已移除的 SAF、還原與匯出功能。目前流程請見 [README](../README.md) 與 [Stellar 適配說明](stellar-backend.md)。
 
 # 無 root 文件載入與 App 檢查
 

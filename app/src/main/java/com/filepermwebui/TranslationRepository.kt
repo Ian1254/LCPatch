@@ -64,16 +64,6 @@ class TranslationRepository(private val context: Context) {
     private val staging = File(context.filesDir, "translations/staging").apply { mkdirs() }
     private val prefs = context.getSharedPreferences("translations", Context.MODE_PRIVATE)
 
-    private val gameStorage = GameDocumentStorage(context)
-    fun gameFolder(): Uri? = gameStorage.selected()
-    fun gameFolderAuthorized(): Boolean = gameStorage.authorized()
-    fun setGameFolder(uri: Uri) = gameStorage.select(uri)
-    fun nativeBackend(): String = normalizeNativeBackend(prefs.getString("native_backend",null))
-    fun setNativeBackend(value: String) {
-        require(value in setOf("stellar", "saf"))
-        prefs.edit().putString("native_backend", value).apply()
-    }
-
     private val localPacks = LocalPackStorage(File(context.filesDir, "translations/packs"))
 
     fun rootMode(): Boolean = prefs.getBoolean("root_mode", prefs.contains("active_name"))
@@ -398,7 +388,7 @@ class TranslationRepository(private val context: Context) {
             prepareCharacters(raw, progress)
             normalizeForLanguage(raw, prepared, targetLanguage(), progress)
             val directory = File(prepared, nativeExportPath(targetLanguage()))
-            if (nativeBackend() == "stellar") {
+            run {
                 val archive = File(staging, "native-transfer.zip")
                 try {
                     zipDirectory(directory, archive.outputStream())
@@ -415,7 +405,7 @@ class TranslationRepository(private val context: Context) {
                         }
                     }
                 } finally { archive.delete() }
-            } else gameStorage.apply(directory, targetLanguage(), progress)
+            }
             prefs.edit().putString("native_active_name", entry.name).putString("native_active_language", targetLanguage().id)
                 .putString("native_active_version",entry.version ?: ensurePackIdentity(raw)).putString("native_active_source_path",entry.path).apply()
             LogRepository.append(context, "INFO", "translation.native_applied", "已寫入原生語言目錄：${entry.name}")

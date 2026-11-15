@@ -167,7 +167,7 @@ class TranslationApplyService : Service() {
             var resultDetail = ""
             try {
                 val repository = TranslationRepository(this@TranslationApplyService)
-                check(!repository.rootMode() && repository.nativeBackend() == "stellar") {
+                check(!repository.rootMode()) {
                     "目前不是 Stellar 無 Root 模式"
                 }
                 val entry = repository.downloaded().firstOrNull { it.path == packPath }
