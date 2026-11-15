@@ -285,13 +285,15 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
                         }
                         1 -> {
                             item { SystemLogGuide(500,5,1) }
-                            item { Box(Modifier.padding(top=20.dp,bottom=10.dp)) {SystemSectionLabel("2026/11/14")} }
                             listOf(
                                 LogEvent("2026-11-13T17:36:24.402Z", "ERROR", "APP_ACTION", "套用失敗：PC 翻譯處理未完成，尚未寫入遊戲", ""),
                                 LogEvent("2026-11-13T17:36:03.271Z", "ERROR", "translation.install_failed", "無法處理漢化內容，請分享診斷文件查看完整原因。", ""),
                                 LogEvent("2026-11-13T17:36:03.264Z", "INFO", "download.completed", "漢化資源已下載完成", ""),
                                 LogEvent("2026-11-13T17:35:03.264Z", "INFO", "translation.textasset.index", "已建立內建文字資源索引", "")
-                            ).let { group -> group.forEachIndexed {i,event -> item { SystemLogRecord(event,i==0,i==group.lastIndex) } } }
+                            ).let { events -> groupLogEventsByDate(events,java.time.ZoneId.systemDefault()).forEach { group ->
+                                item { Box(Modifier.padding(top=20.dp,bottom=10.dp)) {SystemSectionLabel(group.label)} }
+                                group.events.forEachIndexed {i,event -> item {SystemLogRecord(event,i==0,i==group.events.lastIndex)} }
+                            } }
                         }
                         else -> {
                             item { SystemSectionLabel("運作環境") }
