@@ -20,7 +20,8 @@ data class DownloadedTranslation(
     val name: String,
     val path: String,
     val script: String = "未判定",
-    val puaPrepared: Boolean = false
+    val puaPrepared: Boolean = false,
+    val version: String? = null
 )
 data class OverrideLanguage(val id: String, val label: String, val prefix: String)
 data class TextConversion(val id: String, val label: String)
@@ -94,7 +95,7 @@ class TranslationRepository(private val context: Context) {
                 decode={ converter.convert(decodeCjkUnicodeEscapes(decodePuaUnicodeEscapes(it)),toPua=false) },
                 encode={ converter.convert(it,toPua=true) })
             progress(ApplyProgress("劇情角色名稱已處理",1,1))
-            LogRepository.append(context,"INFO","translation.speakers.prepared","角色文字 ${speakers.fields}；待確認 ${speakers.unresolved}")
+            LogRepository.append(context,"INFO","translation.speakers.prepared","角色文字 ${speakers.fields}；待確認 ${speakers.unresolved}；製作註記 ${speakers.productionNotes}")
             encodeDirectoryToPua(directory, progress)
             File(directory, PUA_MARKER).writeText("1")
         } else {
@@ -307,11 +308,19 @@ class TranslationRepository(private val context: Context) {
     fun activeScript(): String = if (!rootMode()) "日文字形" else prefs.getString("active_script", null)?.takeIf { it in setOf("簡體", "繁體") }
         ?: inferScript(activeName())
 
+    suspend fun deleteDownloaded(entry: DownloadedTranslation) = withContext(Dispatchers.IO) {
+        if(rootMode()) {
+            val target=validatedPackPath(File(PUBLIC_DOWNLOADS),entry.path)
+            require(runRoot("test ! -L ${quote(target.absolutePath)} && rm -rf -- ${quote(target.absolutePath)} && test ! -e ${quote(target.absolutePath)}")) {"無法刪除漢化包"}
+        } else localPacks.delete(entry.path)
+        LogRepository.append(context,"INFO","translation.download_deleted","已刪除下載的漢化包：${entry.name}；遊戲內漢化維持原狀")
+    }
+
     suspend fun downloaded(): List<DownloadedTranslation> = withContext(Dispatchers.IO) {
         if (!rootMode()) return@withContext localPacks.list().map { file ->
             val script = File(file, ".lcpatch-script").takeIf(File::isFile)?.readText()?.trim()
                 ?.takeIf { it in setOf("簡體", "繁體") } ?: "日文字形"
-            DownloadedTranslation(file.name, file.absolutePath, script, File(file, PUA_MARKER).isFile)
+            DownloadedTranslation(file.name, file.absolutePath, script, File(file, PUA_MARKER).isFile,readLocalPackVersion(file))
         }
         repairStorage()
         val result = executeRoot("find ${quote(PUBLIC_DOWNLOADS)} -mindepth 1 -maxdepth 1 -type d -print")
@@ -327,7 +336,8 @@ class TranslationRepository(private val context: Context) {
             val cleanName = safeName(oldName)
             val canonical = "$PUBLIC_DOWNLOADS/$cleanName"
             if (original != canonical) runRoot("mv -f ${quote(original)} ${quote(canonical)}")
-            DownloadedTranslation(cleanName, canonical, readScript(canonical, cleanName), rootFileExists("$canonical/$PUA_MARKER"))
+            DownloadedTranslation(cleanName, canonical, readScript(canonical, cleanName), rootFileExists("$canonical/$PUA_MARKER"),
+                installedPackVersion(executeRoot("cat ${quote("$canonical/.lcpatch-upstream.json")} 2>/dev/null").output,null))
         }.toList().distinctBy { it.path }.sortedBy { it.name.lowercase() }
     }
 
@@ -399,14 +409,19 @@ class TranslationRepository(private val context: Context) {
         prefs.edit().putString("override_language", value.id).apply()
     }
 
-    /** Convert the installed bytes, not a possibly newer downloaded package with the same name. */
-    internal suspend fun convertActive(conversion: TextConversion,progress: suspend (ApplyProgress)->Unit): ConversionResult = withContext(Dispatchers.IO) {
-        check(rootMode()) { "無 root 漢化需保留來源字形，不能進行繁簡轉換" }
-        val name=activeName()
-        check(name!="尚未選擇") {"目前尚未套用漢化"}
-        val enabled=translationEnabled()
-        val directory=if(enabled) NATIVE_COMPAT else NATIVE_DISABLED
-        val work=File(staging,"convert-active").also {it.deleteRecursively()}
+    /** Keep installed language switching available even after its download was deleted. */
+    internal suspend fun reapplyInstalled(progress: suspend (ApplyProgress)->Unit) = withContext(Dispatchers.IO) {
+        check(rootMode() && activeName()!="尚未選擇") {"目前尚未套用漢化"}
+        val work=snapshotInstalled("reapply-current",progress)
+        File(work,".lcpatch-script").writeText(activeScript())
+        File(work,PUA_MARKER).writeText("1")
+        applyPrepared(work,activeName(),progress)
+    }
+
+    private suspend fun snapshotInstalled(label: String,progress: suspend (ApplyProgress)->Unit): File {
+        val directory=if(translationEnabled()) NATIVE_COMPAT else NATIVE_DISABLED
+        // Separate snapshots from applyPrepared's name-based staging directory.
+        val work=File(context.cacheDir,"runtime-snapshots/$label").also {it.deleteRecursively()}
         val destination=File(work,"Localize/cn")
         val uid=android.os.Process.myUid()
         progress(ApplyProgress("正在讀取目前套用的漢化",0,0))
@@ -415,13 +430,23 @@ class TranslationRepository(private val context: Context) {
         val metadata=evidence.first?.takeIf {runCatching {JSONObject(it).optInt("schema")==1}.getOrDefault(false)}
             ?:officialReleaseUrl(evidence.second)?.let {JSONObject().put("schema",1).put("url",it).toString()}
         metadata?.let {File(work,".lcpatch-upstream.json").writeText(it)}
+        return work
+    }
+
+    /** Convert the installed bytes, not a possibly newer downloaded package with the same name. */
+    internal suspend fun convertActive(conversion: TextConversion,progress: suspend (ApplyProgress)->Unit): ConversionResult = withContext(Dispatchers.IO) {
+        check(rootMode()) { "無 root 漢化需保留來源字形，不能進行繁簡轉換" }
+        val name=activeName()
+        check(name!="尚未選擇") {"目前尚未套用漢化"}
+        val keepDownload=runRoot("test -d ${quote("$PUBLIC_DOWNLOADS/${safeName(name)}")}")
+        val work=snapshotInstalled("convert-active",progress)
         val result=convertTextFiles(work,conversion,progress)
         require(result.scannedFiles>0) {"目前漢化沒有 JSON 文件"}
         val script=if(conversion.id=="traditional") "繁體" else "簡體"
         File(work,".lcpatch-script").writeText(script)
         File(work,PUA_MARKER).writeText("1")
         validateJsonDirectory(File(work,"Localize"))
-        savePack(work,name)
+        if(keepDownload) savePack(work,name)
         applyPrepared(work,name,progress)
         // applyPrepared replaces the disabled directory directly when disabled;
         // calling setTranslationEnabled(false) again would delete that directory.
@@ -822,3 +847,6 @@ internal fun installedPackVersion(metadata: String?,coverage: String?): String? 
     val tag=url?.substringAfter("/releases/download/","")?.substringBefore('/')
     return valid(tag?.let {runCatching {java.net.URLDecoder.decode(it,"UTF-8")}.getOrNull()})
 }
+
+internal fun readLocalPackVersion(directory: File): String? = installedPackVersion(
+    File(directory,".lcpatch-upstream.json").takeIf {it.isFile && it.length()<8192}?.readText(),null)
