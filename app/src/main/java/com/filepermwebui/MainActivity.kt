@@ -502,7 +502,7 @@ class MainActivity : ComponentActivity() {
             translations.setTargetLanguage(language)
             applying = true
             changingTargetLanguage = true
-            applyProgress = ApplyProgress("正在切換覆蓋語言", 0, 1)
+            applyProgress = ApplyProgress("正在讀取漢化清單", 0, 0)
             taskState.launchTask {
                 runCatching {
                     val packs = translations.downloaded()
@@ -758,8 +758,8 @@ class MainActivity : ComponentActivity() {
                                 activeScript = activeScript,
                                 scopeStatus = scopeStatus,
                                 rootStatus = rootStatus,
-                                onCheckScope = ::checkScopeStatus,
-                                onRequestRoot = ::checkRootStatus,
+                                onCheckScope = { scopeStatus="正在檢查";scope.launch {refreshScopeStatus()} },
+                                onRequestRoot = { refreshRootStatus(showNotice=false) },
                                 translationEnabled = translationEnabled,
                                 onTranslationEnabled = { enabled ->
                                     if (!applying && installingEntryKey == null) {
@@ -1009,7 +1009,9 @@ class MainActivity : ComponentActivity() {
                                 (titleList.firstVisibleItemScrollOffset / with(LocalDensity.current) { 64.dp.toPx() }).coerceIn(0f, 1f)
                             TopLevelProgressiveBar(backdrop = activeBarBackdrop, hazeState = activeHazeState,
                                 pageTitles = topPages.map { if (it == OVERVIEW) "LCPatch" else pageTitle(it) }, pagePosition = pagePosition,
-                                collapseFraction = collapse)
+                                collapseFraction = collapse,
+                                actions={ if(page==LOGS) SystemLogOverflow(diagnosticBusy,{exportDiagnostic(true)},{exportDiagnostic(false)},
+                                    {if(!diagnosticBusy) showClearLogDialog=true}) })
                         } else {
                             TintedBar(activeBarBackdrop, hazeState = activeHazeState) {
                                 SystemInnerTopBar(visibleTitle,::navigateBack,visiblePage!=ONBOARDING||onboardingDone,visibleScrollBehavior)
@@ -1115,11 +1117,7 @@ class MainActivity : ComponentActivity() {
                     onSelectedIndexChange = { index -> TranslationRepository.LANGUAGES.getOrNull(index)?.let(onLanguage) }
                 )
                 if (changingTargetLanguage) {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-                        progress = applyProgress?.fraction
-                    )
-                    Spacer(Modifier.height(8.dp))
+                    SystemLanguageProgress(applyProgress)
                 }
                 ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入漢化包", value = "ZIP 檔案", onClick = onImport)
                 if (rootMode) {
@@ -1157,7 +1155,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun LazyListScope.logPage(events: List<LogEvent>, busy: Boolean, save: () -> Unit, share: () -> Unit, clear: () -> Unit) {
-        item { SystemLogActions(busy, share, save, clear) }
         item { SystemLogGuide(events.size,events.count { it.level=="ERROR" },events.count { it.level=="WARN" }) }
         if(events.isNotEmpty()) {
             item { SectionLabel("最近記錄") }
