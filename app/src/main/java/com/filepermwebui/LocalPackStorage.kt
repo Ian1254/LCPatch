@@ -10,6 +10,23 @@ internal class LocalPackStorage(private val root: File) {
     fun list(): List<File> = root.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }
         ?.sortedBy { it.name.lowercase() }.orEmpty()
 
+    fun delete(path: String) {
+        val target=validatedPackPath(root,path)
+        if(!java.nio.file.Files.exists(target.toPath(),java.nio.file.LinkOption.NOFOLLOW_LINKS)) return
+        java.nio.file.Files.walkFileTree(target.toPath(),object: java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+            override fun visitFile(file: java.nio.file.Path,attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+                java.nio.file.Files.delete(file)
+                return java.nio.file.FileVisitResult.CONTINUE
+            }
+            override fun postVisitDirectory(directory: java.nio.file.Path,error: java.io.IOException?): java.nio.file.FileVisitResult {
+                if(error!=null) throw error
+                java.nio.file.Files.delete(directory)
+                return java.nio.file.FileVisitResult.CONTINUE
+            }
+        })
+        check(!target.exists()) {"無法刪除漢化包"}
+    }
+
     fun replace(source: File, name: String): File {
         require(name.isNotBlank() && name !in setOf(".", "..") && '/' !in name && '\\' !in name)
         require(root.mkdirs() || root.isDirectory)
@@ -37,4 +54,13 @@ internal fun zipDirectory(directory: File, output: OutputStream) {
             zip.closeEntry()
         }
     }
+}
+
+/** Only direct, non-hidden pack directories may be deleted; reject aliases and escapes. */
+internal fun validatedPackPath(root: File,path: String): File {
+    val base=root.canonicalFile
+    val candidate=File(path).absoluteFile
+    require(candidate.name.isNotBlank() && !candidate.name.startsWith(".")) {"無效的漢化包路徑"}
+    require(candidate.parentFile==root.absoluteFile && candidate.parentFile?.canonicalFile==base && candidate.canonicalFile==File(base,candidate.name)) {"漢化包路徑超出下載目錄"}
+    return candidate
 }
