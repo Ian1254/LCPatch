@@ -385,8 +385,8 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
     val tint = if (backdrop != null && hazeState == null) Color.Transparent else if (hazeState != null)
         (if (dark) Color(0xFF272727) else Color.White).copy(alpha = .56f)
         else Color(if (dark) 0xFF1E1E1E else 0xFFFAFAFA)
-    val rim = Brush.linearGradient(listOf(Color.White.copy(alpha = if (dark) .4f else .5f),
-        Color.White.copy(alpha = .1f), Color.White.copy(alpha = if (dark) .2f else .3f)))
+    val rim = if(dark) Brush.linearGradient(listOf(Color.White.copy(alpha=.4f),Color.White.copy(alpha=.1f),Color.White.copy(alpha=.2f)))
+        else Brush.linearGradient(listOf(Color.Black.copy(alpha=.18f),Color.Black.copy(alpha=.08f),Color.Black.copy(alpha=.14f)))
     val inset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottom = if (!floating) inset else if (hyper) maxOf(24.dp,inset+8.dp) else inset+8.dp
     val sources = remember(labels.size) { List(labels.size) { MutableInteractionSource() } }
@@ -395,9 +395,9 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
     Box(Modifier.fillMaxWidth().padding(start = if (floating) 24.dp else 0.dp, end = if (floating) 24.dp else 0.dp,
         top = if (floating && hyper) 20.dp else 0.dp, bottom = bottom), Alignment.Center) {
         BoxWithConstraints(Modifier.widthIn(max = if (floating) preferredWidth else 600.dp).fillMaxWidth()
-            .shadow(if (floating) 10.dp else 0.dp, shape, ambientColor = Color.Black.copy(alpha = .18f), spotColor = Color.Black.copy(alpha = .18f))
+            .shadow(if (floating) { if(dark) 10.dp else 14.dp } else 0.dp, shape, ambientColor = Color.Black.copy(alpha = if(dark) .18f else .24f), spotColor = Color.Black.copy(alpha = if(dark) .18f else .24f))
             .clip(shape).then(glass).background(tint)
-            .then(if (floating) Modifier.border(.8.dp,rim,shape) else Modifier)
+            .then(if (floating) Modifier.border(if(dark) .8.dp else 1.dp,rim,shape) else Modifier)
             .padding(horizontal = horizontal, vertical = vertical)) {
             val cell = (maxWidth-gap*(labels.size-1))/labels.size
             val stride = cell+gap
@@ -515,14 +515,35 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
     else -> null
 }
 
-@Composable internal fun SystemLogActions(busy: Boolean, share: () -> Unit, save: () -> Unit, clear: () -> Unit) {
-    SystemCard(insideMargin = PaddingValues(16.dp)) {
-        SystemButton(share, Modifier.fillMaxWidth(), !busy) {
-            Text(if (busy) "正在收集診斷…" else "分享診斷文件", fontSize = 15.sp)
+@Composable internal fun SystemLogOverflow(busy: Boolean,share: ()->Unit,save: ()->Unit,clear: ()->Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val offset=with(LocalDensity.current) { 52.dp.roundToPx() }
+    val ink=MiuixTheme.colorScheme.onSurface
+    Box {
+        Box(Modifier.size(48.dp).clip(CircleShape).alpha(if(busy) .4f else 1f)
+            .semantics { contentDescription=if(busy) "正在收集診斷" else "更多日誌操作";stateDescription=if(expanded) "已展開" else "已收合" }
+            .clickable(enabled=!busy,role=Role.Button) { expanded=true },Alignment.Center) {
+            Box(Modifier.size(24.dp).drawBehind {
+                repeat(3) { i -> drawCircle(ink,1.6.dp.toPx(),Offset(size.width/2, (5f+i*7f)*density)) }
+            })
         }
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SystemTextButton("儲存", save, Modifier.weight(1f), !busy)
-            SystemTextButton("清除", clear, Modifier.weight(1f), !busy)
+        if(expanded) Popup(alignment=Alignment.TopEnd,offset=IntOffset(0,offset),
+            onDismissRequest={expanded=false},properties=PopupProperties(focusable=true)) {
+            SystemLogMenuItems(busy) { index ->
+                expanded=false
+                when(index) { 0->share();1->save();else->clear() }
+            }
+        }
+    }
+}
+
+@Composable internal fun SystemLogMenuItems(busy: Boolean,onSelected: (Int)->Unit) {
+    val shape=RoundedCornerShape(16.dp)
+    Column(Modifier.width(220.dp).shadow(12.dp,shape).clip(shape).background(systemSurfacePalette().menu).padding(vertical=4.dp)) {
+        listOf("分享診斷文件","儲存診斷文件","清除日誌").forEachIndexed { i,text ->
+            Text(text,Modifier.fillMaxWidth().heightIn(min=52.dp).clickable(enabled=!busy,role=Role.Button) {onSelected(i)}
+                .padding(horizontal=20.dp,vertical=14.dp),fontSize=16.sp,lineHeight=24.sp,
+                color=MiuixTheme.colorScheme.onSurface.copy(alpha=if(busy) .4f else 1f))
         }
     }
 }
@@ -655,14 +676,17 @@ internal data class OverviewUiState(
     val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled
     SystemCard {
         SystemArrowPreference(if (state.rootMode) "環境與權限" else "文件載入方式",
-            value = if (healthy) "已就緒" else "待設定", onClick = { showDetails = true })
+            value = if (healthy) "已就緒" else "待設定", onClick = {
+                showDetails = true
+                if(state.rootMode) { onCheckScope();onRequestRoot() }
+            })
     }
     if (showDetails) SystemModal(if (state.rootMode) "環境與權限" else "文件載入", { showDetails = false }) {
-        SystemEnvironmentDialogBody(state,onCheckScope,onRequestRoot,onGameFolder,loadAction) { showDetails=false }
+        SystemEnvironmentDialogBody(state,onGameFolder,loadAction) { showDetails=false }
     }
 }
 
-@Composable internal fun SystemEnvironmentDialogBody(state: OverviewUiState,onCheckScope: ()->Unit,onRequestRoot: ()->Unit,
+@Composable internal fun SystemEnvironmentDialogBody(state: OverviewUiState,
     onGameFolder: ()->Unit,loadAction: String,onClose: ()->Unit) {
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Limbus Company  ${state.gameVersion}", fontSize = 14.sp)
@@ -671,16 +695,8 @@ internal data class OverviewUiState(
                 Text("Root 權限：${state.rootStatus}",fontSize=14.sp)
             } else Text(state.loadStatus,fontSize=14.sp)
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            if (state.rootMode) {
-                if(LocalDensity.current.fontScale<=1.4f) Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                    SystemSecondaryButton("檢查作用域",onCheckScope,Modifier.weight(1f))
-                    SystemSecondaryButton("檢查 Root",onRequestRoot,Modifier.weight(1f))
-                } else {
-                    SystemSecondaryButton("檢查模組作用域",onCheckScope,Modifier.fillMaxWidth())
-                    SystemSecondaryButton("檢查 Root 權限",onRequestRoot,Modifier.fillMaxWidth())
-                }
-            } else SystemSecondaryButton(loadAction,onGameFolder,Modifier.fillMaxWidth())
+        if(!state.rootMode) Box(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp)) {
+            SystemSecondaryButton(loadAction,onGameFolder,Modifier.fillMaxWidth())
         }
         SystemDialogDone(onClose)
 }
@@ -784,31 +800,31 @@ internal data class OverviewUiState(
     }
 }
 
-/** Stock-style standard navigation: full-width material, icon/text selection, no indicator pill or line. */
+/** Released Miuix container and resting item treatment, with no pressed tint or ripple. */
 @Composable internal fun SystemStandardBottomNavigation(index: Int, labels: List<String>, icons: List<ImageVector>, onSelected: (Int)->Unit,
     backdrop: Backdrop? = null,hazeState: HazeState? = null) {
-    val dark=LocalSystemUiDark.current
-    val height=maxOf(64.dp,with(LocalDensity.current) { 18.sp.toDp() }+44.dp)
-    val style=remember { HazeBlurStyle { blurRadius(20.dp) } }
-    val glass=when {
-        hazeState!=null -> Modifier.hazeBlur(input=HazeInput.Sources(hazeState),style=style)
-        backdrop!=null -> Modifier.drawBackdrop(backdrop,shape={RectangleShape},effects={blur(20.dp.toPx())},highlight=null,shadow=null)
-        else -> Modifier
-    }
-    val material=Color(if(dark) 0xFF242424 else 0xFFFFFFFF)
-    Box(Modifier.fillMaxWidth().clip(RectangleShape).then(glass).background(material.copy(alpha=if(backdrop!=null||hazeState!=null) .88f else 1f))
-        .navigationBarsPadding(),Alignment.Center) {
-        Row(Modifier.widthIn(max=600.dp).fillMaxWidth().selectableGroup()) {
-            labels.forEachIndexed { i,label ->
-                val active=i==index
-                val ink=MiuixTheme.colorScheme.onSurfaceVariantSummary
-                Column(Modifier.weight(1f).height(height).selectable(active,role=Role.Tab) { onSelected(i) },
-                    horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
-                    Icon(icons[i],null,Modifier.size(28.dp),tint=ink)
-                    Spacer(Modifier.height(3.dp))
-                    Text(label,fontSize=12.sp,lineHeight=18.sp,fontWeight=FontWeight.Normal,color=ink)
-                }
+    top.yukonga.miuix.kmp.basic.NavigationBar(color=MiuixTheme.colorScheme.surfaceContainer) {
+        labels.forEachIndexed { i,label ->
+            val selected=i==index
+            val source=remember { MutableInteractionSource() }
+            val base=MiuixTheme.colorScheme.onSurfaceContainer
+            val ink=base.copy(alpha=if(selected) 1f else .4f)
+            Column(Modifier.weight(1f).heightIn(min=64.dp)
+                .selectable(selected,interactionSource=source,indication=null,role=Role.Tab) {onSelected(i)}
+                .padding(top=8.dp,bottom=8.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+                Icon(icons[i],null,Modifier.size(26.dp),tint=ink)
+                Spacer(Modifier.height(4.dp))
+                Text(label,fontSize=12.sp,lineHeight=18.sp,color=ink,fontWeight=if(selected) FontWeight.Bold else FontWeight.Normal)
             }
         }
+    }
+}
+
+@Composable internal fun SystemLanguageProgress(progress: ApplyProgress?) {
+    Column(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=8.dp)) {
+        top.yukonga.miuix.kmp.basic.LinearProgressIndicator(progress=progress?.fraction,modifier=Modifier.fillMaxWidth())
+        Text(progress?.let { it.stage+if(it.total>0) " · ${it.current}/${it.total}" else "" }?:"正在準備…",
+            Modifier.padding(top=6.dp).semantics { liveRegion=LiveRegionMode.Polite },fontSize=12.sp,lineHeight=18.sp,
+            color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
