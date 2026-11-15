@@ -33,6 +33,37 @@ class MainTaskViewModel(application: Application) : AndroidViewModel(application
     val updateProgress = mutableStateOf<TransferProgress?>(null)
     val downloadedUpdate = mutableStateOf<File?>(null)
 
+    val updateCheckError=mutableStateOf<String?>(null)
+    private val updateRequests=LatestUpdateRequest()
+    private var updateCheckJob: Job?=null
+    private var checkedChannel: String?=null
+
+    fun checkForUpdate(repository: AppUpdateRepository,channel: String) {
+        if(updateProgress.value!=null) return
+        val previousRelease=latestRelease.value
+        if(checkedChannel!=channel) downloadedUpdate.value=null
+        checkedChannel=channel
+        val request=updateRequests.begin()
+        updateCheckJob?.cancel()
+        checkingUpdate.value=true
+        updateCheckError.value=null
+        latestRelease.value=null
+        updateCheckJob=viewModelScope.launch {
+            try {
+                val result=repository.latestRelease(includePrerelease=channel=="beta")
+                if(updateRequests.accepts(request)) {
+                    if(previousRelease?.apkUrl!=result.apkUrl) downloadedUpdate.value=null
+                    latestRelease.value=result
+                }
+            } catch(error: kotlinx.coroutines.CancellationException) {throw error
+            } catch(error: Exception) {
+                if(updateRequests.accepts(request)) updateCheckError.value="檢查更新失敗：${error.message?:error.javaClass.simpleName}"
+            } finally {
+                if(updateRequests.accepts(request)) checkingUpdate.value=false
+            }
+        }
+    }
+
     var retryAction: (() -> Unit)? = null
         private set
 
@@ -71,4 +102,11 @@ class MainTaskViewModel(application: Application) : AndroidViewModel(application
         retryAction = null
         if (notice.value?.kind == UiNoticeKind.Error) notice.value = null
     }
+}
+
+/** A completed response must still belong to the most recently selected channel. */
+internal class LatestUpdateRequest {
+    private var generation=0L
+    fun begin(): Long=++generation
+    fun accepts(request: Long): Boolean=request==generation
 }
