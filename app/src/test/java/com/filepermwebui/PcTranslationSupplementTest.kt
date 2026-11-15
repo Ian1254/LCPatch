@@ -263,7 +263,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
             Scaffold(containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = { TopLevelProgressiveBar(backdrop, pageTitles = listOf("LCPatch", "日誌", "設定"),
-                    pagePosition = page.toFloat(), collapseFraction = collapse) },
+                    pagePosition = page.toFloat(), collapseFraction = collapse,actions={if(page==1) SystemLogOverflow(false,{},{},{})}) },
                 bottomBar = { SystemBottomNavigation(page, listOf("概觀", "日誌", "設定"),
                     listOf(MiuixIcons.Home, Icons.Default.List, MiuixIcons.Settings),
                     floating, backdrop = backdrop, onSelected = {}) }
@@ -284,7 +284,6 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 
                         }
                         1 -> {
-                            item { SystemLogActions(false, {}, {}, {}) }
                             item { SystemLogGuide(500,5,1) }
                             item { SystemSectionLabel("最近記錄") }
                             listOf(
@@ -354,7 +353,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 @Composable private fun SheetFixture(dark: Boolean)=SystemUiTheme(SystemUiStyle.HyperOS4,if(dark) "dark" else "light") {
     Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.BottomCenter) {
         SystemSheetSurface("環境與權限",Modifier.padding(12.dp)) {
-            SystemEnvironmentDialogBody(sampleOverview,{},{},{},"選擇資料夾",{})
+            SystemEnvironmentDialogBody(sampleOverview,{},"選擇資料夾",{})
         }
     }
 }
@@ -439,5 +438,57 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
         listOf(0,2).forEach { index ->
             SystemStandardBottomNavigation(index,listOf("概觀","日誌","設定"),listOf(MiuixIcons.Home,Icons.Default.List,MiuixIcons.Settings),{})
         }
+    }
+}
+
+@PreviewTest @Preview(name="LogOverflow",widthDp=300,heightDp=280)
+@Composable fun LogOverflow()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
+    Box(Modifier.padding(16.dp)) {SystemLogMenuItems(false,{})}
+}
+@PreviewTest @Preview(name="LanguageProgress",widthDp=393,heightDp=260)
+@Composable fun LanguageProgress()=SystemUiTheme(SystemUiStyle.HyperOS4,"light") {
+    Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+        SystemCard { SystemLanguageProgress(ApplyProgress("正在讀取已下載漢化",0,0)) }
+        SystemCard { SystemLanguageProgress(ApplyProgress("正在整理日本語覆蓋文件",64,128)) }
+    }
+}
+
+class LanguagePreparationProgressTest {
+    @Test fun unknownWorkUsesActivityAndCountedWorkReportsActualFraction() {
+        assertNull(ApplyProgress("正在讀取已下載漢化",0,0).fraction)
+        assertNull(ApplyProgress("正在寫入遊戲目錄",0,0).fraction)
+        assertEquals(.5f,ApplyProgress("正在整理覆蓋文件",64,128).fraction!!,0f)
+    }
+    @Test fun actualLanguageCopyReportsBatchesAndKeepsFontAndNestedResources() = kotlinx.coroutines.runBlocking {
+        val temp=Files.createTempDirectory("language-progress").toFile()
+        try {
+            val source=File(temp,"source").apply {mkdirs()}
+            val target=File(temp,"target")
+            repeat(35) {i ->File(source,"JP_File$i.json").writeText("{\"id\":$i}")}
+            File(source,"ChineseFont.ttf").writeText("font-fixture")
+            val reports=mutableListOf<ApplyProgress>()
+            copyLanguageResources(source,target,OverrideLanguage("kr","韓國語","KR"),true) {reports+=it}
+            assertEquals(listOf(0,16,32,36),reports.map {it.current})
+            assertTrue(reports.all {it.total==36})
+            assertEquals(1f,reports.last().fraction!!,0f)
+            assertEquals("{\"id\":0}",File(target,"KR_File0.json").readText())
+            assertEquals("font-fixture",File(target,"ChineseFont.ttf").readText())
+            assertEquals(36,target.walkTopDown().count {it.isFile})
+        } finally {temp.deleteRecursively()}
+    }
+    @Test fun nativeCopyCountsOnlyJsonAndPreservesNestedLayout() = kotlinx.coroutines.runBlocking {
+        val temp=Files.createTempDirectory("native-language-progress").toFile()
+        try {
+            val source=File(temp,"source/sub").apply {mkdirs()}.parentFile
+            File(source,"sub/JP_Battle.json").writeText("[]")
+            File(source,"ChineseFont.ttf").writeText("excluded")
+            val target=File(temp,"target")
+            val reports=mutableListOf<ApplyProgress>()
+            copyLanguageResources(source,target,OverrideLanguage("kr","韓國語","KR"),false) {reports+=it}
+            assertEquals(listOf(0,1),reports.map {it.current})
+            assertTrue(reports.all {it.total==1})
+            assertEquals("[]",File(target,"sub/KR_Battle.json").readText())
+            assertFalse(File(target,"ChineseFont.ttf").exists())
+        } finally {temp.deleteRecursively()}
     }
 }
