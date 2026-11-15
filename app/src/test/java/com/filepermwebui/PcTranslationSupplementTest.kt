@@ -262,11 +262,11 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 
 @Composable private fun ShizukuFlowFixture(dark: Boolean, writing: Boolean) = SystemUiTheme(SystemUiStyle.HyperOS4, if(dark) "dark" else "light") {
     val progress=if(writing) ApplyProgress("正在寫入語言資源", 1100, 3838) else null
-    val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="Shizuku · 已授權",loadReady=true)
+    val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="Stellar · 已授權",loadReady=true)
     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         SystemTranslationPanel(state, {}, {}, {}, progress, waitingForGame=!writing)
         SystemDownloadedPackCard("零協會漢化","2026111401",writing,writing,!writing,progress,{})
-        SystemEnvironmentPanel(state,{}, {}, {}, "授權／檢查 Shizuku")
+        SystemEnvironmentPanel(state,{}, {}, {}, "授權／檢查 Stellar")
     }
 }
 
@@ -275,6 +275,23 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 
 @PreviewTest @Preview(name="ShizukuWritingLight",widthDp=393,heightDp=852)
 @Composable fun ShizukuWritingLight()=ShizukuFlowFixture(false,true)
+
+@Composable private fun AuthorizationStatesFixture(dark: Boolean) = SystemUiTheme(SystemUiStyle.HyperOS4,if(dark) "dark" else "light") {
+    Column(Modifier.background(MiuixTheme.colorScheme.surface).padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        val state=sampleOverview.copy(name="日文字形漢化（日本語）",rootMode=false,packVersion="v1.119.0",loadReady=false)
+        SystemTranslationPanel(state.copy(enabled=false),{},{},{})
+        SystemEnvironmentPanel(state,{},{},{},"授權 Stellar")
+        SystemTranslationPanel(state.copy(enabled=true),{},{},{})
+        SystemEnvironmentPanel(state.copy(loadReady=true),{},{},{},"檢查 Stellar")
+    }
+}
+
+@PreviewTest @Preview(name="StatusDark",widthDp=393,heightDp=1000)
+@Composable fun StatusDark()=AuthorizationStatesFixture(true)
+@PreviewTest @Preview(name="StatusLight",widthDp=393,heightDp=1000)
+@Composable fun StatusLight()=AuthorizationStatesFixture(false)
+@PreviewTest @Preview(name="StatusFont200",widthDp=360,heightDp=1600,fontScale=2f)
+@Composable fun StatusFont200()=AuthorizationStatesFixture(true)
 
 /** The shell and panels below are the same composables used by MainActivity. */
 @Composable private fun ScreenFixture(style: SystemUiStyle, dark: Boolean, page: Int = 2, scrolled: Boolean = false, atEnd: Boolean = false, floating: Boolean = true) {

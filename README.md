@@ -1,114 +1,100 @@
 # LCPatch
 
-LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器，支援無 root 原生文件覆蓋與 Root／LSPosed 模式。無 root 模式不修改遊戲 APK，使用已替換相近日語漢字的漢化文件，直接交由遊戲原有的語言載入流程讀取；Root 模式由開源 native 核心重導本地化文件並載入中文字型。
+LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器，支援無 Root 原生語言文件覆蓋，以及 Root／LSPosed 的本地化重導與中文字型載入。
 
-## 無 root 模式
+## 下載與版本
 
-1. 在設定或首次設定中選擇「無 root」，文件載入方式預設為 Shizuku。
-2. 在遊戲內切換至日本語或 한국어，完成語言資源下載。
-3. 啟動 [Shizuku](https://shizuku.rikka.app/guide/setup/)，在 LCPatch 授予權限。
-4. 選擇對應語言，下載並套用無 root 專用漢化，或匯入包含 `Localize/jp`／`Localize/kr` 的 ZIP。
-5. LCPatch 透過 Shizuku 關閉遊戲、備份原始語言目錄，再寫入 `files/Assets/Resources_moved/Localize/jp` 或 `kr`。重新啟動遊戲即可由原生流程讀取 `JP_*.json`／`KR_*.json`。
-6. 停用漢化或在設定選擇「還原原始語言文件」，即可恢復備份並移除漢化新增的文件。更新遊戲前先停用漢化，更新語言資源後再套用。
+- [最新正式版](https://github.com/Ian1254/LCPatch/releases/latest)：**1.2.4**。
+- 舊版及預發布版可在 [Releases](https://github.com/Ian1254/LCPatch/releases) 查看，更新內容見各版本說明。
 
-無 root 來源為 [pzwboy/LocalizeLimbusCompanyForAndroid](https://github.com/pzwboy/LocalizeLimbusCompanyForAndroid)，保留來源的日文字形替換，不進行 PUA 編碼、繁簡轉換或字型注入；介面只在 Root 模式提供這些功能。第三方文本不包含在本儲存庫內。
-
-亦可選擇 SAF 授權遊戲的 `Localize` 目錄，或匯出含完整 Android 目錄結構的 ZIP 交由具權限的檔案管理器套用。Android 11 以上的標準系統選擇器限制存取 `Android/data`；SAF 不是這項限制的繞過方式。SAF 套用和還原前須自行完全關閉遊戲；手動匯出的文件由檔案管理器負責備份與還原。
-
-Shizuku 文件服務與實際遊戲載入仍需裝置驗證；本機單元測試不代表已在所有 Android／遊戲版本上驗證。實作與檢查結果見 [無 root 載入與 App 檢查](docs/non-root-audit.md)。
-
-## 主要功能
-
-- 從線上清單取得漢化，顯示下載速度與進度，下載完成後自動解壓、轉換 PUA 並套用。
-- 匯入自訂 ZIP，或掃描 `/sdcard/LCPatch/漢化/` 內已解壓的漢化目錄。
-- 使用 `opencc4j 1.14.0` 對已下載目錄內的 JSON 進行整體繁簡轉換，並顯示處理進度。
-- 自動修正可辨識的目錄結構與語言文件名稱，可選擇覆蓋日本語、한국어 或 English。
-- 支援自訂 TTF／OTF 字型、漢化啟用開關、深淺色模式、Miuix 介面及模組日誌。
-- 使用 LSPosed API 102；native 核心與第三方 native 依賴均包含可重建原始碼。
-
-漢化清單包含一般線上來源、都市零協會官方 GitHub 儲存庫的最新 Release，以及 [LCPatch-Localization-Builder](https://github.com/Ian1254/LCPatch-Localization-Builder) 的合併漢化。合併版會自動從最新 Release 取得，但 App 不核對遊戲版本；若遊戲更新快於資源包，套用後可能有缺字或缺文。LCPatch 儲存庫本身不包含第三方漢化內容。
-
-舊版 Root 簡體漢化已從下載清單移除；本機同名舊包會在不再套用時清理。清單卡片只顯示來源，不顯示內部分類名稱。
+請安裝 Releases 的已簽章 APK。Actions 測試產物僅供指定版本測試，未簽章產物供建構檢查使用。
 
 ## 支援環境
 
-- Android 9（API 28）以上
-- ARM64（`arm64-v8a`）裝置
-- 無 root：Shizuku（或系統允許的 SAF 目錄授權）
-- Root 模式：Root 權限與支援 libxposed API 102 的 LSPosed 環境
-- 已安裝 Limbus Company
+- Android 9（API 28）以上，ARM64（`arm64-v8a`）裝置。
+- 已安裝 Limbus Company，並下載所選的遊戲語言資源。
+- 無 Root：使用 [Stellar](https://github.com/roro2239/Stellar)，開啟其 **Shizuku 相容層**。
+- Root：Root 權限與支援 libxposed API 102 的 LSPosed 環境。
 
-目前遊戲版本 `1.113.1`（versionCode `468`）與 `1.114.0`（versionCode `469`）已有實機驗證；`1.115.0` 的 Unity Build ID 與字型入口／accessor 指令已由 ARM64 APK 核對並加入已知 profile，仍需實機確認字型交換。已知 Unity build 必須同時符合 Build ID、可執行區段、固定 offset 與指令特徵。未知 build 會嘗試嚴格動態驗證：accessor、合法 caller 與函式入口均須唯一，入口結構也須符合既有 fingerprint；任一驗證失敗就安全停用字型 hook。這只支援實作維持一致而位址漂移的版本，並不保證所有未來版本自動相容。
+Stellar 是外部服務管理器。LCPatch 透過其官方 Shizuku 相容層連線及授權。請啟動 Stellar，並保持相容層開啟。
 
-## Root 模式安裝與使用
+Stellar 使用方式與相容層開關見 [官方說明](https://github.com/roro2239/Stellar#shizuku-兼容层)。
 
-1. 從 [Releases](https://github.com/Ian1254/LCPatch/releases) 下載 APK 並安裝。
-2. 在 LSPosed 中啟用 LCPatch，作用域選擇 Limbus Company。
-3. 開啟 LCPatch，確認 LSPosed 與 Root 檢查皆已通過。
-4. 在「下載漢化」下載資源，或從設定匯入自訂漢化 ZIP。
-5. 視需要選擇覆蓋語言、繁簡格式及自訂字型，再套用漢化。
-6. 完整關閉並重新啟動遊戲。若結果異常，可在底欄「日誌」頁匯出診斷文件。
+## 無 Root 使用方式
 
-套用與停用漢化時，LCPatch 會先強制停止遊戲，避免遊戲正在讀取文件時替換目錄。
+1. 安裝並透過 ADB／無線偵錯啟動 [Stellar](https://github.com/roro2239/Stellar/releases/latest)，確認「Shizuku 相容層」已開啟。
+2. 在遊戲內切換至日本語或 한국어，完成對應語言資源下載。
+3. 在 LCPatch 選擇「無 Root」，由概觀的「Stellar 與權限」確認 Stellar 已連線並授予 LCPatch 權限。
+4. 在「設定 → 漢化」選擇對應的覆蓋語言；下載無 Root 專用漢化，或匯入包含 `Localize/jp`／`Localize/kr` 的 ZIP。
+5. 下載完成直接開始套用；已有漢化包可從「已下載漢化」按「套用／重新套用」。通知與畫面顯示實際處理進度及結果。
+6. 從概觀啟動遊戲時，可建立待套用通知；遊戲顯示標題畫面後，點擊整張通知再次套用。
 
-1.2.3-beta.3 因 beta.2 的遊戲閃退回報，移除 beta.2 新增的 managed 掛鉤，恢復 beta.1 的 Root 核心流程。這是恢復相容性的回退措施，尚未證實使用者裝置上的閃退已消失；#87 重複下載問題也尚未解決。更新後請完整關閉遊戲再重新啟動。
+無 Root 來源為 [pzwboy/LocalizeLimbusCompanyForAndroid](https://github.com/pzwboy/LocalizeLimbusCompanyForAndroid)，使用來源提供的相近漢字替換，支援日語與韓語語言文件。
+
+原生套用逐檔寫入 `files/Assets/Resources_moved/Localize/jp` 或 `kr`。遊戲或語言資源更新後，如內容被覆寫，可重新套用。
+
+## Root／LSPosed 使用方式
+
+1. 在 LSPosed 啟用 LCPatch，作用域選擇 Limbus Company。
+2. 開啟 LCPatch，切換至「Root ＋ LSPosed」，在概觀確認作用域與 Root 權限。
+3. 下載零協會漢化，或匯入自訂漢化 ZIP；視需要選擇覆蓋語言及自訂字型。
+4. 套用後啟動遊戲。Root 套用、停用與啟動準備仍可能強制停止遊戲，避免讀取中的文件被替換。
+
+零協會漢化預設整合完整 PC 文字資源及劇情角色名稱。另支援一般線上清單及 `/sdcard/LCPatch/漢化/` 內已解壓的漢化目錄。
+
+PUA 編碼、繁簡轉換、自訂 TTF／OTF 字型與 English 覆蓋僅提供給 Root 模式。繁簡轉換位於「設定 → 漢化」，直接處理目前套用的內容，保留原本啟用／停用狀態；刪除下載包後仍可處理已安裝內容。
+
+「環境與權限」顯示模組作用域與 Root 授權狀態，實際文字與字型效果可進入遊戲確認。native 核心會在執行時驗證遊戲入口。
+
+## 漢化包管理與版本
+
+- 卡片左側顯示名稱與版本，右側提供帶圖示的「套用／重新套用」文字按鈕。
+- 右上角垃圾桶進入批量刪除，可全選／取消全選、返回取消，執行前再次確認。Root 與無 Root 使用相同操作。
+- 刪除只移除下載的漢化包，不影響遊戲內已套用的內容；部分刪除失敗會保留失敗項目供重試。
+- 版本優先依下載來源的 Release 標籤、包內版本資訊與保存的來源網址辨識。
+- 舊無 Root 包缺少版本資訊時，以完整 SHA-256 文字資源指紋比對已知來源；完全符合時補回來源版本，其餘顯示「內容識別」。
+
+## 狀態顯示
+
+- 「已啟用」搭配綠色圈勾，「已停用」搭配紅色圈叉。
+- 「已授權」搭配綠色圈勾，「未授權」搭配紅色圈叉。
+- 「等待套用」旁顯示持續旋轉的載入圓圈，套用結果以完成／失敗訊息為準。
 
 ## 資料位置
 
-- 已下載並解壓的漢化：`/sdcard/LCPatch/漢化/<名稱>/`
-- 匯入的字型：`/sdcard/LCPatch/字體/`
-- 目前供遊戲讀取的內容：`/sdcard/Android/data/com.ProjectMoon.LimbusCompany/cache/Localize/cn/`
-- native 診斷記錄：`/sdcard/Android/data/com.ProjectMoon.LimbusCompany/cache/lcpatch-native.log`
+| 內容 | Root 模式 | 無 Root 模式 |
+| --- | --- | --- |
+| 已下載漢化 | `/sdcard/LCPatch/漢化/<名稱>/` | App 私有空間 `translations/packs/<名稱>/` |
+| 遊戲讀取內容 | 遊戲 `cache/Localize/cn/` | 遊戲 `files/Assets/Resources_moved/Localize/jp/` 或 `kr/` |
 
-套用流程會先在暫存位置完成結構整理、PUA 處理、JSON 驗證與字型準備，通過後才以可回復的目錄交換方式更新遊戲快取。
+Root 的遊戲目錄位於 `/sdcard/Android/data/com.ProjectMoon.LimbusCompany/`，自訂字型位於 `/sdcard/LCPatch/字體/`，也可透過 App 字型設定選取。
 
-## 字型與 PUA
+## 日誌與問題回報
 
-內建字型以 Sarasa Gothic SC Bold 1.0.29 為基礎，加入 LCPatch 使用的 3,912 字 BMP PUA 映射。字型依 SIL Open Font License 1.1 散布，來源、修改說明與完整授權文件均保留在專案內。
+底欄「日誌」的右上角三點選單提供分享、儲存診斷文件與清除記錄。診斷文件包含裝置、Android、遊戲、模組及已收集事件；收集結果會標示取得、未找到、權限不足、截斷或逾時等狀態。
 
-下載或匯入漢化後會立即完成 PUA 轉換。繁簡轉換會先還原既有 PUA 字元，使用 opencc4j 轉換完整 JSON 文字，再重新編碼為相同 PUA 映射，因此可直接作用於已下載的漢化目錄。
+Root 模式可補充原生事件與遊戲相關系統記錄。可在設定選擇診斷儲存位置；未指定時使用暫存檔，透過分享功能取得。回報請附上 LCPatch 版本、遊戲版本、運作模式及實際操作步驟。
 
-## 日誌
+服務整合細節見 [Stellar 適配說明](docs/stellar-backend.md)。
 
-模組事件由遊戲程序寫入 LCPatch 的受限 ContentProvider。Provider 會核對呼叫端 UID，只接受 LCPatch 或已安裝的 Limbus Company，並最多保存 500 筆事件。
+## 原始碼與建構
 
-匯出的診斷文件包含裝置、Android、遊戲、模組與 ABI 資訊，以及已收集的模組事件。Root 模式會在背景重新收集原生事件、遊戲相關 crash/main/system/events logcat、文字 tombstone 與系統程序退出資訊，完成後才匯出，不使用尚未更新的畫面快照。原生事件保留原始時間；當前資料不可用時，會附上明確標示時間的上次可用快照。
-
-各來源會標示已取得、未找到相關記錄、截斷、權限不足、逾時或無法取得。沒有記錄不代表遊戲未閃退；Android／ROM 可能覆寫緩衝區或限制資料讀取。收集有時間與大小上限，無 root 模式不會要求 Root 權限。可在設定中選擇儲存資料夾；若未選擇，「儲存」會寫入 App 暫存區，可透過「分享診斷文件」取得檔案並附於問題回報。
-
-## 原始碼與建置
-
-- `native-refactor/lcpatch_core.cpp`：本地化文件重導、字型載入、跨版本 guard 與 native breadcrumbs。
-- `app/src/main/java/com/filepermwebui/ModernModule.java`：LSPosed API 102 模組入口。
-- `app/src/main/java/com/filepermwebui/TranslationRepository.kt`：下載、解壓、轉換、儲存修正與 Root 套用。
-- `app/src/main/java/com/filepermwebui/LogProvider.kt`：跨程序日誌儲存。
+- `native-refactor/lcpatch_core.cpp`：Root 本地化重導、字型載入、跨版本驗證與原生記錄。
+- `app/src/main/java/com/filepermwebui/NativeStorageClient.kt`：Stellar 相容層連線與文件服務。
+- `app/src/main/java/com/filepermwebui/TranslationApplyService.kt`：背景套用及通知。
+- `app/src/main/java/com/filepermwebui/TranslationRepository.kt`：下載、版本辨識、轉換與套用。
 - `app/src/main/java/com/filepermwebui/MainActivity.kt`：Compose／Miuix 管理介面。
 
-GitHub Actions 會在建立 Pull Request 或手動執行 Android CI 時，從原始碼建立 native 核心、執行單元測試與 release lint，並上傳未簽署 APK artifact。推送 `main` 且變更 `version.properties`，或手動執行 Android Release 工作流程時，會使用加密的 Actions Secrets 完成 zipalign、APK v3 簽章與 16 KB 對齊驗證，再建立對應版本的 `v*` 標籤及 GitHub Release，附上 SHA-256 文件。若該版本已發布，推送觸發會略過重複發布。
+建構環境以 [共用 Android build action](.github/actions/android-build/action.yml) 為準，目前使用 Java 21、Android SDK、NDK 27.2.12479018、CMake 與 Ninja。Windows 設定 `ANDROID_SDK_ROOT` 後，可在儲存庫根目錄執行 `./build.ps1`。
 
-自動簽署使用 `LCPATCH_KEYSTORE_BASE64`、`LCPATCH_STORE_PASSWORD`、`LCPATCH_KEY_ALIAS` 與 `LCPATCH_KEY_PASSWORD` 四個 repository Secrets。本機的 `signing/`、APK、native 產物與建置快取均已由 `.gitignore` 排除。可重現的 CI 建置步驟以 [Android build action](.github/actions/android-build/action.yml) 為準。`verification.json` 記錄舊版 1.0.0 的建置驗證，不代表目前版本的測試結果。
+CI 從原始碼建立 native 核心，執行測試、Release lint 與介面預覽。一般 CI 提供未簽章 APK；指定的同儲存庫測試分支另提供已簽章測試 artifact。發布流程以 Actions Secrets 完成 APK v3 簽章、16 KB 對齊與 SHA-256 校驗；版本名稱含預發布標記時建立 GitHub Prerelease。
 
-Windows 本機建置需準備 Java 17 以上、Android SDK、NDK 27.2.12479018、CMake 與 Ninja，設定 `ANDROID_SDK_ROOT` 後在儲存庫根目錄執行 `./build.ps1`。腳本會以 Gradle Wrapper 產生未簽署的 release APK；正式散布仍應使用自行保管的簽署金鑰。
+簽章使用 `LCPATCH_KEYSTORE_BASE64`、`LCPATCH_STORE_PASSWORD`、`LCPATCH_KEY_ALIAS`、`LCPATCH_KEY_PASSWORD` 四個 Secrets。各版本的建構結果見 Actions，驗證範圍見 Release 說明。
 
 ## 授權與第三方元件
 
-LCPatch 原始碼依 Apache License 2.0 授權。實際使用的開源元件如下：
+LCPatch 原始碼採 Apache License 2.0。主要使用 Dobby、Compose Miuix、opencc4j、libxposed、Shizuku API／provider（用於 Stellar 相容層）及 AndroidX／Jetpack Compose；詳細授權見 [NOTICE](NOTICE)。Stellar 管理器為另行安裝的外部程式。
 
-- [Dobby](https://github.com/jmpews/Dobby)：Apache License 2.0
-- [Compose Miuix](https://github.com/compose-miuix-ui/miuix)：Apache License 2.0
-- [opencc4j](https://github.com/houbb/opencc4j)：Apache License 2.0
-- [libxposed API／service](https://github.com/libxposed)：Apache License 2.0
-- [Shizuku API／provider](https://github.com/RikkaApps/Shizuku-API)：MIT License
-- [AndroidX／Jetpack Compose](https://source.android.com/docs/setup/about/licenses)：Apache License 2.0
-- [Sarasa Gothic](https://github.com/be5invis/Sarasa-Gothic)：SIL Open Font License 1.1
-- LCPatch PUA 映射：CC0 1.0
+內建字型以 Sarasa Gothic SC Bold 1.0.29 為基礎，包含 3,912 字 BMP PUA 映射。字型依 SIL Open Font License 1.1 散布，LCPatch PUA 映射為 CC0 1.0；來源、修改說明與授權文件保留在專案中。遊戲圖像與第三方翻譯內容不屬於 LCPatch 的 Apache-2.0 授權範圍。
 
-詳細來源、版本與授權範圍見 [NOTICE](NOTICE) 及各授權文件。遊戲圖像與第三方漢化內容不包含在 LCPatch 的 Apache-2.0 授權範圍內。
-
-## 免責聲明
-
-LCPatch 是非官方第三方專案，與 Project Moon 及各漢化組沒有隸屬或授權關係。專案不提供遊戲本體或受著作權保護的遊戲資源；漢化內容的權利與責任由各來源及使用者依其授權條款承擔。
-
-Root 模式需要 Root 與 LSPosed；無 root 模式需要取得遊戲文件的寫入授權。兩者均可能建立、替換或清理 LCPatch 管理目錄及遊戲可讀取的本地化文件。使用前請備份重要資料，確認下載來源與目標語言設定，並自行承擔資料遺失、遊戲異常、帳號限制或系統不相容等風險。
-
-本專案由生成式 AI 協助設計、撰寫與檢查，仍可能存在實作錯誤、安全缺陷或未涵蓋的裝置差異。AI 協助不等同完整的人工安全審核。依 Apache License 2.0，本軟體以現狀提供，不附帶任何明示或默示保證；使用者應在理解原始碼與風險後自行決定是否使用。
+LCPatch 為非官方第三方專案，與 Project Moon 及翻譯組沒有隸屬關係。軟體以現狀提供，不附保證；本專案由生成式 AI 協助撰寫與檢查，仍可能存在錯誤或未涵蓋的裝置差異。

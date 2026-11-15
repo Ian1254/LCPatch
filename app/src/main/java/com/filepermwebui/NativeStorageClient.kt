@@ -14,16 +14,26 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 internal object NativeStorageClient {
-    fun status(): String = runCatching {
+    const val STELLAR_MANAGER = "roro.stellar.manager"
+    const val STELLAR_DOWNLOAD = "https://github.com/roro2239/Stellar/releases/latest"
+
+    fun managerInstalled(context: Context): Boolean = runCatching {
+        context.packageManager.getApplicationInfo(STELLAR_MANAGER,0).enabled
+    }.getOrDefault(false)
+
+    // Stellar officially implements this API through its Shizuku compatibility layer.
+    // The API library is a client protocol; it does not install Shizuku Manager.
+    fun status(context: Context): String = runCatching {
         when {
-            !Shizuku.pingBinder() -> "未啟動"
+            !managerInstalled(context) -> "未安裝 Stellar"
+            !Shizuku.pingBinder() -> "未啟動或相容層未開啟"
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED -> "已授權"
-            else -> "尚未授權"
+            else -> "未授權"
         }
     }.getOrDefault("未啟動")
 
     suspend fun <T> use(context: Context, block: (INativeStorageService) -> T): T {
-        check(status() == "已授權") { "請先啟動 Shizuku 並在 LCPatch 授予權限" }
+        check(status(context) == "已授權") { "請先啟動 Stellar、開啟 Shizuku 相容層，並授予 LCPatch 權限" }
         val args = Shizuku.UserServiceArgs(ComponentName(context, NativeStorageService::class.java))
             .daemon(false).processNameSuffix("native-storage").debuggable(BuildConfig.DEBUG)
             .version(BuildConfig.VERSION_CODE).tag("lcpatch-native-storage")
@@ -34,11 +44,11 @@ internal object NativeStorageClient {
                     val callback = object : ServiceConnection {
                         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                             if (!continuation.isActive) return
-                            if (binder == null || !binder.pingBinder()) continuation.resumeWithException(IllegalStateException("Shizuku 文件服務無法連接"))
+                            if (binder == null || !binder.pingBinder()) continuation.resumeWithException(IllegalStateException("Stellar 文件服務無法連接"))
                             else continuation.resume(INativeStorageService.Stub.asInterface(binder))
                         }
                         override fun onServiceDisconnected(name: ComponentName?) {
-                            if (continuation.isActive) continuation.resumeWithException(IllegalStateException("Shizuku 文件服務已中斷"))
+                            if (continuation.isActive) continuation.resumeWithException(IllegalStateException("Stellar 文件服務已中斷"))
                         }
                     }
                     connection = callback

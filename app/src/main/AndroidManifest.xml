@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <queries>
         <package android:name="com.ProjectMoon.LimbusCompany" />
+        <package android:name="roro.stellar.manager" />
     </queries>
 
     <application

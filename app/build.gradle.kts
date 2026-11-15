@@ -59,6 +59,8 @@ android {
 }
 
 dependencies {
+    // Stellar's official compatibility layer implements this protocol. This is
+    // the client SDK only: installing Shizuku Manager is not required.
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("androidx.activity:activity-compose:1.12.1")
