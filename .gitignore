@@ -19,3 +19,4 @@ runtime/
 *.jks
 *.keystore
 *.p12
+app/src/screenshotTestDebug/reference/
