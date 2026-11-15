@@ -9,120 +9,66 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 class NativeFileInstallerTest {
-    private fun archive(vararg items: Pair<String, String>): ByteArray {
-        val stream = ByteArrayOutputStream()
-        ZipOutputStream(stream).use { zip ->
-            for ((name, content) in items) {
-                zip.putNextEntry(ZipEntry(name))
-                zip.write(content.toByteArray(Charsets.UTF_8))
-                zip.closeEntry()
-            }
-        }
-        return stream.toByteArray()
+    private fun archive(vararg items: Pair<String,String>)=ByteArrayOutputStream().also {out ->
+        ZipOutputStream(out).use {zip -> items.forEach {(path,text) -> zip.putNextEntry(ZipEntry(path));zip.write(text.toByteArray());zip.closeEntry()}}
+    }.toByteArray().inputStream()
+
+    @Test fun overlayOnlyWritesRequestedFilesWithoutCreatingAnOriginalBackup() {
+        val root=Files.createTempDirectory("overlay-no-restore").toFile()
+        try {
+            val jp=File(root,"jp").apply {mkdirs()}
+            File(jp,"JP_Test.json").writeText("original")
+            File(jp,"untouched.bin").writeText("game-data")
+            val progress=mutableListOf<Pair<Int,Int>>()
+            NativeFileInstaller(root).applyOverlay(archive("JP_Test.json" to "translated","sub/JP_New.json" to "new"),"jp") {n,total ->progress+=n to total}
+            assertEquals("translated",File(jp,"JP_Test.json").readText())
+            assertEquals("game-data",File(jp,"untouched.bin").readText())
+            assertEquals("new",File(jp,"sub/JP_New.json").readText())
+            assertEquals(listOf(0 to 2,2 to 2),progress)
+            assertFalse(File(root,".lcpatch-native-backup").exists())
+        } finally {root.deleteRecursively()}
     }
 
-    @Test fun overlayTouchesOnlySelectedFilesAndRestoresOnManualRequest() {
-        val root = Files.createTempDirectory("lcpatch-overlay").toFile()
+    @Test fun oldBackupDoesNotBlockReapplyOrLanguageSwitchAndIsNeverRead() {
+        val root=Files.createTempDirectory("overlay-legacy").toFile()
         try {
-            val japanese = File(root, "jp").apply { mkdirs() }
-            val original = File(japanese, "JP_MainUIText.json").apply { writeText("原文") }
-            val untouched = File(japanese, "JP_BattleKeywords.json").apply { writeText("維持原狀") }
-            val added = File(japanese, "JP_New.json")
-            val installer = NativeFileInstaller(root)
-            val progress = mutableListOf<Pair<Int, Int>>()
-            archive("JP_MainUIText.json" to "翻譯", "JP_New.json" to "新增").inputStream().use {
-                installer.applyOverlay(it, "jp") { done, total -> progress += done to total }
-            }
-            assertEquals("翻譯", original.readText())
-            assertEquals("維持原狀", untouched.readText())
-            assertEquals("新增", added.readText())
-            assertTrue(installer.hasBackup())
-            assertEquals(listOf(0 to 2, 2 to 2), progress)
-            // No automatic restore occurs when the game process ends.
-            assertEquals("翻譯", original.readText())
-
-            installer.restore()
-            assertEquals("原文", original.readText())
-            assertEquals("維持原狀", untouched.readText())
-            assertFalse(added.exists())
-            assertFalse(installer.hasBackup())
-            installer.restore()
-        } finally { root.deleteRecursively() }
+            listOf("jp","kr").forEach {File(root,"$it/${it.uppercase()}_Test.json").apply {parentFile.mkdirs();writeText("original")}}
+            File(root,".lcpatch-native-backup/language").apply {parentFile.mkdirs();writeText("invalid-old-marker")}
+            val installer=NativeFileInstaller(root)
+            installer.applyOverlay(archive("JP_Test.json" to "one"),"jp")
+            installer.applyOverlay(archive("JP_Test.json" to "two"),"jp")
+            installer.applyOverlay(archive("KR_Test.json" to "three"),"kr")
+            assertEquals("two",File(root,"jp/JP_Test.json").readText())
+            assertEquals("three",File(root,"kr/KR_Test.json").readText())
+            assertEquals("invalid-old-marker",File(root,".lcpatch-native-backup/language").readText())
+        } finally {root.deleteRecursively()}
     }
 
-    @Test fun reapplyKeepsTheFirstBaselineAndDoesNotRequireManualDisable() {
-        val root = Files.createTempDirectory("lcpatch-overlay-reapply").toFile()
+    @Test fun malformedArchiveIsRejectedBeforeAnyGameWrite() {
+        val root=Files.createTempDirectory("overlay-invalid").toFile()
         try {
-            val japanese = File(root, "jp").apply { mkdirs() }
-            val original = File(japanese, "JP_MainUIText.json").apply { writeText("原始內容") }
-            val installer = NativeFileInstaller(root)
-
-            archive("JP_MainUIText.json" to "第一次翻譯").inputStream().use {
-                installer.applyOverlay(it, "jp")
-            }
-            assertEquals("第一次翻譯", original.readText())
-            assertTrue(installer.hasBackup())
-
-            archive("JP_MainUIText.json" to "第二次翻譯", "JP_Extra.json" to "新增").inputStream().use {
-                installer.applyOverlay(it, "jp")
-            }
-            assertEquals("第二次翻譯", original.readText())
-            assertTrue(File(japanese, "JP_Extra.json").isFile)
-
-            installer.restore()
-            assertEquals("原始內容", original.readText())
-            assertFalse(File(japanese, "JP_Extra.json").exists())
-        } finally { root.deleteRecursively() }
-    }
-
-    @Test fun legacyBackupCanBeReusedWithoutLosingOriginal() {
-        val root = Files.createTempDirectory("lcpatch-legacy-reapply").toFile()
-        try {
-            val target = File(root, "jp").apply { mkdirs() }
-            File(target, "JP_MainUIText.json").writeText("舊漢化")
-            val backup = File(root, ".lcpatch-native-backup")
-            File(backup, "original").mkdirs()
-            File(backup, "original/JP_MainUIText.json").writeText("原文")
-            File(backup, "language").writeText("jp")
-            val installer = NativeFileInstaller(root)
-
-            archive("JP_MainUIText.json" to "新漢化").inputStream().use {
-                installer.applyOverlay(it, "jp")
-            }
-            assertEquals("新漢化", File(target, "JP_MainUIText.json").readText())
-            installer.restore()
-            assertEquals("原文", File(root, "jp/JP_MainUIText.json").readText())
-        } finally { root.deleteRecursively() }
-    }
-
-    @Test fun invalidPackLeavesOriginalFileUnmodified() {
-        val root = Files.createTempDirectory("lcpatch-overlay-invalid").toFile()
-        try {
-            val original = File(root, "jp/JP_Test.json")
-            original.parentFile!!.mkdirs()
-            original.writeText("原文")
-            val installer = NativeFileInstaller(root)
+            val file=File(root,"jp/JP_Test.json").apply {parentFile.mkdirs();writeText("original")}
             assertThrows(IllegalArgumentException::class.java) {
-                installer.applyOverlay(archive("KR_Test.json" to "不符").inputStream(), "jp")
+                NativeFileInstaller(root).applyOverlay(archive("JP_Test.json" to "changed","../JP_Escape.json" to "bad"),"jp")
             }
-            assertEquals("原文", original.readText())
-            assertFalse(installer.hasBackup())
-        } finally { root.deleteRecursively() }
+            assertEquals("original",file.readText())
+            assertFalse(File(root,"JP_Escape.json").exists())
+        } finally {root.deleteRecursively()}
     }
 
-    @Test fun previousVersionWholeDirectoryBackupCanStillBeRestored() {
-        val root = Files.createTempDirectory("lcpatch-legacy-backup").toFile()
+    @Test fun failureNeverRestoresOrReplacesTheLiveDirectory() {
+        val root=Files.createTempDirectory("overlay-failed").toFile()
         try {
-            File(root, "jp").mkdirs()
-            File(root, "jp/JP_Test.json").writeText("覆蓋版")
-            val backup = File(root, ".lcpatch-native-backup")
-            File(backup, "original").mkdirs()
-            File(backup, "original/JP_Test.json").writeText("原版")
-            File(backup, "language").writeText("jp")
-            val installer = NativeFileInstaller(root)
-            installer.restore()
-            assertEquals("原版", File(root, "jp/JP_Test.json").readText())
-            assertFalse(installer.hasBackup())
-        } finally { root.deleteRecursively() }
+            val file=File(root,"jp/JP_Test.json").apply {parentFile.mkdirs();writeText("original")}
+            val marker=File(root,"jp/game-state.bin").apply {writeText("before")}
+            assertThrows(IllegalStateException::class.java) {
+                NativeFileInstaller(root).applyOverlay(archive("JP_Test.json" to "translated"),"jp") {done,_ ->
+                    if(done>0) {marker.writeText("game-updated");error("injected callback failure")}
+                }
+            }
+            assertEquals("translated",file.readText())
+            assertEquals("game-updated",marker.readText())
+            assertFalse(File(root,".lcpatch-native-stage").exists())
+        } finally {root.deleteRecursively()}
     }
 }

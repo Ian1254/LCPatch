@@ -67,14 +67,11 @@ class TranslationApplyService : Service() {
             val notification = Notification.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle("漢化已準備好")
-                .setContentText("遊戲到標題畫面後，點「套用漢化」；不用手動切回 LCPatch")
+                .setContentText("遊戲到標題畫面後，點擊通知套用漢化")
                 .setStyle(Notification.BigTextStyle().bigText(
-                    "讓遊戲完成原始語言資源下載與啟動驗證。看到標題畫面後，從通知欄點「套用漢化」。"
+                    "讓遊戲完成原始語言資源下載與啟動驗證。看到標題畫面後，點擊通知套用漢化。"
                 ))
                 .setContentIntent(action)
-                .addAction(Notification.Action.Builder(
-                    android.R.drawable.ic_menu_save, "套用漢化", action
-                ).build())
                 .setAutoCancel(false)
                 .setOnlyAlertOnce(true)
                 .build()
@@ -131,7 +128,7 @@ class TranslationApplyService : Service() {
 
     private fun progressNotification(done: Int, count: Int): Notification {
         val text = if (count > 0) "正在寫入${TranslationRepository(this).targetLanguage().label}資源 · $done / $count 個檔案"
-            else "正在準備與備份漢化文件"
+            else "正在準備漢化文件"
         return baseNotification("正在套用漢化", text)
             .setOngoing(true)
             .setProgress(count, done, count <= 0)
@@ -183,7 +180,7 @@ class TranslationApplyService : Service() {
                     "translation.background_applied", resultDetail)
             } catch (error: CancellationException) {
                 resultTitle = "漢化套用中斷"
-                resultDetail = "工作已中斷，請回 LCPatch 查看備份狀態"
+                resultDetail = "工作已中斷，可點擊通知回 LCPatch 重新套用"
             } catch (error: Throwable) {
                 resultTitle = "漢化套用失敗"
                 resultDetail = error.message ?: error.javaClass.simpleName

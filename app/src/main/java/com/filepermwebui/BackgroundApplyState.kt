@@ -32,7 +32,7 @@ internal object BackgroundApplyState {
             val old = mutable.value
             if (old.busy) return false
             if (mutable.compareAndSet(old, BackgroundApplySnapshot(true, path,
-                    ApplyProgress("正在準備與備份漢化文件", 0, 0), revision = old.revision))) return true
+                    ApplyProgress("正在準備漢化文件", 0, 0), revision = old.revision))) return true
         }
     }
 

@@ -199,11 +199,6 @@ class MainActivity : ComponentActivity() {
         check(packageManager.getLaunchIntentForPackage(LogProvider.GAME) != null) {
             "找不到遊戲啟動入口"
         }
-        // Do not implicitly restore: the user explicitly chose manual restoration.
-        // Starting a fresh session with patched JSON can fail the game's one-time check.
-        check(!NativeStorageClient.use(this) { it.hasBackup() }) {
-            "上次套用的漢化檔仍保留；新一輪啟動前請先手動停用漢化、還原原文"
-        }
         TranslationApplyService.prepare(this, packPath)
         launchGame()
     }
@@ -248,12 +243,17 @@ class MainActivity : ComponentActivity() {
         var installingEntryKey by taskState.installingEntryKey
         var changingTargetLanguage by taskState.changingTargetLanguage
         var downloadedPacks by remember { mutableStateOf<List<DownloadedTranslation>>(emptyList()) }
+        var packDeleteMode by rememberSaveable { mutableStateOf(false) }
+        var packDeleteSelection by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+        var confirmPackDelete by rememberSaveable { mutableStateOf(false) }
+        LaunchedEffect(downloadedPacks) {
+            packDeleteSelection=ArrayList(packDeleteSelection.filter {path -> downloadedPacks.any {it.path==path}})
+        }
         var rootMode by remember { mutableStateOf(translations.rootMode()) }
         var gameFolder by remember { mutableStateOf(translations.gameFolder()) }
         var gameFolderReady by remember { mutableStateOf(false) }
         var nativeBackend by remember { mutableStateOf(translations.nativeBackend()) }
         var shizukuStatus by remember { mutableStateOf(NativeStorageClient.status()) }
-        var exportPack by remember { mutableStateOf<DownloadedTranslation?>(null) }
         var activeName by remember { mutableStateOf(translations.activeName()) }
         var activeScript by remember { mutableStateOf(translations.activeScript()) }
         var translationEnabled by remember { mutableStateOf(translations.translationEnabled()) }
@@ -386,28 +386,11 @@ class MainActivity : ComponentActivity() {
                     .onFailure { taskState.error("遊戲資料夾授權失敗：${it.message}") }
             }
         }
-        val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-            val pack = exportPack
-            exportPack = null
-            if (uri != null && pack != null) {
-                localApplying = true
-                taskState.launchTask {
-                    try {
-                        translations.exportPack(pack, uri)
-                        taskState.success("已匯出漢化 ZIP；請透過檔案管理器覆蓋遊戲同名文件")
-                    } catch (error: Exception) { taskState.error("匯出失敗：${error.message}") }
-                    finally { localApplying = false }
-                }
-            }
-        }
         val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            if (uri != null) {
-                try {
-                    logs.setSelectedFolder(uri)
-                    taskState.success("診斷文件位置已更新")
-                } catch (error: Throwable) {
-                    taskState.error("無法儲存資料夾授權：${error.message}")
-                }
+            if(uri!=null) {
+                runCatching {logs.setSelectedFolder(uri)}
+                    .onSuccess {taskState.success("診斷文件位置已更新")}
+                    .onFailure {taskState.error("無法儲存資料夾授權：${it.message}")}
                 revision++
             }
         }
@@ -443,7 +426,10 @@ class MainActivity : ComponentActivity() {
             taskState.launchTask {
                 runCatching { translations.fetchCatalog() }
                     .onSuccess {
-                        if (requestedMode == translations.rootMode() && requestedLanguage == translations.targetLanguage().id) catalog = it
+                        if (requestedMode == translations.rootMode() && requestedLanguage == translations.targetLanguage().id) {
+                            catalog = it
+                            if(!requestedMode) downloadedPacks=translations.downloaded()
+                        }
                     }
                     .onFailure {
                         if (requestedMode == translations.rootMode() && requestedLanguage == translations.targetLanguage().id) {
@@ -567,7 +553,7 @@ class MainActivity : ComponentActivity() {
             if (rootMode || nativeBackend != "shizuku") { launchGame(); return@launch }
             val pack = downloadedPacks.firstOrNull { it.path == selectedShizukuPath }
                 ?: downloadedPacks.firstOrNull { it.name == activeName }
-            if (pack == null) { navigateTo(DOWNLOADED); taskState.info("請先選擇要使用的漢化包"); return@launch }
+            if (pack == null) { launchGame(); return@launch }
             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 resumeLaunchAfterPermission = true
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -577,10 +563,21 @@ class MainActivity : ComponentActivity() {
             taskState.launchTask {
                 try {
                     prepareShizukuGuide(pack.path)
-                    taskState.info("等待遊戲標題畫面；請從通知點「套用漢化」")
+                    taskState.info("遊戲進入標題畫面後，點擊通知套用漢化")
                 } catch (error: Exception) { taskState.error(error.message ?: "無法準備漢化") }
                 finally { localApplying = false }
             }
+        }
+        fun applyNativePack(path: String) {
+            if(applying || installingEntryKey != null) return
+            if(NativeStorageClient.status() != "已授權") {taskState.error("請先授權 Shizuku");return}
+            selectedShizukuPath=path
+            appPrefs.edit().putString("shizuku_selected_pack",path).apply()
+            if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) {
+                permissionReapplyPath=path
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else runCatching {TranslationApplyService.start(this@MainActivity,path)}
+                .onFailure {taskState.error(it.message ?: "無法啟動套用")}
         }
         LaunchedEffect(page, activeName, applying, targetLanguage.id, rootMode) {
             if (!applying && installingEntryKey == null) {
@@ -719,16 +716,15 @@ class MainActivity : ComponentActivity() {
                         )
                         downloadedPacks = translations.downloaded()
                         if (!rootMode && nativeBackend == "shizuku") {
-                            transfer = null
-                            TranslationApplyService.cancelPreparation(this@MainActivity)
-                            selectedShizukuPath = downloaded.path
-                            appPrefs.edit().putString("shizuku_selected_pack", downloaded.path).apply()
-                            taskState.success("下載完成，已選擇此漢化；請回概觀啟動遊戲")
+                            transfer=null
+                            localApplyProgress=null
+                            installingEntryKey=null
+                            applyNativePack(downloaded.path)
                             return@launchTask
                         }
                         if (!rootMode && (if (nativeBackend == "shizuku") NativeStorageClient.status() != "已授權" else gameFolder == null)) {
                             transfer = null
-                            taskState.success("下載完成；請先授權載入方式，或從已下載漢化匯出 ZIP")
+                            taskState.success("下載完成；請先授權載入方式，再從已下載漢化套用")
                             return@launchTask
                         }
                         localApplying = true
@@ -761,8 +757,37 @@ class MainActivity : ComponentActivity() {
         }
 
         BackHandler(enabled = page != OVERVIEW && (page != ONBOARDING || onboardingDone)) {
-            navigateBack()
+            if(page==DOWNLOADED && packDeleteMode) {packDeleteMode=false;packDeleteSelection=arrayListOf()} else navigateBack()
         }
+
+        if(confirmPackDelete) SystemConfirmDialog("刪除漢化包", "確定刪除已選的 ${packDeleteSelection.size} 個漢化包？只移除下載內容，不影響遊戲內漢化。", "刪除",
+            onDismiss={confirmPackDelete=false},onConfirm={
+                confirmPackDelete=false
+                if(!applying && installingEntryKey==null) {
+                    val targets=downloadedPacks.filter {it.path in packDeleteSelection}
+                    localApplying=true
+                    taskState.launchTask {
+                        try {
+                            TranslationApplyService.cancelPreparation(this@MainActivity)
+                            val failures=mutableListOf<String>()
+                            targets.forEach {entry ->
+                                try {translations.deleteDownloaded(entry)} catch(error: kotlinx.coroutines.CancellationException) {throw error}
+                                catch(error: Exception) {failures+=entry.path;LogRepository.append(this@MainActivity,"ERROR","translation.delete_failed",error.message ?: entry.name)}
+                            }
+                            downloadedPacks=translations.downloaded()
+                            packDeleteSelection=ArrayList(failures)
+                            packDeleteMode=failures.isNotEmpty()
+                            if(selectedShizukuPath!=null && downloadedPacks.none {it.path==selectedShizukuPath}) {
+                                selectedShizukuPath=null;appPrefs.edit().remove("shizuku_selected_pack").apply()
+                            }
+                            if(failures.isEmpty()) taskState.success("已刪除 ${targets.size} 個漢化包")
+                            else taskState.error("已刪除 ${targets.size-failures.size} 個；${failures.size} 個刪除失敗，已保留勾選，可重試")
+                        } catch(error: kotlinx.coroutines.CancellationException) {throw error}
+                        catch(error: Exception) {taskState.error("刪除未完成：${error.message}")}
+                        finally {localApplying=false}
+                    }
+                }
+            })
 
         val shellTarget = if (page in topPages) TOP_LEVEL_CONTAINER else page
 
@@ -803,7 +828,7 @@ class MainActivity : ComponentActivity() {
                                 OverlayDropdownPreference(
                                     title = "運作模式",
                                     items = listOf("無 root", "Root ＋ LSPosed"),
-                                    enabled = !applying && installingEntryKey == null && exportPack == null && !translationEnabled,
+                                    enabled = !applying && installingEntryKey == null && (!rootMode || !translationEnabled),
                                     selectedIndex = if (rootMode) 1 else 0,
                                     onSelectedIndexChange = { index ->
                                         rootMode = index == 1
@@ -820,47 +845,7 @@ class MainActivity : ComponentActivity() {
                                         refreshCatalog()
                                     }
                                 )
-                                SystemModeHelp(last=rootMode)
-                                if (!rootMode) {
-                                    SystemSecondaryEntry("文件載入設定",value=if(nativeBackend=="shizuku") "Shizuku" else "系統資料夾授權") {
-                                    OverlayDropdownPreference(
-                                        title = "文件載入方式", last=true,
-                                        items = listOf("Shizuku", "系統資料夾授權（SAF）"),
-                                        selectedIndex = if (nativeBackend == "shizuku") 0 else 1,
-                                        enabled = !applying && installingEntryKey == null && !translationEnabled,
-                                        onSelectedIndexChange = { index ->
-                                            nativeBackend = if (index == 0) "shizuku" else "saf"
-                                            translations.setNativeBackend(nativeBackend)
-                                        }
-                                    )
-                                    Text(
-                                        if (nativeBackend == "shizuku") "Shizuku：$shizukuStatus" else "透過系統資料夾授權存取檔案",
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
-                                    )
-                                    Text(
-                                        "無 root 模式須先下載遊戲內的日語或韓語資源；更新遊戲前請先停用漢化。",
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                    if (nativeBackend == "shizuku") {
-                                        TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
-                                            text = "授權／檢查 Shizuku", onClick = ::requestShizuku)
-                                        TextButton(modifier = Modifier.fillMaxWidth(), text = "Shizuku 啟動說明", onClick = {
-                                            runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/guide/setup/"))) }
-                                                .onFailure { taskState.error("無法開啟說明連結") }
-                                        })
-                                    } else {
-                                    TextButton(modifier = Modifier.fillMaxWidth(), enabled = !applying && installingEntryKey == null,
-                                        text = if (gameFolder == null) "授權遊戲 Localize 資料夾" else "重新選擇遊戲資料夾",
-                                        onClick = { gameFolderPicker.launch(gameFolder) })
-                                    Text("位置：Android/data/com.ProjectMoon.LimbusCompany/files/Assets/Resources_moved/Localize\n若系統限制選取 Android/data，可從已下載漢化匯出 ZIP，交由具權限的檔案管理器套用。", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                    }
-                                    }
-                                }
+                                SystemModeHelp(last=true)
                             }
                         }
                         when (visiblePage) {
@@ -899,7 +884,14 @@ class MainActivity : ComponentActivity() {
                                 loadReady = if(nativeBackend == "shizuku") shizukuStatus == "已授權" else gameFolderReady,
                                 workProgress = if(backgroundApply.busy) backgroundApply.progress else null,
                                 waitingForGame = backgroundApply.waiting,
-                                selectedPack = if(!rootMode && nativeBackend == "shizuku") downloadedPacks.firstOrNull {it.path == selectedShizukuPath} else null
+                                selectedPack = if(!rootMode && nativeBackend == "shizuku") downloadedPacks.firstOrNull {it.path == selectedShizukuPath} else null,
+                                backend = nativeBackend,
+                                onBackend = {value ->
+                                    if(!applying && installingEntryKey==null) {
+                                        TranslationApplyService.cancelPreparation(this@MainActivity)
+                                        translations.setNativeBackend(value);nativeBackend=value
+                                    }
+                                }
                             )
                             SETTINGS -> settings(
                                 rootMode = rootMode,
@@ -987,54 +979,17 @@ class MainActivity : ComponentActivity() {
                                 applyingPackPath,
                                 rootMode = rootMode,
                                 shizukuGuide = !rootMode && nativeBackend == "shizuku",
-                                selectedPath = selectedShizukuPath,
-                                delete = {pack ->
-                                    if(!applying && installingEntryKey==null) {
-                                        localApplying = true
-                                        taskState.launchTask {
-                                            try {
-                                                TranslationApplyService.cancelPreparation(this@MainActivity)
-                                                translations.deleteDownloaded(pack)
-                                                if(selectedShizukuPath == pack.path) {
-                                                    selectedShizukuPath = null
-                                                    appPrefs.edit().remove("shizuku_selected_pack").apply()
-                                                }
-                                                downloadedPacks=translations.downloaded()
-                                                taskState.success("已刪除漢化包")
-                                            } catch(error: kotlinx.coroutines.CancellationException) {throw error
-                                            } catch(error: Exception) {taskState.error("刪除失敗：${error.message}")
-                                            } finally {localApplying = false}
-                                        }
-                                    }
-                                },
-                                export = { pack -> exportPack = pack; exportPicker.launch("${pack.name}.zip") },
-                                reapply = { pack ->
-                                    when {
-                                        applying || installingEntryKey != null -> Unit
-                                        NativeStorageClient.status() != "已授權" ->
-                                            taskState.error("請先授權 Shizuku")
-                                        Build.VERSION.SDK_INT >= 33 &&
-                                            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED -> {
-                                            permissionReapplyPath = pack.path
-                                            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                        }
-                                        else -> runCatching {
-                                            TranslationApplyService.start(this@MainActivity, pack.path)
-                                        }.onSuccess {
-                                            taskState.info("正在重新套用；請查看通知欄進度")
-                                        }.onFailure {
-                                            taskState.error("重新套用無法啟動：${it.message}")
-                                        }
-                                    }
+                                activePath = translations.activePackPath(),
+                                installedVersion = translations.activeVersion(),
+                                deleteMode = packDeleteMode,
+                                selectedForDeletion = packDeleteSelection.toSet(),
+                                onToggleDelete = {path ->
+                                    if(!applying) packDeleteSelection=ArrayList(if(path in packDeleteSelection) packDeleteSelection-path else packDeleteSelection+path)
                                 }
-
                             ) { pack ->
                                 if (!applying && installingEntryKey == null) {
                                     if (!rootMode && nativeBackend == "shizuku") {
-                                        TranslationApplyService.cancelPreparation(this@MainActivity)
-                                        selectedShizukuPath = pack.path
-                                        appPrefs.edit().putString("shizuku_selected_pack", pack.path).apply()
-                                        taskState.info("已選擇 ${pack.name}；請回概觀啟動遊戲")
+                                        applyNativePack(pack.path)
                                     } else {
                                         localApplying = true
                                         localApplyingPackPath = pack.path
@@ -1130,7 +1085,15 @@ class MainActivity : ComponentActivity() {
                                     {if(!diagnosticBusy) showClearLogDialog=true}) })
                         } else {
                             TintedBar(activeBarBackdrop, hazeState = activeHazeState) {
-                                SystemInnerTopBar(visibleTitle,::navigateBack,visiblePage!=ONBOARDING||onboardingDone,visibleScrollBehavior)
+                                SystemInnerTopBar(if(visiblePage==DOWNLOADED && packDeleteMode) "${packDeleteSelection.size} 項" else visibleTitle,
+                                    {if(visiblePage==DOWNLOADED && packDeleteMode) {packDeleteMode=false;packDeleteSelection=arrayListOf()} else navigateBack()},
+                                    visiblePage!=ONBOARDING||onboardingDone,visibleScrollBehavior) {
+                                    if(visiblePage==DOWNLOADED) SystemPackDeleteActions(packDeleteMode,applying || installingEntryKey!=null,
+                                        downloadedPacks.isNotEmpty(),packDeleteSelection.isNotEmpty(),packDeleteSelection.size==downloadedPacks.size,
+                                        {packDeleteMode=true},
+                                        {packDeleteSelection=ArrayList(if(packDeleteSelection.size==downloadedPacks.size) emptyList() else downloadedPacks.map {it.path})},
+                                        {confirmPackDelete=true})
+                                }
                             }
                         }
                     },
@@ -1202,7 +1165,7 @@ class MainActivity : ComponentActivity() {
         onCheckScope: () -> Unit, onRequestRoot: () -> Unit,
         translationEnabled: Boolean, onTranslationEnabled: (Boolean) -> Unit,
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection,
-        onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?, waitingForGame: Boolean, selectedPack: DownloadedTranslation?
+        onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?, waitingForGame: Boolean, selectedPack: DownloadedTranslation?, backend: String, onBackend: (String)->Unit
     ) {
         val state = OverviewUiState(activeName, activeScript, targetLanguage.label, translationEnabled,
             rootMode, game.installed, game.version, busy, scopeStatus, rootStatus, loadStatus,
@@ -1210,7 +1173,7 @@ class MainActivity : ComponentActivity() {
         item { SystemTranslationPanel(state, onTranslationEnabled, onLaunch, onDownload, workProgress, selectedPack, waitingForGame) }
         item { SystemQuickActions(onDownload, onDownloaded) }
         item { SystemSectionLabel("運作狀態") }
-        item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onGameFolder, loadAction) }
+        item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onGameFolder, loadAction, backend, onBackend) }
 
     }
 
@@ -1370,7 +1333,7 @@ class MainActivity : ComponentActivity() {
         onRequestRoot: () -> Unit,
         onDone: () -> Unit
     ) {
-        if (!rootMode) item { InfoCard("無 root 使用方式", "Shizuku：下載並選擇漢化包，從概觀啟動遊戲；等標題畫面正常顯示後，從通知點「套用漢化」。下次重新啟動前，請先手動停用並還原。系統資料夾授權（SAF）則透過已授權位置套用。") }
+        if (!rootMode) item { InfoCard("無 root 使用方式", "下載後直接套用漢化。Shizuku 可在通知查看進度；需要再次套用時，等遊戲標題畫面顯示後點擊通知。系統資料夾授權（SAF）透過已授權位置套用。") }
         if (rootMode) item { InfoCard("歡迎使用 LCPatch", "完成模組作用域與 Root 權限設定後，即可在 App 內下載並套用漢化。") }
         if (rootMode) item {
             Card(insideMargin = PaddingValues(18.dp)) {
@@ -1490,7 +1453,7 @@ class MainActivity : ComponentActivity() {
                     else -> null
                 }
                 val buttonText = when {
-                    !ownsTask -> if (shizukuGuide) "下載並選擇" else if (autoApply) "下載並套用" else "下載漢化"
+                    !ownsTask -> if (shizukuGuide) "下載並套用" else if (autoApply) "下載並套用" else "下載漢化"
                     postDownload -> progressStageLabel(applyProgress?.stage)
                     else -> progressDownloadLabel(downloadFraction)
                 }
@@ -1507,20 +1470,15 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.downloadedPage(
         entries: List<DownloadedTranslation>,activeName: String,applyProgress: ApplyProgress?,applying: Boolean,
-        processingPackPath: String?,applyingPackPath: String?,rootMode: Boolean,shizukuGuide: Boolean,selectedPath: String?,export: (DownloadedTranslation)->Unit,
-        delete: (DownloadedTranslation)->Unit,reapply: (DownloadedTranslation)->Unit,apply: (DownloadedTranslation)->Unit
+        processingPackPath: String?,applyingPackPath: String?,rootMode: Boolean,shizukuGuide: Boolean,
+        activePath: String?,installedVersion: String?,deleteMode: Boolean,selectedForDeletion: Set<String>,onToggleDelete: (String)->Unit,
+        apply: (DownloadedTranslation)->Unit
     ) {
         if(entries.isEmpty()) item {InfoCard("尚無已下載漢化","請先從「下載漢化」取得漢化包。")}
         items(entries,key={it.path}) {entry ->
-            var confirmDelete by remember(entry.path) {mutableStateOf(false)}
-            val reapplyCurrent = shizukuGuide && entry.name == activeName && entry.path == selectedPath
-            SystemDownloadedPackCard(entry.name,entry.version,entry.name==activeName,applyingPackPath==entry.path,!applying,
-                applyProgress,{if(reapplyCurrent) reapply(entry) else apply(entry)},{confirmDelete=true},if(rootMode) null else ({export(entry)}),
-                if(shizukuGuide) if(reapplyCurrent) "重新套用" else if(entry.path == selectedPath) "已選擇" else "選擇" else null,
-                null,
-                if(shizukuGuide) entry.path == selectedPath else null)
-            if(confirmDelete) SystemConfirmDialog("刪除漢化包","確定刪除「${entry.name}」？只會移除下載的檔案，已套用到遊戲的漢化不受影響。","刪除",
-                onDismiss={confirmDelete=false},onConfirm={confirmDelete=false;if(!applying) delete(entry)})
+            val active=if(deleteMode) entry.path in selectedForDeletion else (activePath?.let {it==entry.path} ?: (entry.name==activeName)) && entry.version!=null && entry.version==installedVersion
+            SystemDownloadedPackCard(entry.name,entry.version,active,applyingPackPath==entry.path,!applying,
+                applyProgress,{if(deleteMode) onToggleDelete(entry.path) else apply(entry)},deleteMode)
         }
     }
 

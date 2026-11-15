@@ -10,15 +10,10 @@ import java.util.zip.ZipInputStream
 
 /**
  * A native language overlay: copy only the translated JSON files, never exchange
- * the game's live language directory. A durable per-file baseline supports manual restore.
+ * the game's live language directory. No original-file backup or restoration is performed.
  */
 internal class NativeFileInstaller(private val localize: File) {
-    private val backup = File(localize, ".lcpatch-native-backup")
     private val stage = File(localize, ".lcpatch-native-stage")
-    private val next = File(localize, ".lcpatch-native-next")
-    private val old = File(localize, ".lcpatch-native-old")
-
-    fun hasBackup(): Boolean = backup.isDirectory && File(backup, "language").isFile
 
     private fun languageDirectory(language: String): File {
         require(language in setOf("jp", "kr")) { "只支援 jp／kr 原生語言目錄" }
@@ -57,57 +52,14 @@ internal class NativeFileInstaller(private val localize: File) {
         }
     }
 
-    fun restore() {
-        if (!hasBackup()) return
-        val language = File(backup, "language").readText().trim()
-        val target = languageDirectory(language)
-        // The first successful apply keeps a complete baseline. Restoring the whole
-        // directory also removes any files introduced by earlier reapplications.
-        // This is only called on explicit user disable or an unsuccessful write.
-        val original = File(backup, "original")
-        check(original.isDirectory && original.listFiles()?.isNotEmpty() == true) {
-            "原始語言目錄備份不完整；為避免資料遺失，未進行還原"
-        }
-        check(next.deleteRecursively()) { "無法清除還原暫存目錄" }
-        check(original.copyRecursively(next, overwrite = true)) { "無法準備原始文件還原" }
-        swapLegacy(next, target)
-        check(backup.deleteRecursively()) { "原始文件已還原，但無法清理備份" }
-    }
-
-    private fun swapLegacy(source: File, target: File) {
-        if (!target.exists() && old.exists()) check(old.renameTo(target))
-        check(old.deleteRecursively())
-        if (target.exists()) check(target.renameTo(old))
-        if (!source.renameTo(target)) {
-            if (old.exists()) check(old.renameTo(target))
-            error("無法還原舊版原始語言目錄")
-        }
-        check(old.deleteRecursively())
-    }
-
     fun applyOverlay(archive: InputStream, language: String, progress: (Int, Int) -> Unit = { _, _ -> }) {
         val target = languageDirectory(language)
         require(target.isDirectory && target.listFiles()?.isNotEmpty() == true) {
             "請先在遊戲下載 ${language.uppercase()} 語言資源"
         }
-        val existingBackup = hasBackup()
-        if (existingBackup) {
-            val previousLanguage = File(backup, "language").readText().trim()
-            check(previousLanguage == language) {
-                "備份為 ${previousLanguage.uppercase()}；請先手動停用舊漢化才能切換語言"
-            }
-            val original = File(backup, "original")
-            check(original.isDirectory && original.listFiles()?.isNotEmpty() == true) {
-                "原始語言備份不完整；為避免覆蓋原始文件，已停止套用"
-            }
-        } else if (backup.exists()) {
-            // No recovery marker means the previous operation did not begin writing.
-            check(backup.deleteRecursively()) { "無法清理未完成的備份" }
-        }
         check(stage.deleteRecursively()) { "無法清理暫存檔案" }
         check(stage.mkdirs()) { "無法準備漢化暫存目錄" }
 
-        var startedWrites = false
         try {
             val paths = linkedSetOf<String>()
             var totalBytes = 0L
@@ -140,29 +92,13 @@ internal class NativeFileInstaller(private val localize: File) {
                 val destination = checkedFile(target, relative)
                 require(!destination.exists() || destination.isFile) { "語言資源路徑不是文件" }
             }
-            if (!existingBackup) {
-                check(backup.mkdirs()) { "無法建立原始文件備份" }
-                // Do not overwrite this baseline on any later reapply.
-                val originalDirectory = File(backup, "original")
-                check(target.copyRecursively(originalDirectory, overwrite = true)) { "無法完整備份原始語言目錄" }
-                File(backup, "mode").writeText("overlay")
-                File(backup, "language").writeText(language)
-            }
             progress(0, paths.size)
             paths.forEachIndexed { index, relative ->
-                startedWrites = true
                 atomicCopy(checkedFile(stage, relative), checkedFile(target, relative))
                 if ((index + 1) % 10 == 0 || index + 1 == paths.size) {
                     progress(index + 1, paths.size)
                 }
             }
-        } catch (error: Exception) {
-            if (startedWrites && hasBackup()) {
-                runCatching { restore() }.onFailure { error.addSuppressed(it) }
-            } else if (!existingBackup && backup.exists()) {
-                check(backup.deleteRecursively()) { "無法清理套用失敗的暫存備份" }
-            }
-            throw error
         } finally {
             stage.deleteRecursively()
         }

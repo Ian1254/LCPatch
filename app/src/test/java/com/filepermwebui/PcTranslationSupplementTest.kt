@@ -265,8 +265,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
     val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="Shizuku · 已授權",loadReady=true)
     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         SystemTranslationPanel(state, {}, {}, {}, progress, waitingForGame=!writing)
-        SystemDownloadedPackCard("零協會漢化","2026111401",writing,writing,!writing,progress,{}, {},
-            actionLabel=if(writing) "重新套用" else "已選擇",selected=true)
+        SystemDownloadedPackCard("零協會漢化","2026111401",writing,writing,!writing,progress,{})
         SystemEnvironmentPanel(state,{}, {}, {}, "授權／檢查 Shizuku")
     }
 }
@@ -382,7 +381,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 @Composable private fun SheetFixture(dark: Boolean)=SystemUiTheme(SystemUiStyle.HyperOS4,if(dark) "dark" else "light") {
     Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.BottomCenter) {
         SystemSheetSurface("環境與權限",Modifier.padding(12.dp)) {
-            SystemEnvironmentDialogBody(sampleOverview,{},"選擇資料夾",{})
+            SystemEnvironmentDialogBody(sampleOverview,{},"選擇資料夾",onClose={})
         }
     }
 }
@@ -525,7 +524,7 @@ class LanguagePreparationProgressTest {
 class InstalledIdentityAndLogDateTest {
     @Test fun installedVersionNeverUsesUnrelatedOrMovingRelease() {
         assertNull(installedPackVersion(null,null))
-        assertNull(installedPackVersion("{\"schema\":1,\"url\":\"https://github.com/other/repo/releases/download/123/a.zip\"}",null))
+        assertNull(installedPackVersion("{\"schema\":1,\"url\":\"https://example.com/other/repo/releases/download/123/a.zip\"}",null))
         assertNull(installedPackVersion("{\"schema\":1,\"version\":\"latest\"}",null))
         assertNull(installedPackVersion("{\"schema\":2,\"version\":\"123\"}",null))
     }
@@ -578,15 +577,15 @@ class InstalledIdentityAndLogDateTest {
 }
 
 @Composable private fun ProposalPack(name: String,active: Boolean=false,version: String?="2026111401") {
-    SystemDownloadedPackCard(name,version,active,false,true,null,{},{})
+    SystemDownloadedPackCard(name,version,active,false,true,null,{})
 }
 
 @Composable private fun ProposalDownloadedContent() {
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=14.dp,vertical=12.dp),
         verticalArrangement=Arrangement.spacedBy(14.dp)) {
-        item {ProposalPack("都市零協會官方簡體漢化",version="未知")}
+        item {ProposalPack("都市零協會官方簡體漢化",version="2026111401")}
         item {ProposalPack("零協會漢化",true)}
-        item {ProposalPack("零協會漢化（LCPatch 整理版）",version="未知")}
+        item {ProposalPack("匯入漢化包",version="sha256:"+"a".repeat(64))}
     }
 }
 
@@ -612,10 +611,10 @@ class InstalledIdentityAndLogDateTest {
 }
 
 @PreviewTest @Preview(name="DownloadedProposal",widthDp=393,heightDp=852)
-@Composable fun DownloadedProposal()=ProposalScreen("選擇套用") {ProposalDownloadedContent()}
+@Composable fun DownloadedProposal()=PackManagementFixture(true,false)
 
 @PreviewTest @Preview(name="DownloadedLightProposal",widthDp=393,heightDp=852)
-@Composable fun DownloadedLightProposal()=ProposalScreen("選擇套用",false) {ProposalDownloadedContent()}
+@Composable fun DownloadedLightProposal()=PackManagementFixture(false,false)
 
 @Composable private fun ProposalUpdateContent(checking: Boolean=false) {
     Box(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=12.dp)) {
@@ -721,3 +720,23 @@ class ReleaseDataRegressionTest {
         assertFalse(requests.accepts(beta));assertTrue(requests.accepts(stableAgain))
     }
 }
+
+@Composable private fun PackManagementFixture(dark: Boolean, selecting: Boolean) = SystemUiTheme(SystemUiStyle.HyperOS4,if(dark) "dark" else "light") {
+    Scaffold(containerColor=MiuixTheme.colorScheme.surface,contentWindowInsets=WindowInsets(0,0,0,0),topBar={
+        SystemInnerTopBar(if(selecting) "2 項" else "選擇套用",{}) {
+            SystemPackDeleteActions(selecting,false,true,selecting,false,{},{},{})
+        }
+    }) {padding ->
+        LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=14.dp,end=14.dp,top=padding.calculateTopPadding()+12.dp,bottom=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            item {SystemDownloadedPackCard("零協會漢化","2026111401",true,false,true,null,{},selecting)}
+            item {SystemDownloadedPackCard("日文字形漢化（日本語）","v1.119.0",selecting,false,true,null,{},selecting)}
+            item {SystemDownloadedPackCard("匯入漢化包","sha256:"+"a".repeat(64),false,false,true,null,{},selecting)}
+        }
+    }
+}
+
+@PreviewTest @Preview(name="BatchDelete",widthDp=393,heightDp=852)
+@Composable fun BatchDelete()=PackManagementFixture(true,true)
+
+@PreviewTest @Preview(name="BatchDeleteLargeLight",widthDp=360,heightDp=852,fontScale=1.5f)
+@Composable fun BatchDeleteLargeLight()=PackManagementFixture(false,true)
