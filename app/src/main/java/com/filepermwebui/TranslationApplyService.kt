@@ -167,8 +167,8 @@ class TranslationApplyService : Service() {
             var resultDetail = ""
             try {
                 val repository = TranslationRepository(this@TranslationApplyService)
-                check(!repository.rootMode() && repository.nativeBackend() == "shizuku") {
-                    "目前不是 Shizuku 無 Root 模式"
+                check(!repository.rootMode() && repository.nativeBackend() == "stellar") {
+                    "目前不是 Stellar 無 Root 模式"
                 }
                 val entry = repository.downloaded().firstOrNull { it.path == packPath }
                     ?: error("找不到指定的已下載漢化包")

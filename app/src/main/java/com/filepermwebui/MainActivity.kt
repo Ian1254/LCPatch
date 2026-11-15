@@ -194,8 +194,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private suspend fun prepareShizukuGuide(packPath: String) {
-        check(NativeStorageClient.status() == "已授權") { "請先授權 Shizuku" }
+    private suspend fun prepareStellarGuide(packPath: String) {
+        check(NativeStorageClient.status(this@MainActivity) == "已授權") { "請先授權 Stellar" }
         check(packageManager.getLaunchIntentForPackage(LogProvider.GAME) != null) {
             "找不到遊戲啟動入口"
         }
@@ -239,7 +239,7 @@ class MainActivity : ComponentActivity() {
         val applying = localApplying || backgroundApply.busy
         val applyProgress = if (backgroundApply.busy) backgroundApply.progress else localApplyProgress
         val applyingPackPath = if (backgroundApply.busy) backgroundApply.packPath else localApplyingPackPath
-        var selectedShizukuPath by rememberSaveable { mutableStateOf(appPrefs.getString("shizuku_selected_pack", null)) }
+        var selectedStellarPath by rememberSaveable { mutableStateOf(appPrefs.getString("stellar_selected_pack", appPrefs.getString("shizuku_selected_pack", null))) }
         var installingEntryKey by taskState.installingEntryKey
         var changingTargetLanguage by taskState.changingTargetLanguage
         var downloadedPacks by remember { mutableStateOf<List<DownloadedTranslation>>(emptyList()) }
@@ -253,7 +253,7 @@ class MainActivity : ComponentActivity() {
         var gameFolder by remember { mutableStateOf(translations.gameFolder()) }
         var gameFolderReady by remember { mutableStateOf(false) }
         var nativeBackend by remember { mutableStateOf(translations.nativeBackend()) }
-        var shizukuStatus by remember { mutableStateOf(NativeStorageClient.status()) }
+        var stellarStatus by remember { mutableStateOf(NativeStorageClient.status(this@MainActivity)) }
         var activeName by remember { mutableStateOf(translations.activeName()) }
         var activeScript by remember { mutableStateOf(translations.activeScript()) }
         var translationEnabled by remember { mutableStateOf(translations.translationEnabled()) }
@@ -358,9 +358,9 @@ class MainActivity : ComponentActivity() {
         val events = remember(revision) { logs.read() }
         val game = remember(resumeRevision) { gameInfo() }
         DisposableEffect(Unit) {
-            val received = Shizuku.OnBinderReceivedListener { shizukuStatus = NativeStorageClient.status() }
-            val dead = Shizuku.OnBinderDeadListener { shizukuStatus = "未啟動" }
-            val permission = Shizuku.OnRequestPermissionResultListener { _, _ -> shizukuStatus = NativeStorageClient.status() }
+            val received = Shizuku.OnBinderReceivedListener { stellarStatus = NativeStorageClient.status(this@MainActivity) }
+            val dead = Shizuku.OnBinderDeadListener { stellarStatus = NativeStorageClient.status(this@MainActivity) }
+            val permission = Shizuku.OnRequestPermissionResultListener { _, _ -> stellarStatus = NativeStorageClient.status(this@MainActivity) }
             Shizuku.addBinderReceivedListenerSticky(received)
             Shizuku.addBinderDeadListener(dead)
             Shizuku.addRequestPermissionResultListener(permission)
@@ -370,14 +370,23 @@ class MainActivity : ComponentActivity() {
                 Shizuku.removeRequestPermissionResultListener(permission)
             }
         }
-        fun requestShizuku() {
+        fun requestStellar() {
             runCatching {
-                check(Shizuku.pingBinder()) { "請先安裝並啟動 Shizuku，再回來授權" }
-                if (NativeStorageClient.status() == "已授權") {
-                    shizukuStatus = "已授權"
-                    taskState.info("Shizuku 已授權，可套用原生語言文件")
+                if(!NativeStorageClient.managerInstalled(this@MainActivity)) {
+                    startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(NativeStorageClient.STELLAR_DOWNLOAD)))
+                    taskState.info("請安裝 Stellar，啟動服務並開啟 Shizuku 相容層後返回")
+                    return
+                }
+                if(!Shizuku.pingBinder()) {
+                    packageManager.getLaunchIntentForPackage(NativeStorageClient.STELLAR_MANAGER)?.let {startActivity(it)}
+                    taskState.info("請在 Stellar 啟動服務並開啟 Shizuku 相容層後返回")
+                    return
+                }
+                if (NativeStorageClient.status(this@MainActivity) == "已授權") {
+                    stellarStatus = "已授權"
+                    taskState.info("Stellar 已授權，可套用原生語言文件")
                 } else Shizuku.requestPermission(101)
-            }.onFailure { taskState.error(it.message ?: "無法請求 Shizuku 權限") }
+            }.onFailure { taskState.error(it.message ?: "無法請求 Stellar 權限") }
         }
         val gameFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri != null) taskState.launchTask {
@@ -503,7 +512,7 @@ class MainActivity : ComponentActivity() {
                 refreshScopeStatus()
             } else if (!rootMode) {
                 rootStatus = "未檢查"
-                shizukuStatus = NativeStorageClient.status()
+                stellarStatus = NativeStorageClient.status(this@MainActivity)
                 if(nativeBackend == "saf") gameFolderReady = withContext(Dispatchers.IO) { translations.gameFolderAuthorized() }
                 activeName = translations.activeName()
                 translationEnabled = translations.translationEnabled()
@@ -550,8 +559,8 @@ class MainActivity : ComponentActivity() {
         }
         launchSelectedGame = launch@{
             if (applying || installingEntryKey != null) return@launch
-            if (rootMode || nativeBackend != "shizuku") { launchGame(); return@launch }
-            val pack = downloadedPacks.firstOrNull { it.path == selectedShizukuPath }
+            if (rootMode || nativeBackend != "stellar") { launchGame(); return@launch }
+            val pack = downloadedPacks.firstOrNull { it.path == selectedStellarPath }
                 ?: downloadedPacks.firstOrNull { it.name == activeName }
             if (pack == null) { launchGame(); return@launch }
             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -562,7 +571,7 @@ class MainActivity : ComponentActivity() {
             localApplying = true
             taskState.launchTask {
                 try {
-                    prepareShizukuGuide(pack.path)
+                    prepareStellarGuide(pack.path)
                     taskState.info("遊戲進入標題畫面後，點擊通知套用漢化")
                 } catch (error: Exception) { taskState.error(error.message ?: "無法準備漢化") }
                 finally { localApplying = false }
@@ -570,9 +579,9 @@ class MainActivity : ComponentActivity() {
         }
         fun applyNativePack(path: String) {
             if(applying || installingEntryKey != null) return
-            if(NativeStorageClient.status() != "已授權") {taskState.error("請先授權 Shizuku");return}
-            selectedShizukuPath=path
-            appPrefs.edit().putString("shizuku_selected_pack",path).apply()
+            if(NativeStorageClient.status(this@MainActivity) != "已授權") {taskState.error("請先授權 Stellar");return}
+            selectedStellarPath=path
+            appPrefs.edit().putString("stellar_selected_pack",path).apply()
             if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) {
                 permissionReapplyPath=path
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -715,14 +724,14 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                         downloadedPacks = translations.downloaded()
-                        if (!rootMode && nativeBackend == "shizuku") {
+                        if (!rootMode && nativeBackend == "stellar") {
                             transfer=null
                             localApplyProgress=null
                             installingEntryKey=null
                             applyNativePack(downloaded.path)
                             return@launchTask
                         }
-                        if (!rootMode && (if (nativeBackend == "shizuku") NativeStorageClient.status() != "已授權" else gameFolder == null)) {
+                        if (!rootMode && (if (nativeBackend == "stellar") NativeStorageClient.status(this@MainActivity) != "已授權" else gameFolder == null)) {
                             transfer = null
                             taskState.success("下載完成；請先授權載入方式，再從已下載漢化套用")
                             return@launchTask
@@ -777,8 +786,8 @@ class MainActivity : ComponentActivity() {
                             downloadedPacks=translations.downloaded()
                             packDeleteSelection=ArrayList(failures)
                             packDeleteMode=failures.isNotEmpty()
-                            if(selectedShizukuPath!=null && downloadedPacks.none {it.path==selectedShizukuPath}) {
-                                selectedShizukuPath=null;appPrefs.edit().remove("shizuku_selected_pack").apply()
+                            if(selectedStellarPath!=null && downloadedPacks.none {it.path==selectedStellarPath}) {
+                                selectedStellarPath=null;appPrefs.edit().remove("stellar_selected_pack").remove("shizuku_selected_pack").apply()
                             }
                             if(failures.isEmpty()) taskState.success("已刪除 ${targets.size} 個漢化包")
                             else taskState.error("已刪除 ${targets.size-failures.size} 個；${failures.size} 個刪除失敗，已保留勾選，可重試")
@@ -852,9 +861,9 @@ class MainActivity : ComponentActivity() {
                             OVERVIEW -> overview(
                                 rootMode = rootMode,
                                 busy = applying || installingEntryKey != null,
-                                loadStatus = if (nativeBackend == "shizuku") "Shizuku · $shizukuStatus" else if (gameFolder == null) "尚未授權遊戲資料夾" else "已選擇遊戲 Localize 資料夾",
-                                loadAction = if (nativeBackend == "shizuku") "授權／檢查 Shizuku" else "授權載入位置",
-                                onGameFolder = { if (nativeBackend == "shizuku") requestShizuku() else gameFolderPicker.launch(gameFolder) },
+                                loadStatus = if (nativeBackend == "stellar") "Stellar · $stellarStatus" else if (gameFolder == null) "尚未授權遊戲資料夾" else "已選擇遊戲 Localize 資料夾",
+                                loadAction = if (nativeBackend == "stellar") "授權／檢查 Stellar" else "授權載入位置",
+                                onGameFolder = { if (nativeBackend == "stellar") requestStellar() else gameFolderPicker.launch(gameFolder) },
                                 overlayState = environmentOverlayState,
                                 game = game,
                                 events = events,
@@ -881,10 +890,10 @@ class MainActivity : ComponentActivity() {
                                 onDownload = { navigateTo(DOWNLOAD) },
                                 onDownloaded = { navigateTo(DOWNLOADED) },
                                 onLaunch = launchSelectedGame,
-                                loadReady = if(nativeBackend == "shizuku") shizukuStatus == "已授權" else gameFolderReady,
+                                loadReady = if(nativeBackend == "stellar") stellarStatus == "已授權" else gameFolderReady,
                                 workProgress = if(backgroundApply.busy) backgroundApply.progress else null,
                                 waitingForGame = backgroundApply.waiting,
-                                selectedPack = if(!rootMode && nativeBackend == "shizuku") downloadedPacks.firstOrNull {it.path == selectedShizukuPath} else null,
+                                selectedPack = if(!rootMode && nativeBackend == "stellar") downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null,
                                 backend = nativeBackend,
                                 onBackend = {value ->
                                     if(!applying && installingEntryKey==null) {
@@ -966,7 +975,7 @@ class MainActivity : ComponentActivity() {
                                 applying,
                                 installingEntryKey,
                                 autoApply = rootMode || (nativeBackend == "saf" && gameFolder != null),
-                                shizukuGuide = !rootMode && nativeBackend == "shizuku",
+                                stellarGuide = !rootMode && nativeBackend == "stellar",
                                 refresh = ::refreshCatalog,
                                 install = installTranslation
                             )
@@ -978,7 +987,7 @@ class MainActivity : ComponentActivity() {
                                 processingPackPath,
                                 applyingPackPath,
                                 rootMode = rootMode,
-                                shizukuGuide = !rootMode && nativeBackend == "shizuku",
+                                stellarGuide = !rootMode && nativeBackend == "stellar",
                                 activePath = translations.activePackPath(),
                                 installedVersion = translations.activeVersion(),
                                 deleteMode = packDeleteMode,
@@ -988,7 +997,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             ) { pack ->
                                 if (!applying && installingEntryKey == null) {
-                                    if (!rootMode && nativeBackend == "shizuku") {
+                                    if (!rootMode && nativeBackend == "stellar") {
                                         applyNativePack(pack.path)
                                     } else {
                                         localApplying = true
@@ -1333,7 +1342,7 @@ class MainActivity : ComponentActivity() {
         onRequestRoot: () -> Unit,
         onDone: () -> Unit
     ) {
-        if (!rootMode) item { InfoCard("無 root 使用方式", "下載後直接套用漢化。Shizuku 可在通知查看進度；需要再次套用時，等遊戲標題畫面顯示後點擊通知。系統資料夾授權（SAF）透過已授權位置套用。") }
+        if (!rootMode) item { InfoCard("無 root 使用方式", "下載後直接套用漢化。Stellar 可在通知查看進度；需要再次套用時，等遊戲標題畫面顯示後點擊通知。系統資料夾授權（SAF）透過已授權位置套用。") }
         if (rootMode) item { InfoCard("歡迎使用 LCPatch", "完成模組作用域與 Root 權限設定後，即可在 App 內下載並套用漢化。") }
         if (rootMode) item {
             Card(insideMargin = PaddingValues(18.dp)) {
@@ -1428,7 +1437,7 @@ class MainActivity : ComponentActivity() {
         entries: List<TranslationEntry>, loading: Boolean, error: String?, transfer: TransferProgress?,
         applyProgress: ApplyProgress?, applying: Boolean, installingEntryKey: String?,
         autoApply: Boolean,
-        shizukuGuide: Boolean,
+        stellarGuide: Boolean,
         refresh: () -> Unit, install: (TranslationEntry) -> Unit
     ) {
         if(error!=null) item {
@@ -1453,7 +1462,7 @@ class MainActivity : ComponentActivity() {
                     else -> null
                 }
                 val buttonText = when {
-                    !ownsTask -> if (shizukuGuide) "下載並套用" else if (autoApply) "下載並套用" else "下載漢化"
+                    !ownsTask -> if (stellarGuide) "下載並套用" else if (autoApply) "下載並套用" else "下載漢化"
                     postDownload -> progressStageLabel(applyProgress?.stage)
                     else -> progressDownloadLabel(downloadFraction)
                 }
@@ -1470,7 +1479,7 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.downloadedPage(
         entries: List<DownloadedTranslation>,activeName: String,applyProgress: ApplyProgress?,applying: Boolean,
-        processingPackPath: String?,applyingPackPath: String?,rootMode: Boolean,shizukuGuide: Boolean,
+        processingPackPath: String?,applyingPackPath: String?,rootMode: Boolean,stellarGuide: Boolean,
         activePath: String?,installedVersion: String?,deleteMode: Boolean,selectedForDeletion: Set<String>,onToggleDelete: (String)->Unit,
         apply: (DownloadedTranslation)->Unit
     ) {

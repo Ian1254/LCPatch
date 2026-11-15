@@ -68,9 +68,9 @@ class TranslationRepository(private val context: Context) {
     fun gameFolder(): Uri? = gameStorage.selected()
     fun gameFolderAuthorized(): Boolean = gameStorage.authorized()
     fun setGameFolder(uri: Uri) = gameStorage.select(uri)
-    fun nativeBackend(): String = prefs.getString("native_backend", "shizuku") ?: "shizuku"
+    fun nativeBackend(): String = normalizeNativeBackend(prefs.getString("native_backend",null))
     fun setNativeBackend(value: String) {
-        require(value in setOf("shizuku", "saf"))
+        require(value in setOf("stellar", "saf"))
         prefs.edit().putString("native_backend", value).apply()
     }
 
@@ -398,11 +398,11 @@ class TranslationRepository(private val context: Context) {
             prepareCharacters(raw, progress)
             normalizeForLanguage(raw, prepared, targetLanguage(), progress)
             val directory = File(prepared, nativeExportPath(targetLanguage()))
-            if (nativeBackend() == "shizuku") {
+            if (nativeBackend() == "stellar") {
                 val archive = File(staging, "native-transfer.zip")
                 try {
                     zipDirectory(directory, archive.outputStream())
-                    progress(ApplyProgress("正在透過 Shizuku 寫入原生語言文件", 0, 0))
+                    progress(ApplyProgress("正在透過 Stellar 寫入原生語言文件", 0, 0))
                     NativeStorageClient.use(context) { service ->
                         ParcelFileDescriptor.open(archive, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
                             val callback = object : INativeProgressCallback.Stub() {

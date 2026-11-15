@@ -579,7 +579,7 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
     var details by remember { mutableStateOf(false) }
     SystemArrowPreference("運作方式說明",last=last,onClick={details=true})
     if(details) SystemModal("運作方式說明",{details=false}) {
-        Text("Root 模式透過模組載入；離開 Root 模式前請先停用模組漢化。無 Root 模式直接覆蓋語言文件，須授權 Shizuku 或遊戲資料夾。",
+        Text("Root 模式透過模組載入；離開 Root 模式前請先停用模組漢化。無 Root 模式直接覆蓋語言文件，須授權 Stellar 或遊戲資料夾。",
             Modifier.padding(horizontal=24.dp,vertical=8.dp),fontSize=14.sp,lineHeight=22.sp)
         SystemDialogDone({details=false})
     }
@@ -681,7 +681,7 @@ internal data class OverviewUiState(
 }
 
 @Composable internal fun SystemEnvironmentPanel(state: OverviewUiState, onCheckScope: () -> Unit,
-    onRequestRoot: () -> Unit, onGameFolder: () -> Unit, loadAction: String, backend: String="shizuku", onBackend: ((String)->Unit)?=null) {
+    onRequestRoot: () -> Unit, onGameFolder: () -> Unit, loadAction: String, backend: String="stellar", onBackend: ((String)->Unit)?=null) {
     var showDetails by remember { mutableStateOf(false) }
     var translationDetails by remember {mutableStateOf(false)}
     val healthy = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" && state.gameInstalled else state.gameInstalled && state.loadReady
@@ -710,9 +710,9 @@ internal data class OverviewUiState(
 }
 
 @Composable internal fun SystemEnvironmentDialogBody(state: OverviewUiState,
-    onGameFolder: ()->Unit,loadAction: String,backend: String="shizuku",onBackend: ((String)->Unit)?=null,onClose: ()->Unit) {
-        if(!state.rootMode && onBackend!=null) SystemDropdownPreference("文件載入方式",listOf("Shizuku","系統資料夾授權（SAF）"),
-            if(backend=="shizuku") 0 else 1,{onBackend(if(it==0) "shizuku" else "saf")},enabled=!state.busy,last=true)
+    onGameFolder: ()->Unit,loadAction: String,backend: String="stellar",onBackend: ((String)->Unit)?=null,onClose: ()->Unit) {
+        if(!state.rootMode && onBackend!=null) SystemDropdownPreference("文件載入方式",listOf("Stellar","系統資料夾授權（SAF）"),
+            if(backend=="stellar") 0 else 1,{onBackend(if(it==0) "stellar" else "saf")},enabled=!state.busy,last=true)
         Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Limbus Company  ${state.gameVersion}", fontSize = 14.sp)
             if(state.rootMode) {

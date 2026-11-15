@@ -262,11 +262,11 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 
 @Composable private fun ShizukuFlowFixture(dark: Boolean, writing: Boolean) = SystemUiTheme(SystemUiStyle.HyperOS4, if(dark) "dark" else "light") {
     val progress=if(writing) ApplyProgress("正在寫入語言資源", 1100, 3838) else null
-    val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="Shizuku · 已授權",loadReady=true)
+    val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="Stellar · 已授權",loadReady=true)
     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         SystemTranslationPanel(state, {}, {}, {}, progress, waitingForGame=!writing)
         SystemDownloadedPackCard("零協會漢化","2026111401",writing,writing,!writing,progress,{})
-        SystemEnvironmentPanel(state,{}, {}, {}, "授權／檢查 Shizuku")
+        SystemEnvironmentPanel(state,{}, {}, {}, "授權／檢查 Stellar")
     }
 }
 
