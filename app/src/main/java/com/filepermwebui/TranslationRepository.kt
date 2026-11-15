@@ -341,7 +341,11 @@ class TranslationRepository(private val context: Context) {
         }.toList().distinctBy { it.path }.sortedBy { it.name.lowercase() }
     }
 
-    suspend fun apply(entry: DownloadedTranslation, progress: suspend (ApplyProgress) -> Unit = {}): String = withContext(Dispatchers.IO) {
+    suspend fun apply(
+        entry: DownloadedTranslation,
+        nativeProgress: ((Int, Int) -> Unit)? = null,
+        progress: suspend (ApplyProgress) -> Unit = {}
+    ): String = withContext(Dispatchers.IO) {
         progress(ApplyProgress("正在讀取已下載漢化",0,0))
         if (!rootMode()) {
             val raw = File(staging, "native-source").also { it.deleteRecursively() }
@@ -357,7 +361,12 @@ class TranslationRepository(private val context: Context) {
                     progress(ApplyProgress("正在透過 Shizuku 寫入原生語言文件", 0, 0))
                     NativeStorageClient.use(context) { service ->
                         ParcelFileDescriptor.open(archive, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                            val error = service.apply(descriptor, targetLanguage().id)
+                            val callback = object : INativeProgressCallback.Stub() {
+                                override fun onProgress(completed: Int, total: Int) {
+                                    nativeProgress?.invoke(completed, total)
+                                }
+                            }
+                            val error = service.apply(descriptor, targetLanguage().id, callback)
                             if (error.isNotEmpty() && !service.hasBackup()) {
                                 prefs.edit().remove("native_active_name").remove("native_active_language").apply()
                             }

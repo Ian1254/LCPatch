@@ -1,5 +1,7 @@
 package com.lcpatch
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Build
@@ -458,6 +460,8 @@ class MainActivity : ComponentActivity() {
                 refreshScopeStatus()
             } else if (!rootMode) {
                 rootStatus = "未檢查"
+                activeName = translations.activeName()
+                translationEnabled = translations.translationEnabled()
             }
         }
         val onboardingDone = appPrefs.getBoolean("onboarding_done", false)
@@ -621,6 +625,11 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                         downloadedPacks = translations.downloaded()
+                        if (!rootMode && nativeBackend == "shizuku") {
+                            transfer = null
+                            taskState.success("下載完成。請先進入遊戲標題畫面，再按 Home 回來，從「已下載漢化」點選套用")
+                            return@launchTask
+                        }
                         if (!rootMode && (if (nativeBackend == "shizuku") NativeStorageClient.status() != "已授權" else gameFolder == null)) {
                             transfer = null
                             taskState.success("下載完成；請先授權載入方式，或從已下載漢化匯出 ZIP")
@@ -863,7 +872,7 @@ class MainActivity : ComponentActivity() {
                                 applyProgress,
                                 applying,
                                 installingEntryKey,
-                                autoApply = rootMode || (if (nativeBackend == "shizuku") shizukuStatus == "已授權" else gameFolder != null),
+                                autoApply = rootMode || (nativeBackend == "saf" && gameFolder != null),
                                 refresh = ::refreshCatalog,
                                 install = installTranslation
                             )
@@ -893,15 +902,34 @@ class MainActivity : ComponentActivity() {
 
                             ) { pack ->
                                 if (!applying && installingEntryKey == null) {
-                                    applying = true
-                                    applyingPackPath = pack.path
-                                    taskState.launchTask {
-                                        runCatching { translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
-                                            .onSuccess { activeName = it; activeScript = translations.activeScript(); taskState.success("已套用，重啟遊戲後生效") }
-                                            .onFailure { taskState.error("套用失敗：${it.message}") }
-                                        applying = false
-                                        applyingPackPath = null
-                                        applyProgress = null
+                                    if (!rootMode && nativeBackend == "shizuku") {
+                                        when {
+                                            NativeStorageClient.status() != "已授權" ->
+                                                taskState.error("請先授權 Shizuku，再開始套用")
+                                            Build.VERSION.SDK_INT >= 33 &&
+                                                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED -> {
+                                                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 12401)
+                                                taskState.success("請允許通知後，再點一次套用漢化")
+                                            }
+                                            else -> runCatching {
+                                                TranslationApplyService.start(this@MainActivity, pack.path)
+                                            }.onSuccess {
+                                                taskState.success("背景套用已開始；請從通知欄查看實際進度")
+                                            }.onFailure {
+                                                taskState.error("無法啟動背景套用：${it.message}")
+                                            }
+                                        }
+                                    } else {
+                                        applying = true
+                                        applyingPackPath = pack.path
+                                        taskState.launchTask {
+                                            runCatching { translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { applyProgress = value } } }
+                                                .onSuccess { activeName = it; activeScript = translations.activeScript(); taskState.success("已套用，重啟遊戲後生效") }
+                                                .onFailure { taskState.error("套用失敗：${it.message}") }
+                                            applying = false
+                                            applyingPackPath = null
+                                            applyProgress = null
+                                        }
                                     }
                                 }
                             }
