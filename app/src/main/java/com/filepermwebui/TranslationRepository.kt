@@ -86,7 +86,7 @@ class TranslationRepository(private val context: Context) {
 
     private suspend fun prepareCharacters(directory: File, progress: suspend (ApplyProgress) -> Unit) {
         if (rootMode()) {
-            progress(ApplyProgress("正在補齊劇情角色名稱",0,1))
+            progress(ApplyProgress("正在補齊劇情角色名稱",0,0))
             val converter=PuaConverter.fromAssets(context)
             val speakers=completeScenarioSpeakers(File(directory,"Localize"),
                 decode={ converter.convert(decodeCjkUnicodeEscapes(decodePuaUnicodeEscapes(it)),toPua=false) },
@@ -246,8 +246,8 @@ class TranslationRepository(private val context: Context) {
         val unpacked = File(staging, pack)
         unpacked.deleteRecursively(); unpacked.mkdirs()
         require(File(raw, "Localize").isDirectory) { "漢化包缺少 Localize 資料夾" }
-        progress(ApplyProgress("正在整理漢化文件", 0, 1))
-        normalizeForLanguage(raw, unpacked, targetLanguage())
+        progress(ApplyProgress("正在整理漢化文件", 0, 0))
+        normalizeForLanguage(raw, unpacked, targetLanguage(), progress)
         val script = File(raw, ".lcpatch-script").takeIf(File::isFile)?.readText()?.trim()?.takeIf { it in setOf("簡體", "繁體") }
             ?: inferScript(displayName)
         File(unpacked, ".lcpatch-script").writeText(script)
@@ -269,10 +269,12 @@ class TranslationRepository(private val context: Context) {
             val reason = generateSequence(error) { it.cause }.take(8).last()
             throw IllegalStateException("PC 翻譯處理失敗，尚未寫入遊戲：${reason.message ?: reason.javaClass.simpleName}", error)
         }
+        progress(ApplyProgress("正在驗證語言文件",0,0))
         validateJsonDirectory(File(unpacked, "Localize/cn"))
+        progress(ApplyProgress("正在建立文字索引",0,0))
         val indexed = writeTextAssetIndex(File(unpacked, "Localize/cn"))
         LogRepository.append(context, "INFO", "translation.textasset.index", "$indexed 個內建文字資源名稱已建立索引")
-        progress(ApplyProgress("正在寫入遊戲目錄", 0, 1))
+        progress(ApplyProgress("正在寫入遊戲目錄", 0, 0))
         val nativeAction = runtimeSwapCommand(File(unpacked, "Localize/cn").absolutePath)
         val command = "am force-stop $GAME_PACKAGE && $nativeAction"
         val result = executeRoot(command)
@@ -315,12 +317,13 @@ class TranslationRepository(private val context: Context) {
     }
 
     suspend fun apply(entry: DownloadedTranslation, progress: suspend (ApplyProgress) -> Unit = {}): String = withContext(Dispatchers.IO) {
+        progress(ApplyProgress("正在讀取已下載漢化",0,0))
         if (!rootMode()) {
             val raw = File(staging, "native-source").also { it.deleteRecursively() }
             val prepared = File(staging, "native-prepared").also { it.deleteRecursively(); it.mkdirs() }
             readPack(entry, raw)
             prepareCharacters(raw, progress)
-            normalizeForLanguage(raw, prepared, targetLanguage())
+            normalizeForLanguage(raw, prepared, targetLanguage(), progress)
             val directory = File(prepared, nativeExportPath(targetLanguage()))
             if (nativeBackend() == "shizuku") {
                 val archive = File(staging, "native-transfer.zip")
@@ -510,18 +513,13 @@ class TranslationRepository(private val context: Context) {
     private fun validLanguageDirectoryTest(path: String): String =
         "{ [ -d ${quote(path)} ] && [ -n \"${'$'}(find ${quote(path)} -type f -iname '*.json' -print -quit)\" ]; }"
 
-    private fun normalizeForLanguage(raw: File, output: File, language: OverrideLanguage) {
+    private suspend fun normalizeForLanguage(raw: File, output: File, language: OverrideLanguage, progress: suspend (ApplyProgress)->Unit = {}) {
         val localize = File(raw, "Localize")
         val source = if (!rootMode()) nativeLanguageSource(localize, language) else localize.listFiles()?.firstOrNull { candidate ->
             candidate.isDirectory && candidate.name.lowercase() in setOf("cn", "zh_cn", "zh-cn", "jp", "kr", "en", "hant", "zh-tw")
         } ?: localize
         val destination = File(output, if (rootMode()) "Localize/cn" else nativeExportPath(language)).apply { mkdirs() }
-        source.walkTopDown().filter { it.isFile && (rootMode() || it.extension.equals("json", true)) }.forEach { input ->
-            val relative = input.relativeTo(source)
-            val correctedName = correctedLanguageFileName(relative.name, language.prefix)
-            val parent = relative.parent?.let { File(destination, it) } ?: destination
-            input.copyTo(File(parent.apply { mkdirs() }, correctedName), overwrite = true)
-        }
+        copyLanguageResources(source,destination,language,rootMode(),progress)
     }
 
     private suspend fun convertTextFiles(output: File, conversion: TextConversion, progress: suspend (ApplyProgress) -> Unit): ConversionResult {
@@ -636,7 +634,7 @@ class TranslationRepository(private val context: Context) {
     fun pcCoverageSummary(): String = prefs.getString("pc_coverage_summary", "重新套用漢化後，會比對 PC 翻譯並建立內建文字索引") ?: ""
 
     private suspend fun supplementPcTranslations(directory: File, script: String, progress: suspend (ApplyProgress) -> Unit) {
-        progress(ApplyProgress("正在比對 PC 版翻譯", 0, 1))
+        progress(ApplyProgress("正在比對 PC 版翻譯", 0, 0))
         val reference = File(staging, "pc-reference").also { it.deleteRecursively(); it.mkdirs() }
         val archive = File(context.cacheDir, "lcpatch-pc-reference.zip")
         var sourceUrl = ""
@@ -743,3 +741,18 @@ internal fun decodePuaUnicodeEscapes(value: String): String =
     }
 
 internal fun isOfficialLlcUrl(url: String): Boolean = url.startsWith("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/")
+
+/** Countable work reports real batches; shell/network phases report unknown totals. */
+internal suspend fun copyLanguageResources(source: File,destination: File,language: OverrideLanguage,
+    includeNonJson: Boolean,progress: suspend (ApplyProgress)->Unit) {
+    val files=source.walkTopDown().filter {it.isFile && (includeNonJson || it.extension.equals("json",true))}.toList()
+    val stage="正在整理${language.label}覆蓋文件"
+    progress(ApplyProgress(stage,0,files.size))
+    files.forEachIndexed { index,input ->
+        val relative=input.relativeTo(source)
+        val name=correctedLanguageFileName(relative.name,language.prefix)
+        val parent=relative.parent?.let {File(destination,it)}?:destination
+        input.copyTo(File(parent.apply {mkdirs()},name),overwrite=true)
+        if(index==files.lastIndex || (index+1)%16==0) progress(ApplyProgress(stage,index+1,files.size))
+    }
+}
