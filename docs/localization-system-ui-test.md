@@ -4,6 +4,43 @@ This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
 
+## test.15: released secondary controls and prior floating bar
+
+The user's latest corrections supersede the test.14 header, floating rim and
+standard selected-color decisions. The formal release verified through GitHub
+is v1.2.2, source commit 18f8047435db1b26b5dbfabebf7f1fea11fad694.
+
+- Restore its Miuix SmallTopAppBar/IconButton/Back combination for secondary
+  headers, including the production scroll behavior. Restore the released
+  Miuix OverlayDropdownPreference instead of the custom anchored menu. The
+  selected value uses the component's original placement.
+- Restore test.13's floating-bar geometry, material, rim and selector physics.
+  Only its unused deleted Color helper branch is omitted. Keep test.14's
+  full-height scroll viewport and bottom content clearance so the black shelf
+  does not return with the visual rollback.
+- Standard navigation has identical resting icon tint, label color and weight
+  for every tab. It keeps selected semantics and normal press interaction but
+  does not display a selected pill, indicator or active color.
+- Arrow preferences distinguish summary prose from current values. Current
+  values remain on the right, next to the navigation arrow, including at larger
+  fonts. The overview's current translation state sits beside its details link.
+- Replace the tall notification card/action stack with a single compact row.
+  Normal text is at most two 20sp lines, with inline retry and a 48dp close hit
+  target. Full messages remain available in secondary details; automatic
+  dismissal pauses while those details are open.
+
+The sheet grip/collapse feature remains removed, details remain secondary and
+the translation pipeline/native reader are unchanged. Snapshot coverage adds
+normal/large compact notices and two standard bars with different selected
+semantic indices, to inspect their identical resting appearance. Selection
+fixtures now render the released dropdown component rather than obsolete custom
+menu rows. This remains an Actions-signed test artifact, not a Release.
+Local release build/lint and 75 JVM cases completed without failures (four
+platform/fixture skips). Twenty-three renders were generated and the restored
+secondary controls, right-aligned values, floating rim, neutral standard bar and
+compact notices were inspected, including large fonts. Device testing is left
+to the user. Final delivery additionally requires the signed Actions build.
+
 ## test.14: package-guided hierarchy and navigation correction
 
 The user's test.13 screenshots supersede the earlier grip and border decisions.
