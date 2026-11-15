@@ -342,7 +342,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 @Composable fun HyperLandscape()=ScreenFixture(SystemUiStyle.HyperOS4,false,0)
 
 @Composable private fun MenuFixture(selected: Int,dark: Boolean) = SystemUiTheme(SystemUiStyle.HyperOS4,if(dark) "dark" else "light") {
-    Box(Modifier.padding(24.dp)) { SystemChoiceMenuSurface(listOf("跟隨系統","淺色","深色"),selected,{}) }
+    SystemCard(Modifier.padding(12.dp)) { SystemDropdownPreference("深淺模式",listOf("跟隨系統","淺色","深色"),selected,{}) }
 }
 @PreviewTest @Preview(name="FirstSelected",widthDp=393,heightDp=240)
 @Composable fun FirstSelected()=MenuFixture(0,false)
@@ -404,7 +404,9 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
         }
         TopLevelProgressiveBar(scene,pageTitles=listOf("設定"),pagePosition=0f)
         CompositionLocalProvider(LocalSystemPanelBackdrop provides scene, LocalSystemWindowBackdrop provides scene) {
-            SystemChoiceMenuSurface(listOf("跟隨系統","淺色","深色"),2,{},Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top=72.dp,end=12.dp))
+            SystemCard(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top=72.dp,end=12.dp).width(260.dp)) {
+                SystemDropdownPreference("深淺模式",listOf("跟隨系統","淺色","深色"),2,{})
+            }
             SystemSheetSurface("漢化詳情",Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(12.dp)) {
                 Text("零協會完整翻譯與角色名稱已自動整理。",Modifier.padding(24.dp),fontSize=16.sp)
                 SystemDialogDone({})
@@ -415,3 +417,27 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 
 @PreviewTest @Preview(name="ScrolledFloating",widthDp=393,heightDp=852)
 @Composable fun ScrolledFloating()=ScreenFixture(SystemUiStyle.HyperOS4,true,scrolled=true)
+
+@PreviewTest @Preview(name="CompactNotices",widthDp=393,heightDp=320)
+@Composable fun CompactNotices()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
+    Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        SystemNotice("漢化已套用",false,null,{})
+        SystemNotice("下載未完成，請稍後重試。",true,{}, {})
+        SystemNotice("無法完成下載，點擊通知可查看完整原因。原先已套用的漢化仍會保留；可稍後重新下載或分享診斷文件。",true,{}, {})
+    }
+}
+@PreviewTest @Preview(name="CompactNoticesLarge",widthDp=360,heightDp=480,fontScale=2f)
+@Composable fun CompactNoticesLarge()=SystemUiTheme(SystemUiStyle.HyperOS4,"light") {
+    Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        SystemNotice("漢化已套用",false,null,{})
+        SystemNotice("下載未完成，請稍後重試。",true,{}, {})
+    }
+}
+@PreviewTest @Preview(name="StandardNeutral",widthDp=393,heightDp=200)
+@Composable fun StandardNeutral()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
+    Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        listOf(0,2).forEach { index ->
+            SystemStandardBottomNavigation(index,listOf("概觀","日誌","設定"),listOf(MiuixIcons.Home,Icons.Default.List,MiuixIcons.Settings),{})
+        }
+    }
+}
