@@ -249,7 +249,7 @@ class AutomaticLlcPreparationTest {
 }
 
 private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", "日本語", true,
-    true, true, "1.119.0", false, "已啟用", "已授權", "已連接", true, true, 2383, "PC 翻譯與目前漢化一致")
+    true, true, "1.119.0", false, "已啟用", "已授權", "已連接", true, true, 2383, "PC 翻譯與目前漢化一致", "2026111401")
 
 /** The shell and panels below are the same composables used by MainActivity. */
 @Composable private fun ScreenFixture(style: SystemUiStyle, dark: Boolean, page: Int = 2, scrolled: Boolean = false, atEnd: Boolean = false, floating: Boolean = true) {
@@ -273,7 +273,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
                     contentPadding = PaddingValues(start = systemPageGutter(),
                         end = systemPageGutter(),
                         top = padding.calculateTopPadding()+12.dp,
-                        bottom = padding.calculateBottomPadding()+16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        bottom = padding.calculateBottomPadding()+16.dp), verticalArrangement = Arrangement.spacedBy(if(page==1) 0.dp else 12.dp)) {
                     if (style != SystemUiStyle.HyperOS4) item { Spacer(Modifier.height(if(scrolled || atEnd) 0.dp else 64.dp)) }
                     when (page) {
                         0 -> {
@@ -285,13 +285,13 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
                         }
                         1 -> {
                             item { SystemLogGuide(500,5,1) }
-                            item { SystemSectionLabel("最近記錄") }
+                            item { Box(Modifier.padding(top=20.dp,bottom=10.dp)) {SystemSectionLabel("2026/11/14")} }
                             listOf(
                                 LogEvent("2026-11-13T17:36:24.402Z", "ERROR", "APP_ACTION", "套用失敗：PC 翻譯處理未完成，尚未寫入遊戲", ""),
                                 LogEvent("2026-11-13T17:36:03.271Z", "ERROR", "translation.install_failed", "無法處理漢化內容，請分享診斷文件查看完整原因。", ""),
                                 LogEvent("2026-11-13T17:36:03.264Z", "INFO", "download.completed", "漢化資源已下載完成", ""),
                                 LogEvent("2026-11-13T17:35:03.264Z", "INFO", "translation.textasset.index", "已建立內建文字資源索引", "")
-                            ).let { group -> item { SystemLogGroup(group) } }
+                            ).let { group -> group.forEachIndexed {i,event -> item { SystemLogRecord(event,i==0,i==group.lastIndex) } } }
                         }
                         else -> {
                             item { SystemSectionLabel("運作環境") }
@@ -299,6 +299,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
                             item { SystemSectionLabel("漢化") }
                             item { SystemCard {
                                 SystemDropdownPreference("覆蓋語言文件", listOf("日本語", "한국어", "English"), 0, {})
+                                SystemActiveConversion("繁體",true,{})
                                 SystemArrowPreference("匯入漢化包", value = "ZIP 檔案", onClick = {})
                                 SystemArrowPreference("更換字型", value = "內建中文字型", onClick = {})
                             } }
@@ -443,7 +444,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 
 @PreviewTest @Preview(name="LogOverflow",widthDp=300,heightDp=280)
 @Composable fun LogOverflow()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
-    Box(Modifier.padding(16.dp)) {SystemLogMenuItems(false,{})}
+    Box(Modifier.padding(16.dp)) {SystemCard {SystemLogMenuItems(false,{})}}
 }
 @PreviewTest @Preview(name="LanguageProgress",widthDp=393,heightDp=260)
 @Composable fun LanguageProgress()=SystemUiTheme(SystemUiStyle.HyperOS4,"light") {
@@ -490,5 +491,55 @@ class LanguagePreparationProgressTest {
             assertEquals("[]",File(target,"sub/KR_Battle.json").readText())
             assertFalse(File(target,"ChineseFont.ttf").exists())
         } finally {temp.deleteRecursively()}
+    }
+}
+
+class InstalledIdentityAndLogDateTest {
+    @Test fun installedVersionNeverUsesUnrelatedOrMovingRelease() {
+        assertNull(installedPackVersion(null,null))
+        assertNull(installedPackVersion("{\"schema\":1,\"url\":\"https://github.com/other/repo/releases/download/123/a.zip\"}",null))
+        assertNull(installedPackVersion("{\"schema\":1,\"version\":\"latest\"}",null))
+        assertNull(installedPackVersion("{\"schema\":2,\"version\":\"123\"}",null))
+    }
+    @Test fun installedMetadataWinsOverLegacyCoverage() {
+        val source="來源：https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/2026111401/a.zip"
+        assertNull(installedPackVersion(null,source+"\nPC 比對結果"))
+        val coverage="零協會完整資源與劇情角色名稱已自動整理\n"+source
+        assertEquals("2026111401",installedPackVersion(null,coverage))
+        assertEquals("20261001",installedPackVersion("{\"schema\":1,\"version\":\"20261001\"}",coverage))
+        assertEquals("2026111401",installedPackVersion("{\"schema\":1,\"url\":\"https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/2026111401/a.zip\"}",null))
+    }
+    @Test fun dateGroupingUsesLocalDayAndPreservesEveryRecord() {
+        val first=LogEvent("2026-11-14T17:00:00Z","INFO","x","same","")
+        val second=first.copy(time="2026-11-14T15:59:59Z")
+        val events=listOf(first,first,second)
+        val groups=groupLogEventsByDate(events,java.time.ZoneId.of("Asia/Taipei"))
+        assertEquals(listOf("2026/11/15","2026/11/14"),groups.map {it.label})
+        assertEquals(events,groups.flatMap {it.events})
+        assertEquals(2,groups.first().events.size)
+        assertEquals(1,groupLogEventsByDate(events,java.time.ZoneId.of("UTC")).size)
+    }
+    @Test fun invalidTimestampIsRetained() {
+        val event=LogEvent("unknown","INFO","x","text","")
+        val group=groupLogEventsByDate(listOf(event),java.time.ZoneId.of("UTC")).single()
+        assertEquals("日期未知",group.label)
+        assertEquals(listOf(event),group.events)
+    }
+}
+
+@PreviewTest @Preview(name="Download",widthDp=393,heightDp=852)
+@Composable fun DownloadResources()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
+    SystemCanvas {
+        Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
+            Text("下載漢化",Modifier.padding(start=24.dp,top=24.dp,bottom=20.dp),fontSize=20.sp)
+            SystemDownloadRefresh(false,{},0.dp) {
+                LazyColumn(contentPadding=PaddingValues(14.dp)) {
+                    item { SystemDownloadEntry(TranslationEntry("官方","零協會漢化","都市零協會",
+                        "官方版本 2026111401；自動補齊 PC 資源及劇情角色名稱，無須另選整理版","fixture")) {
+                        SystemProgressActionButton("下載並套用",null,false,true,{})
+                    } }
+                }
+            }
+        }
     }
 }
