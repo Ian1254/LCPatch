@@ -4,6 +4,41 @@ This branch produces a signed Actions artifact only. It does not merge main,
 create a tag, publish a Release, or remove earlier test releases. Device testing
 is intentionally left to the user.
 
+## test.16: released standard selection, automatic inspection and live progress
+
+- Restore the released Miuix NavigationBar container and its resting item
+  treatment: 64dp items, 26dp icons, 12sp labels, selected onSurfaceContainer
+  with bold text, unselected alpha .4 with normal text. The library's private
+  pressed-alpha behavior is deliberately omitted: selectable has null indication
+  and no visual pressed-state observer, while click/keyboard/selected semantics
+  remain functional.
+- Opening the environment entry triggers one scope check and one silent Root
+  check. Remove their two dialog buttons. Callbacks run from the click, not a
+  recomposition effect; results still update the visible secondary dialog.
+- Remove the large log-action card. Share, save and clear are in the top-right
+  three-dot menu, with disabled handling while collecting diagnostics. Clear
+  retains its confirmation. Production and the log-page fixture share the menu.
+- Known file-copy work reports counted batches and completion. Unknown read,
+  validation, indexing, PC-reference and Root-write stages report unknown totals
+  so the progress indicator animates rather than holding at 0/1. The language
+  setting displays the current stage and real file counts. Root commands,
+  language filename rules, overwrite behavior and native hook code are unchanged.
+- Light floating navigation uses a low-opacity dark rim and stronger soft shadow
+  so its boundary survives white backgrounds. Dark material/selector behavior
+  stays intact.
+
+Regression cases exercise actual copied files, nested output, fonts versus
+JSON-only native copies, reported batches and determinate/unknown fractions.
+Renders add the overflow menu and known/unknown language-progress states, and
+reuse light floating, selected standard tabs, logs and the button-free dialog.
+No device/emulator verification; final delivery is an Actions-signed test APK.
+Local validation passed: release build/lint, 78 JVM cases (74 passed, four
+platform/fixture skips), and 25 component renders. All three new real-copy and
+progress cases passed. Inspected the button-free environment dialog, log header
+and overflow contents, light floating rim, released selected standard treatment,
+and determinate/unknown language-progress snapshots. These do not simulate
+Android permission dialogs, pointer timing or on-device animation.
+
 ## test.15: released secondary controls and prior floating bar
 
 The user's latest corrections supersede the test.14 header, floating rim and
