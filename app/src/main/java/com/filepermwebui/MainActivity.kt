@@ -1290,7 +1290,7 @@ class MainActivity : ComponentActivity() {
                     if(logs.selectedFolder()!=null) com.lcpatch.SystemTextButton("改回預設暫存位置", onReset)
                 }
                 ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
-                SystemSwitchPreference("顯示更新提示", checked = showUpdatePrompts, onCheckedChange = onShowUpdatePrompts)
+                SwitchPreference("顯示更新提示", checked = showUpdatePrompts, onCheckedChange = onShowUpdatePrompts)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "關於", last=true, summary = "版本與元件", onClick = onAbout)
             }
         }
