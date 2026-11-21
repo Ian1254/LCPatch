@@ -690,7 +690,8 @@ internal data class OverviewUiState(
     val name: String, val script: String, val language: String, val enabled: Boolean,
     val rootMode: Boolean, val gameInstalled: Boolean, val gameVersion: String, val busy: Boolean,
     val scopeStatus: String, val rootStatus: String, val loadStatus: String,
-    val ready: Boolean, val fontReady: Boolean, val jsonFiles: Int, val coverage: String, val packVersion: String? = null, val loadReady: Boolean = false
+    val ready: Boolean, val fontReady: Boolean, val jsonFiles: Int, val coverage: String, val packVersion: String? = null,
+    val loadReady: Boolean = false, val checkingRuntime: Boolean = false
 )
 
 @Composable internal fun SystemTranslationPanel(state: OverviewUiState, onEnabled: (Boolean) -> Unit,
@@ -704,12 +705,19 @@ internal data class OverviewUiState(
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Text(if(selected) state.name else selectedPack?.name ?: "尚未選擇漢化",Modifier.weight(1f),fontSize=18.sp,lineHeight=26.sp,
                     fontWeight=FontWeight.Medium,maxLines=2,overflow=TextOverflow.Ellipsis)
-                if(selected) {
+                if (selected || workProgress != null || waitingForGame) {
                     Spacer(Modifier.width(12.dp))
                     val healthy=state.enabled && (!state.rootMode || state.ready && state.fontReady)
-                    val loading=workProgress != null || waitingForGame
+                    val loading = workProgress != null || waitingForGame || (state.enabled && state.checkingRuntime)
                     SystemStatusLabel(
-                        text=if(workProgress != null) "正在套用" else if(waitingForGame) "等待套用" else if(healthy) "已啟用" else if(!state.enabled) "已停用" else "需要重新套用",
+                        text = when {
+                            workProgress != null -> "正在套用"
+                            waitingForGame -> "等待套用"
+                            !state.enabled -> "已停用"
+                            state.checkingRuntime -> "正在檢查"
+                            healthy -> "已啟用"
+                            else -> "需要重新套用"
+                        },
                         positive=if(loading) null else healthy,
                         loading=loading)
                 }
