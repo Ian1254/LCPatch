@@ -647,6 +647,20 @@ class InstalledIdentityAndLogDateTest {
     }
 }
 
+@PreviewTest @Preview(name = "UpdateSettingReview", widthDp = 393, heightDp = 375)
+@Composable fun UpdateSettingReview() = SystemUiTheme(SystemUiStyle.HyperOS4, "dark") {
+    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("設定", Modifier.padding(start = 14.dp, top = 20.dp), fontSize = 26.sp)
+        SystemSectionLabel("應用程式")
+        SystemCard {
+            SystemArrowPreference("介面與顯示", "深淺模式、底欄與模糊效果", onClick = {})
+            SystemArrowPreference("應用程式更新", "更新渠道與檢查更新", onClick = {})
+            SystemSwitchPreference("顯示更新提示", checked = true, onCheckedChange = {})
+            SystemArrowPreference("關於", "版本與元件", last = true, onClick = {})
+        }
+    }
+}
+
 // Visual proposal only: deletion/update actions are intentionally inert here.
 @Composable private fun ProposalDivider() {
     Box(Modifier.fillMaxWidth().height(.5.dp).background(MiuixTheme.colorScheme.dividerLine))
@@ -754,6 +768,16 @@ class InstalledIdentityAndLogDateTest {
 
 
 class ReleaseDataRegressionTest {
+    @Test fun downloadActionDistinguishesNewInstalledAndNewerVersions() {
+        val entry = OurPlayTranslation.entry.copy(version = "190")
+        val downloaded = DownloadedTranslation(entry.name, "ourplay", version = "189")
+        assertEquals("下載並套用", downloadPackAction(entry, null))
+        assertEquals("更新並套用", downloadPackAction(entry, downloaded))
+        assertEquals("重新下載並套用", downloadPackAction(entry, downloaded.copy(version = "190")))
+        assertFalse(isNewerPackVersion("189", "190"))
+        assertFalse(isNewerPackVersion("190", "sha256:unknown"))
+        assertTrue(isNewerPackVersion("v1.120.0", "v1.119.9"))
+    }
     @Test fun productionAnnotationsAreNotUnresolvedSpeakersButRealRowsRemainUnresolved() {
         val root=Files.createTempDirectory("speaker-notes").toFile()
         try {
