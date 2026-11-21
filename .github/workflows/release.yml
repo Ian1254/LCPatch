@@ -92,6 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           PRERELEASE_ARGS=()
           if [[ "$VERSION" == *-* ]]; then
             PRERELEASE_ARGS+=(--prerelease)
