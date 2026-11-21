@@ -93,8 +93,6 @@ CI 從原始碼建立 native 核心，執行測試、Release lint 與介面預�
 
 簽章使用 `LCPATCH_KEYSTORE_BASE64`、`LCPATCH_STORE_PASSWORD`、`LCPATCH_KEY_ALIAS`、`LCPATCH_KEY_PASSWORD` 四個 Secrets。各版本的建構結果見 Actions，驗證範圍見 Release 說明。
 
-撰寫發布正文時請參考 [更新說明規範](docs/release-notes.md)。
-
 ## 授權與第三方元件
 
 LCPatch 原始碼採 Apache License 2.0。主要使用 Dobby、Compose Miuix、opencc4j、libxposed、Shizuku API／provider（用於 Stellar 相容層）及 AndroidX／Jetpack Compose；詳細授權見 [NOTICE](NOTICE)。Stellar 管理器為另行安裝的外部程式。
