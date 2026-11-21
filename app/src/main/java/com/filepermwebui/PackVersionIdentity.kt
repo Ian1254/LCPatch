@@ -7,6 +7,27 @@ import java.net.URLDecoder
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 
+private val numberedPackVersion = Regex("v?[0-9]+")
+private val dottedPackVersion = Regex("v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?")
+
+internal fun isNewerPackVersion(candidate: String?, current: String?): Boolean {
+    val newer = validPackVersion(candidate) ?: return false
+    val installed = validPackVersion(current) ?: return false
+    return when {
+        numberedPackVersion.matches(newer) && numberedPackVersion.matches(installed) ->
+            newer.removePrefix("v").toBigInteger() > installed.removePrefix("v").toBigInteger()
+        dottedPackVersion.matches(newer) && dottedPackVersion.matches(installed) ->
+            runCatching { Versioning.compare(newer, installed) > 0 }.getOrDefault(false)
+        else -> false
+    }
+}
+
+internal fun downloadPackAction(entry: TranslationEntry, downloaded: DownloadedTranslation?): String = when {
+    downloaded == null -> "下載並套用"
+    isNewerPackVersion(entry.version, downloaded.version) -> "更新並套用"
+    else -> "重新下載並套用"
+}
+
 internal fun validPackVersion(value: String?): String? = value?.trim()?.takeIf {
     it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+-]{0,79}")) &&
         it.lowercase() !in setOf("latest", "null", "unknown")

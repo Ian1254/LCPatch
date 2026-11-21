@@ -382,6 +382,76 @@ private val LocalSystemModalClose = staticCompositionLocalOf<(() -> Unit)?> { nu
     }
 }
 
+@Composable internal fun SystemAppUpdatePrompt(
+    release: AppRelease, currentVersion: String, channel: String,
+    onDismiss: (Boolean) -> Unit, onUpdate: (Boolean) -> Unit
+) {
+    var suppress by remember(release.version) { mutableStateOf(false) }
+    var updateSelected by remember(release.version) { mutableStateOf(false) }
+    val finish = { if (updateSelected) onUpdate(suppress) else onDismiss(suppress) }
+    SystemModal("應用程式更新", onDismiss = finish) {
+        val close = LocalSystemModalClose.current ?: finish
+        SystemAppUpdatePromptContent(currentVersion, release.version, channel, release.notes,
+            suppress, { suppress = it }, close, { updateSelected = true; close() })
+    }
+}
+
+@Composable internal fun SystemAppUpdatePromptContent(
+    currentVersion: String, availableVersion: String, channel: String, releaseNotes: String,
+    suppress: Boolean, onSuppress: (Boolean) -> Unit, onClose: () -> Unit, onUpdate: () -> Unit
+) {
+    val primary = MiuixTheme.colorScheme.primary
+    val outline = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val highlights = remember(releaseNotes) {
+        releaseNotes.lineSequence().map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith("#") && it != "---" }
+            .map { it.removePrefix("- ").removePrefix("* ").replace("**", "").replace("`", "") }
+            .take(3).toList()
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+        val versions = listOf(
+            "目前版本" to currentVersion,
+            "可用版本" to availableVersion,
+            "更新渠道" to if (channel == "beta") "測試版" else "正式版"
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            versions.forEachIndexed { index, (label, value) ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(label, Modifier.weight(1f), fontSize = 14.sp, lineHeight = 20.sp, color = outline)
+                    Text(value, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium,
+                        color = if (index == 1) primary else MiuixTheme.colorScheme.onSurface)
+                }
+            }
+        }
+        if (highlights.isNotEmpty()) {
+            Text("更新內容", Modifier.padding(top = 16.dp, bottom = 6.dp),
+                fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                highlights.forEach { change ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("•", color = outline, fontSize = 13.sp, lineHeight = 20.sp)
+                        Text(change, fontSize = 13.sp, lineHeight = 20.sp, color = outline)
+                    }
+                }
+            }
+        }
+        Row(
+            Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
+                .toggleable(suppress, role = Role.Checkbox, onValueChange = onSuppress),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(Modifier.size(20.dp).border(1.5.dp, if (suppress) primary else outline, CircleShape), Alignment.Center) {
+                if (suppress) Box(Modifier.size(10.dp).background(primary, CircleShape))
+            }
+            Text("不再顯示", fontSize = 14.sp, lineHeight = 20.sp)
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SystemSecondaryButton("關閉", onClose, Modifier.weight(1f))
+            SystemButton(onUpdate, Modifier.weight(1f)) { Text("更新", fontSize = 16.sp) }
+        }
+    }
+}
+
 @Composable internal fun SystemSheetSurface(title: String, modifier: Modifier = Modifier, alert: Boolean = false,
     content: @Composable ColumnScope.() -> Unit) {
     val palette=systemSurfacePalette()
@@ -704,44 +774,53 @@ internal data class OverviewUiState(
     val loadReady: Boolean = false, val checkingRuntime: Boolean = false
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun SystemTranslationPanel(state: OverviewUiState, onEnabled: (Boolean) -> Unit,
     onLaunch: () -> Unit, onDownload: () -> Unit, workProgress: ApplyProgress? = null, selectedPack: DownloadedTranslation? = null,
-    waitingForGame: Boolean = false, onChoosePack: (() -> Unit)? = null) {
+    waitingForGame: Boolean = false, onChoosePack: (() -> Unit)? = null,
+    hasPackUpdate: Boolean = false, packMenu: @Composable () -> Unit = {}) {
     val selected = state.name != "尚未選擇"
     SystemCard {
         if(state.rootMode) SystemSwitchPreference("啟用漢化", checked = state.enabled,
             enabled = !state.busy, onCheckedChange = onEnabled)
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                val name = if (selected) state.name else selectedPack?.name ?: "選擇漢化包"
-                Row(
-                    Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
-                        .then(if (onChoosePack != null) Modifier.clickable(enabled = !state.busy, role = Role.Button, onClick = onChoosePack) else Modifier),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(name, Modifier.weight(1f, fill = false), fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium)
-                    if (onChoosePack != null) Icon(SystemGlyph.Chevron.vector(), null, Modifier.size(18.dp),
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Box(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                    val name = if (selected) state.name else selectedPack?.name ?: "選擇漢化包"
+                    Row(
+                        Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
+                            .then(if (onChoosePack != null) Modifier.clickable(enabled = !state.busy, role = Role.DropdownList, onClick = onChoosePack) else Modifier),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(name, Modifier.weight(1f, fill = false), fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium)
+                        if (onChoosePack != null) Icon(SystemGlyph.Chevron.vector(), null, Modifier.size(18.dp).rotate(90f),
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
+                    if (selected || workProgress != null || waitingForGame) {
+                        Spacer(Modifier.width(12.dp))
+                        val healthy=state.enabled && (!state.rootMode || state.ready && state.fontReady)
+                        val loading = workProgress != null || waitingForGame || (state.enabled && state.checkingRuntime)
+                        SystemStatusLabel(
+                            text = when {
+                                workProgress != null -> "正在套用"
+                                waitingForGame -> "等待套用"
+                                !state.enabled -> "已停用"
+                                state.checkingRuntime -> "正在檢查"
+                                healthy -> "已啟用"
+                                else -> "需要重新套用"
+                            },
+                            positive=if(loading) null else healthy,
+                            loading=loading)
+                    }
                 }
-                if (selected || workProgress != null || waitingForGame) {
-                    Spacer(Modifier.width(12.dp))
-                    val healthy=state.enabled && (!state.rootMode || state.ready && state.fontReady)
-                    val loading = workProgress != null || waitingForGame || (state.enabled && state.checkingRuntime)
-                    SystemStatusLabel(
-                        text = when {
-                            workProgress != null -> "正在套用"
-                            waitingForGame -> "等待套用"
-                            !state.enabled -> "已停用"
-                            state.checkingRuntime -> "正在檢查"
-                            healthy -> "已啟用"
-                            else -> "需要重新套用"
-                        },
-                        positive=if(loading) null else healthy,
-                        loading=loading)
-                }
+                packMenu()
             }
-            Text(if(selectedPack != null && !selected) packVersionLabel(selectedPack.version) else if(selectedPack != null && selectedPack.name != state.name) "${selectedPack.name} · ${packVersionLabel(selectedPack.version)}" else if(selected) packVersionLabel(state.packVersion) else "下載漢化包後即可直接套用。",
-                Modifier.padding(top=5.dp,bottom=20.dp),fontSize=13.sp,lineHeight=20.sp,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            FlowRow(Modifier.padding(top = 5.dp, bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if(selectedPack != null && !selected) packVersionLabel(selectedPack.version) else if(selectedPack != null && selectedPack.name != state.name) "${selectedPack.name} · ${packVersionLabel(selectedPack.version)}" else if(selected) packVersionLabel(state.packVersion) else "下載漢化包後即可直接套用。",
+                    fontSize = 13.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                if (hasPackUpdate) Text("有可用更新", fontSize = 13.sp, lineHeight = 20.sp,
+                    color = Color(if (LocalSystemUiDark.current) 0xFFF47777 else 0xFFB3261E))
+            }
             if(waitingForGame) Text("遊戲進入標題畫面後，點擊通知套用漢化",fontSize=13.sp,lineHeight=20.sp,modifier=Modifier.padding(bottom=12.dp),color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
             if(workProgress != null) SystemLanguageProgress(workProgress)
             SystemButton(if (state.gameInstalled) onLaunch else onDownload, Modifier.fillMaxWidth(), enabled = !state.busy) {
@@ -751,25 +830,35 @@ internal data class OverviewUiState(
     }
 }
 
-@Composable internal fun SystemPackMenu(packs: List<DownloadedTranslation>, loading: Boolean,
+@Composable internal fun SystemPackMenu(open: Boolean, packs: List<DownloadedTranslation>, loading: Boolean,
     activePath: String?, activeName: String, activeVersion: String?,
     onDismiss: () -> Unit, onDownload: () -> Unit, onApply: (DownloadedTranslation) -> Unit) {
-    SystemModal("選擇漢化包", onDismiss) {
-        val close = LocalSystemModalClose.current ?: onDismiss
-        when {
-            loading -> SystemLanguageProgress(null)
-            packs.isEmpty() -> {
-                Text("尚無已下載漢化", Modifier.padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 14.sp)
-                Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
-                    SystemButton({ close(); onDownload() }, Modifier.fillMaxWidth()) { Text("下載漢化", fontSize = 16.sp) }
-                }
-            }
-            else -> packs.forEachIndexed { index, pack ->
-                val active = isCurrentPack(pack, activePath, activeName, activeVersion)
-                SystemArrowPreference(pack.name, summary = packVersionLabel(pack.version),
-                    value = if (active) "重新套用" else "套用", last = index == packs.lastIndex,
-                    onClick = { close(); onApply(pack) })
-            }
+    top.yukonga.miuix.kmp.overlay.OverlayListPopup(show = open,
+        alignment = top.yukonga.miuix.kmp.basic.PopupPositionProvider.Align.Start,
+        onDismissRequest = onDismiss, renderInRootScaffold = true) {
+        SystemPackMenuItems(packs, loading, activePath, activeName, activeVersion,
+            onDownload = { onDismiss(); onDownload() }, onApply = { onDismiss(); onApply(it) })
+    }
+}
+
+@Composable internal fun SystemPackMenuItems(packs: List<DownloadedTranslation>, loading: Boolean,
+    activePath: String?, activeName: String, activeVersion: String?,
+    onDownload: () -> Unit, onApply: (DownloadedTranslation) -> Unit) {
+    val colors = top.yukonga.miuix.kmp.basic.DropdownDefaults.dropdownColors()
+    top.yukonga.miuix.kmp.basic.ListPopupColumn {
+        val labels = when {
+            loading -> listOf("正在讀取漢化包…")
+            packs.isEmpty() -> listOf("下載漢化")
+            else -> packs.map { it.name }
+        }
+        labels.forEachIndexed { index, label ->
+            val pack = packs.getOrNull(index)
+            top.yukonga.miuix.kmp.basic.DropdownImpl(
+                text = label, optionSize = labels.size, index = index,
+                isSelected = pack != null && isCurrentPack(pack, activePath, activeName, activeVersion),
+                dropdownColors = colors, enabled = !loading, dialogMode = false,
+                onSelectedIndexChange = { if (pack == null) onDownload() else onApply(pack) }
+            )
         }
     }
 }
@@ -849,8 +938,14 @@ internal fun isCurrentPack(pack: DownloadedTranslation, activePath: String?, act
         if (busy && fraction != null && fraction > 0f) Box(Modifier.matchParentSize().drawBehind {
             drawRect(primary, size=androidx.compose.ui.geometry.Size(size.width * fill, size.height))
         })
-        Text(text, Modifier.padding(horizontal=16.dp,vertical=12.dp), color=if (busy) ink else if (enabled) Color.White else ink.copy(alpha=.38f),
-            fontSize=16.sp,lineHeight=24.sp,fontWeight=FontWeight.Medium,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, Modifier.weight(1f, fill = false), color = if (busy) ink else if (enabled) Color.White else ink.copy(alpha = .38f),
+                fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            if (busy && fraction == null) top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator(
+                color = ink, size = 16.dp, modifier = Modifier.clearAndSetSemantics {}
+            )
+        }
         if (busy && fill > 0f) Box(
             Modifier.matchParentSize().drawWithContent {
                 clipRect(right = size.width * fill) { this@drawWithContent.drawContent() }
@@ -999,7 +1094,8 @@ internal fun formatApplyProgress(progress: ApplyProgress): String =
     SystemCard(insideMargin=PaddingValues(18.dp)) {
         Text(entry.name,style=MiuixTheme.textStyles.title2)
         Spacer(Modifier.height(4.dp))
-        Text(entry.author,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(validPackVersion(entry.version)?.let(::packVersionLabel) ?: "版本暫無資料",
+            fontSize = 13.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         Spacer(Modifier.height(6.dp))
         Text(entry.description,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
         Spacer(Modifier.height(12.dp))
