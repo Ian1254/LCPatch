@@ -852,7 +852,9 @@ internal fun isCurrentPack(pack: DownloadedTranslation, activePath: String?, act
         Text(text, Modifier.padding(horizontal=16.dp,vertical=12.dp), color=if (busy) ink else if (enabled) Color.White else ink.copy(alpha=.38f),
             fontSize=16.sp,lineHeight=24.sp,fontWeight=FontWeight.Medium,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
         if (busy && fill > 0f) Box(
-            Modifier.matchParentSize().drawWithContent { clipRect(right = size.width * fill) { drawContent() } },
+            Modifier.matchParentSize().drawWithContent {
+                clipRect(right = size.width * fill) { this@drawWithContent.drawContent() }
+            },
             contentAlignment = Alignment.Center
         ) {
             Text(text, Modifier.clearAndSetSemantics {}.padding(horizontal = 16.dp, vertical = 12.dp), color = Color.White,
