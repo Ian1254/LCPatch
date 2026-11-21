@@ -588,6 +588,65 @@ class InstalledIdentityAndLogDateTest {
     }
 }
 
+@PreviewTest @Preview(name = "PackPopupReview", widthDp = 393, heightDp = 852)
+@Composable fun PackPopupReview() = SystemUiTheme(SystemUiStyle.HyperOS4, "dark") {
+    val packs = listOf(
+        DownloadedTranslation("OurPlay 神人漢化", "ourplay", version = "189"),
+        DownloadedTranslation("零協會漢化", "llc", version = "2026111901")
+    )
+    val state = sampleOverview.copy(name = packs.first().name, packVersion = packs.first().version)
+    Scaffold(containerColor = MiuixTheme.colorScheme.surface) {
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("LCPatch", Modifier.padding(start = 14.dp, top = 30.dp, bottom = 8.dp), fontSize = 26.sp)
+                SystemTranslationPanel(state, {}, {}, {}, onChoosePack = {}, hasPackUpdate = true)
+                SystemQuickActions({}, {})
+                SystemSectionLabel("運作狀態")
+                SystemEnvironmentPanel(state, {}, {}, {}, "授權／檢查 Stellar")
+            }
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .5f)))
+            Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 212.dp, end = 18.dp)
+                .widthIn(min = 208.dp, max = 260.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                .background(MiuixTheme.colorScheme.surfaceContainer)) {
+                SystemPackMenuItems(packs, false, "ourplay", state.name, state.packVersion, {}, {})
+            }
+        }
+    }
+}
+
+@PreviewTest @Preview(name = "DownloadReview", widthDp = 393, heightDp = 852)
+@Composable fun DownloadReview() = SystemUiTheme(SystemUiStyle.HyperOS4, "dark") {
+    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SystemInnerTopBar("下載漢化", {})
+        val official = TranslationEntry("官方", "零協會漢化", "都市零協會", "自動補齊 PC 資源及劇情角色名稱。", "llc", version = "2026111901")
+        val ourPlay = OurPlayTranslation.entry.copy(version = "190")
+        val native = TranslationEntry("原生", "日文字形漢化", "pzwboy / ghcruise", "透過遊戲原生語言文件載入。", "native", version = "v1.119.0")
+        SystemDownloadEntry(official) {
+            SystemProgressActionButton(downloadPackAction(official, null), onClick = {})
+        }
+        SystemDownloadEntry(ourPlay) {
+            SystemProgressActionButton(downloadPackAction(ourPlay, DownloadedTranslation(ourPlay.name, "ourplay", version = "189")), onClick = {})
+        }
+        SystemDownloadEntry(native) {
+            SystemProgressActionButton(downloadPackAction(native, DownloadedTranslation(native.name, "native", version = native.version)), onClick = {})
+        }
+        SystemProgressActionButton("正在準備漢化", busy = true, onClick = {})
+        SystemProgressActionButton("正在寫入語言資源 · 64/100", progress = .64f, busy = true, onClick = {})
+    }
+}
+
+@PreviewTest @Preview(name = "AppUpdateReview", widthDp = 393, heightDp = 852)
+@Composable fun AppUpdateReview() = SystemUiTheme(SystemUiStyle.HyperOS4, "dark") {
+    Box(Modifier.fillMaxSize()) {
+        ProposalOverviewContent()
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .5f)))
+        SystemSheetSurface("應用程式更新", Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 24.dp)) {
+            SystemAppUpdatePromptContent("1.2.5", suppress = true, {}, {}, {})
+        }
+    }
+}
+
 // Visual proposal only: deletion/update actions are intentionally inert here.
 @Composable private fun ProposalDivider() {
     Box(Modifier.fillMaxWidth().height(.5.dp).background(MiuixTheme.colorScheme.dividerLine))

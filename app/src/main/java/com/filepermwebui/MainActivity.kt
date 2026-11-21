@@ -270,6 +270,13 @@ class MainActivity : ComponentActivity() {
         var hazeRendererEnabled by remember { mutableStateOf(appPrefs.getBoolean("haze_renderer_enabled", false)) }
         val environmentOverlayState = rememberEnvironmentStatusOverlayState()
         var updateChannel by remember { mutableStateOf(appPrefs.getString("update_channel", "stable") ?: "stable") }
+        var showUpdatePrompts by remember { mutableStateOf(appPrefs.getBoolean("show_update_prompts", true)) }
+        var dismissedUpdateVersion by rememberSaveable { mutableStateOf<String?>(null) }
+        fun setUpdatePrompts(enabled: Boolean) {
+            showUpdatePrompts = enabled
+            if (enabled) dismissedUpdateVersion = null
+            appPrefs.edit().putBoolean("show_update_prompts", enabled).apply()
+        }
         val overviewListState = rememberLazyListState()
         val settingsListState = rememberLazyListState()
         val logsListState = rememberLazyListState()
@@ -497,7 +504,7 @@ class MainActivity : ComponentActivity() {
                 else taskState.success(backgroundApply.result ?: "漢化套用完成")
             }
         }
-        LaunchedEffect(Unit) { refreshCatalog() }
+        LaunchedEffect(resumeRevision) { refreshCatalog() }
         LaunchedEffect(page, resumeRevision, rootMode) {
             if (rootMode && (page == OVERVIEW || page == ONBOARDING)) {
                 // Restore accurate state after launch/resume without spamming notices.
@@ -631,7 +638,7 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(page, resumeRevision, applying, installingEntryKey, rootMode) {
             if (!applying && installingEntryKey == null) {
-                if (!rootMode || page == DOWNLOADED || page == CONVERSION) {
+                if (!rootMode || page == DOWNLOAD || page == DOWNLOADED || page == CONVERSION) {
                     downloadedPacks = translations.downloaded()
                 }
             }
@@ -749,8 +756,8 @@ class MainActivity : ComponentActivity() {
         fun checkAppUpdate() {
             if(updateProgress==null) taskState.checkForUpdate(updates,updateChannel)
         }
-        LaunchedEffect(page,updateChannel) {
-            if(page==UPDATE) checkAppUpdate()
+        LaunchedEffect(page, updateChannel, showUpdatePrompts) {
+            if (page == UPDATE || (page == OVERVIEW && showUpdatePrompts)) checkAppUpdate()
         }
 
         lateinit var installTranslation: (TranslationEntry) -> Unit
@@ -939,7 +946,16 @@ class MainActivity : ComponentActivity() {
                                 workProgress = applyProgress,
                                 waitingForGame = backgroundApply.waiting,
                                 onChoosePack = { packMenuLoading = true; packMenuOpen = true },
-                                selectedPack = if(!rootMode) downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null
+                                selectedPack = if(!rootMode) downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null,
+                                hasPackUpdate = catalog.any {
+                                    safePackName(it.name) == activeName &&
+                                        isNewerPackVersion(it.version, runtimeInspection.version ?: activeVersion)
+                                },
+                                packMenu = {
+                                    SystemPackMenu(packMenuOpen, downloadedPacks, packMenuLoading, activePackPath, activeName,
+                                        runtimeInspection.version ?: activeVersion, onDismiss = { packMenuOpen = false },
+                                        onDownload = { navigateTo(DOWNLOAD) }, onApply = ::applySavedPack)
+                                }
                             )
                             SETTINGS -> settings(
                                 rootMode = rootMode,
@@ -951,6 +967,8 @@ class MainActivity : ComponentActivity() {
                                 onFolder = { folderPicker.launch(logs.selectedFolder()) },
                                 onAbout = { navigateTo(ABOUT) },
                                 onUpdate = { navigateTo(UPDATE) },
+                                showUpdatePrompts = showUpdatePrompts,
+                                onShowUpdatePrompts = ::setUpdatePrompts,
                                 onDisplay = { navigateTo(DISPLAY) },
                                 targetLanguage = targetLanguage,
                                 fontName = fontName,
@@ -1007,6 +1025,7 @@ class MainActivity : ComponentActivity() {
                             )
                             DOWNLOAD -> downloadPage(
                                 catalog,
+                                downloadedPacks,
                                 catalogLoading,
                                 catalogError,
                                 transfer,
@@ -1168,16 +1187,27 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                if (animatedShell == shellTarget && packMenuOpen) SystemPackMenu(
-                    downloadedPacks, packMenuLoading, activePackPath, activeName, runtimeInspection.version ?: activeVersion,
-                    onDismiss = { packMenuOpen = false },
-                    onDownload = { packMenuOpen = false; navigateTo(DOWNLOAD) }, onApply = ::applySavedPack
-                )
             }
             }
             }
 
             renderNotice()
+            val promptedRelease = latestRelease?.takeIf {
+                showUpdatePrompts && page == OVERVIEW && !packMenuOpen && !checkingUpdate &&
+                    !applying && downloadEntryKey == null && !backgroundApply.waiting && updateProgress == null &&
+                    it.version != dismissedUpdateVersion && updates.isNewer(it.version, BuildConfig.VERSION_NAME)
+            }
+            if (promptedRelease != null) {
+                fun dismissUpdatePrompt(suppress: Boolean) {
+                    dismissedUpdateVersion = promptedRelease.version
+                    if (suppress) setUpdatePrompts(false)
+                }
+                SystemAppUpdatePrompt(promptedRelease.version, onDismiss = ::dismissUpdatePrompt, onUpdate = { suppress ->
+                    dismissUpdatePrompt(suppress)
+                    navigateTo(UPDATE)
+                    downloadAppUpdate(promptedRelease)
+                })
+            }
             EnvironmentStatusOverlayHost(
                 state = environmentOverlayState,
                 modifier = Modifier.fillMaxSize()
@@ -1199,13 +1229,15 @@ class MainActivity : ComponentActivity() {
         translationEnabled: Boolean, onTranslationEnabled: (Boolean) -> Unit,
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection, activeVersion: String?, checkingRuntime: Boolean,
         onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?,
-        waitingForGame: Boolean, onChoosePack: () -> Unit, selectedPack: DownloadedTranslation?
+        waitingForGame: Boolean, onChoosePack: () -> Unit, selectedPack: DownloadedTranslation?,
+        hasPackUpdate: Boolean, packMenu: @Composable () -> Unit
     ) {
         val state = OverviewUiState(activeName, activeScript, targetLanguage.label, translationEnabled,
             rootMode, game.installed, game.version, busy, scopeStatus, rootStatus, loadStatus,
             runtimeInspection.ready, runtimeInspection.fontReady, runtimeInspection.jsonFiles, translations.pcCoverageSummary(),
             if (rootMode) runtimeInspection.version ?: activeVersion else activeVersion, loadReady, checkingRuntime)
-        item { SystemTranslationPanel(state, onTranslationEnabled, onLaunch, onDownload, workProgress, selectedPack, waitingForGame, onChoosePack) }
+        item { SystemTranslationPanel(state, onTranslationEnabled, onLaunch, onDownload, workProgress, selectedPack, waitingForGame,
+            onChoosePack, hasPackUpdate, packMenu) }
         item { SystemQuickActions(onDownload, onDownloaded) }
         item { SystemSectionLabel("運作狀態") }
         item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onAuthorize, loadAction) }
@@ -1214,6 +1246,7 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.settings(
         onFolder: () -> Unit, onAbout: () -> Unit, onUpdate: () -> Unit,
+        showUpdatePrompts: Boolean, onShowUpdatePrompts: (Boolean) -> Unit,
         onDisplay: () -> Unit, targetLanguage: OverrideLanguage,
         rootMode: Boolean, applyProgress: ApplyProgress?, applying: Boolean, changingTargetLanguage: Boolean,
         activeScript: String, hasActive: Boolean, convertingActive: Boolean, onConversion: (TextConversion) -> Unit,
@@ -1257,6 +1290,7 @@ class MainActivity : ComponentActivity() {
                     if(logs.selectedFolder()!=null) com.lcpatch.SystemTextButton("改回預設暫存位置", onReset)
                 }
                 ArrowPreference(modifier = PreferenceItemModifier, title = "應用程式更新", summary = "更新渠道與檢查更新", onClick = onUpdate)
+                SystemSwitchPreference("顯示更新提示", checked = showUpdatePrompts, onCheckedChange = onShowUpdatePrompts)
                 ArrowPreference(modifier = PreferenceItemModifier, title = "關於", last=true, summary = "版本與元件", onClick = onAbout)
             }
         }
@@ -1461,7 +1495,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun LazyListScope.downloadPage(
-        entries: List<TranslationEntry>, loading: Boolean, error: String?, transfer: TransferProgress?,
+        entries: List<TranslationEntry>, downloaded: List<DownloadedTranslation>, loading: Boolean, error: String?, transfer: TransferProgress?,
         applyProgress: ApplyProgress?, applying: Boolean, activeEntryKey: String?,
         refresh: () -> Unit, install: (TranslationEntry) -> Unit
     ) {
@@ -1485,7 +1519,7 @@ class MainActivity : ComponentActivity() {
                     else -> null
                 }
                 val label = when {
-                    !ownsTask -> "下載並套用"
+                    !ownsTask -> downloadPackAction(entry, downloaded.firstOrNull { it.name == safePackName(entry.name) })
                     downloading -> progressDownloadLabel(downloadFraction)
                     applyProgress != null -> formatApplyProgress(applyProgress)
                     else -> "等待套用…"

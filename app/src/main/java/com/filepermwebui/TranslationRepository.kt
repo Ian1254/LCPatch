@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.zip.ZipFile
@@ -136,11 +137,12 @@ class TranslationRepository(private val context: Context) {
                 .singleOrNull { it.optString("name") == "${language.id}.zip" }
                 ?: error("無 root 來源缺少 ${language.id}.zip")
             val entry=TranslationEntry("漢化-普通", "日文字形漢化（${language.label}）", "pzwboy / ghcruise / 都市零協會",
-                "${release.optString("tag_name")} · 保留來源的相近漢字，透過遊戲原生語言文件載入", asset.getString("browser_download_url"), "日文字形", release.optString("tag_name").takeIf {it.isNotBlank()}, asset.optString("digest").takeIf {it.matches(Regex("sha256:[a-f0-9]{64}"))})
+                "保留來源的相近漢字，透過遊戲原生語言文件載入", asset.getString("browser_download_url"), "日文字形", release.optString("tag_name").takeIf {it.isNotBlank()}, asset.optString("digest").takeIf {it.matches(Regex("sha256:[a-f0-9]{64}"))})
             try { recoverNativeSourceVersions(entry) } catch(error: kotlinx.coroutines.CancellationException) {throw error}
             catch(error: Exception) {LogRepository.append(context,"WARN","translation.version_lookup_failed",error.message ?: "版本比對未完成，保留內容識別")}
             return@withContext listOf(entry)
         }
+        val ourPlayResult = async { runCatching { OurPlayTranslation.latest().version } }
         val primaryResult = runCatching {
             HttpClient.open(SOURCE).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
         }.map(::parseTranslationCatalog)
@@ -153,7 +155,8 @@ class TranslationRepository(private val context: Context) {
         listOfNotNull(primaryResult.exceptionOrNull(), officialResult.exceptionOrNull()).forEach { error ->
             LogRepository.append(context, "WARN", "translation.catalog_source_failed", error.message ?: error.javaClass.simpleName)
         }
-        (community + OurPlayTranslation.entry + primary).distinctBy { it.name to it.url }
+        val ourPlay = OurPlayTranslation.entry.copy(version = ourPlayResult.await().getOrNull())
+        (community + ourPlay + primary).distinctBy { it.name to it.url }
     }
 
     /** Legacy test.1 packs had no upstream metadata. Match content, never assign today's tag by name alone. */
@@ -216,7 +219,7 @@ class TranslationRepository(private val context: Context) {
                 "漢化-XP",
                 "零協會漢化",
                 "都市零協會",
-                "官方版本 $tag；自動補齊 PC 資源及劇情角色名稱，無須另選整理版",
+                "自動補齊 PC 資源及劇情角色名稱，無須另選整理版",
                 asset, script="簡體", version=tag
             )
         )
@@ -227,12 +230,14 @@ class TranslationRepository(private val context: Context) {
         progress: suspend (TransferProgress) -> Unit,
         preparation: suspend (ApplyProgress) -> Unit = {}
     ): DownloadedTranslation = withContext(Dispatchers.IO) {
-        val ourPlay = if (entry == OurPlayTranslation.entry) {
+        val ourPlay = if (entry.url == OurPlayTranslation.entry.url && entry.name == OurPlayTranslation.entry.name) {
             check(rootMode()) { "OurPlay 神人漢化需要 Root ＋ LSPosed" }
             OurPlayTranslation.latest()
         } else null
         val fileName = "${safeName(entry.name)}.zip"
-        val part = if (ourPlay == null) File(downloads, "$fileName.part")
+        val sourceKey = java.security.MessageDigest.getInstance("SHA-256").digest(entry.url.toByteArray())
+            .take(12).joinToString("") { "%02x".format(it) }
+        val part = if (ourPlay == null) File(downloads, "$fileName.$sourceKey.part")
             else File.createTempFile("ourplay-", ".part", staging)
         val output = File(downloads, fileName)
         val prepared = File(staging, "download-${safeName(entry.name)}")
