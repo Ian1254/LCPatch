@@ -47,7 +47,7 @@ private fun HazeExperimentalTopBlur(state: HazeState, height: Dp) {
     val surface = MiuixTheme.colorScheme.surface
     val style = remember {
         HazeBlurStyle {
-            blurRadius(12.dp)
+            blurRadius(24.dp)
             progressive(HazeProgressive.verticalGradient(
                 startIntensity = 1f,
                 endIntensity = 0f

@@ -54,6 +54,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
@@ -62,6 +65,7 @@ import androidx.compose.ui.window.DialogProperties
 import top.yukonga.miuix.kmp.basic.CardColors
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.*
 import com.kyant.backdrop.Backdrop
@@ -326,6 +330,8 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
     }
 }
 
+private val LocalSystemModalClose = staticCompositionLocalOf<(() -> Unit)?> { null }
+
 @Composable internal fun SystemModal(title: String, onDismiss: () -> Unit, alert: Boolean = false,
     content: @Composable ColumnScope.() -> Unit) {
     val scope=rememberCoroutineScope()
@@ -335,18 +341,22 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
     val animate=android.animation.ValueAnimator.areAnimatorsEnabled()
     LaunchedEffect(Unit) { shown=true }
     val close: ()->Unit = {
-        if(!closing) { closing=true; scope.launch { shown=false; if(animate) delay(200); latestDismiss() } }
+        if(!closing) { closing=true; scope.launch { shown=false; if(animate) delay(260); latestDismiss() } }
     }
     val scene=LocalSystemWindowBackdrop.current.takeIf { LocalSystemMaterialEnabled.current }
     Dialog(onDismissRequest=close,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
         val window=(LocalView.current.parent as? DialogWindowProvider)?.window
         SideEffect { window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=if(LocalSystemUiDark.current) .50f else .32f))
+        val dim by animateFloatAsState(
+            if (shown) { if (LocalSystemUiDark.current) .50f else .32f } else 0f,
+            tween(if (animate) 240 else 0), label = "sheet-scrim"
+        )
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=dim))
             .clickable(indication=null,interactionSource=remember { MutableInteractionSource() },onClick=close)) {
             AnimatedVisibility(shown,Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding(),
                 enter=fadeIn(tween(if(animate) 200 else 0))+slideInVertically(tween(if(animate) 250 else 0)) { it/3 },
-                exit=fadeOut(tween(if(animate) 180 else 0))+slideOutVertically(tween(if(animate) 200 else 0)) { it/3 }) {
-                CompositionLocalProvider(LocalSystemPanelBackdrop provides scene) {
+                exit=slideOutVertically(tween(if(animate) 240 else 0)) { it }) {
+                CompositionLocalProvider(LocalSystemPanelBackdrop provides scene, LocalSystemModalClose provides close) {
                     SystemSheetSurface(title,Modifier.padding(12.dp),alert,content=content)
                 }
             }
@@ -357,7 +367,7 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
 /** Dialog actions have their own inset and never paint a full-width footer. */
 @Composable internal fun SystemDialogDone(onClick: () -> Unit, text: String = "完成") {
     Box(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=12.dp)) {
-        SystemButton(onClick,Modifier.fillMaxWidth()) { Text(text,fontSize=16.sp) }
+        SystemButton(LocalSystemModalClose.current ?: onClick,Modifier.fillMaxWidth()) { Text(text,fontSize=16.sp) }
     }
 }
 
@@ -366,7 +376,7 @@ internal val LocalSystemMaterialEnabled = staticCompositionLocalOf { true }
         Text(message, Modifier.padding(horizontal = 24.dp, vertical = 10.dp), fontSize = 14.sp, lineHeight = 22.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SystemSecondaryButton("取消", onDismiss, Modifier.weight(1f))
+            SystemSecondaryButton("取消", LocalSystemModalClose.current ?: onDismiss, Modifier.weight(1f))
             SystemButton(onConfirm, Modifier.weight(1f)) { Text(confirm, fontSize = 16.sp) }
         }
     }
@@ -695,16 +705,24 @@ internal data class OverviewUiState(
 )
 
 @Composable internal fun SystemTranslationPanel(state: OverviewUiState, onEnabled: (Boolean) -> Unit,
-    onLaunch: () -> Unit, onDownload: () -> Unit, workProgress: ApplyProgress? = null, selectedPack: DownloadedTranslation? = null, waitingForGame: Boolean = false) {
+    onLaunch: () -> Unit, onDownload: () -> Unit, workProgress: ApplyProgress? = null, selectedPack: DownloadedTranslation? = null,
+    waitingForGame: Boolean = false, onChoosePack: (() -> Unit)? = null) {
     val selected = state.name != "尚未選擇"
-    val accent = MiuixTheme.colorScheme.primary
     SystemCard {
         if(state.rootMode) SystemSwitchPreference("啟用漢化", checked = state.enabled,
             enabled = !state.busy, onCheckedChange = onEnabled)
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                Text(if(selected) state.name else selectedPack?.name ?: "尚未選擇漢化",Modifier.weight(1f),fontSize=18.sp,lineHeight=26.sp,
-                    fontWeight=FontWeight.Medium,maxLines=2,overflow=TextOverflow.Ellipsis)
+                val name = if (selected) state.name else selectedPack?.name ?: "選擇漢化包"
+                Row(
+                    Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
+                        .then(if (onChoosePack != null) Modifier.clickable(enabled = !state.busy, role = Role.Button, onClick = onChoosePack) else Modifier),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(name, Modifier.weight(1f, fill = false), fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium)
+                    if (onChoosePack != null) Icon(SystemGlyph.Chevron.vector(), null, Modifier.size(18.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
                 if (selected || workProgress != null || waitingForGame) {
                     Spacer(Modifier.width(12.dp))
                     val healthy=state.enabled && (!state.rootMode || state.ready && state.fontReady)
@@ -732,6 +750,32 @@ internal data class OverviewUiState(
         }
     }
 }
+
+@Composable internal fun SystemPackMenu(packs: List<DownloadedTranslation>, loading: Boolean,
+    activePath: String?, activeName: String, activeVersion: String?,
+    onDismiss: () -> Unit, onDownload: () -> Unit, onApply: (DownloadedTranslation) -> Unit) {
+    SystemModal("選擇漢化包", onDismiss) {
+        val close = LocalSystemModalClose.current ?: onDismiss
+        when {
+            loading -> SystemLanguageProgress(null)
+            packs.isEmpty() -> {
+                Text("尚無已下載漢化", Modifier.padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 14.sp)
+                Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
+                    SystemButton({ close(); onDownload() }, Modifier.fillMaxWidth()) { Text("下載漢化", fontSize = 16.sp) }
+                }
+            }
+            else -> packs.forEachIndexed { index, pack ->
+                val active = isCurrentPack(pack, activePath, activeName, activeVersion)
+                SystemArrowPreference(pack.name, summary = packVersionLabel(pack.version),
+                    value = if (active) "重新套用" else "套用", last = index == packs.lastIndex,
+                    onClick = { close(); onApply(pack) })
+            }
+        }
+    }
+}
+
+internal fun isCurrentPack(pack: DownloadedTranslation, activePath: String?, activeName: String, activeVersion: String?): Boolean =
+    (activePath?.let { it == pack.path } ?: (pack.name == activeName)) && pack.version != null && pack.version == activeVersion
 
 @Composable internal fun SystemQuickActions(onDownload: () -> Unit, onDownloaded: () -> Unit) {
     SystemCard {
@@ -791,8 +835,9 @@ internal data class OverviewUiState(
     val fraction = progress?.takeIf { it.isFinite() }?.coerceIn(0f, 1f)
     val shape = RoundedCornerShape(if (LocalSystemUiStyle.current == SystemUiStyle.HyperOS4) 16.dp else 50.dp)
     val ink = MiuixTheme.colorScheme.onSurface
+    val fill = fraction ?: 0f
     Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
-        .background(if (busy) primary.copy(alpha=.16f).compositeOver(MiuixTheme.colorScheme.surfaceContainer)
+        .background(if (busy) primary.copy(alpha=.14f).compositeOver(MiuixTheme.colorScheme.surfaceContainer)
             else if (enabled) primary else ink.copy(alpha=.08f))
         .semantics {
             role = Role.Button
@@ -802,29 +847,45 @@ internal data class OverviewUiState(
             }
         }.clickable(enabled = enabled && !busy, onClick = onClick), Alignment.Center) {
         if (busy && fraction != null && fraction > 0f) Box(Modifier.matchParentSize().drawBehind {
-            drawRect(primary.copy(alpha=.24f), size=androidx.compose.ui.geometry.Size(size.width*fraction,size.height))
+            drawRect(primary, size=androidx.compose.ui.geometry.Size(size.width * fill, size.height))
         })
         Text(text, Modifier.padding(horizontal=16.dp,vertical=12.dp), color=if (busy) ink else if (enabled) Color.White else ink.copy(alpha=.38f),
             fontSize=16.sp,lineHeight=24.sp,fontWeight=FontWeight.Medium,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+        if (busy && fill > 0f) Box(
+            Modifier.matchParentSize().drawWithContent {
+                clipRect(right = size.width * fill) { this@drawWithContent.drawContent() }
+            },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text, Modifier.clearAndSetSemantics {}.padding(horizontal = 16.dp, vertical = 12.dp), color = Color.White,
+                fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
     }
 }
 
 /** Compact one-row notice; long text opens secondary details rather than growing the banner. */
-@Composable internal fun SystemNotice(message: String, error: Boolean, retry: (() -> Unit)?, dismiss: () -> Unit, modifier: Modifier = Modifier,
+@Composable internal fun SystemNotice(message: String, error: Boolean, retry: (() -> Unit)?, modifier: Modifier = Modifier,
     onDetailsVisibleChange: (Boolean)->Unit = {}) {
     var details by remember(message) { mutableStateOf(false) }
     val closeDetails: ()->Unit = { details=false;onDetailsVisibleChange(false) }
     DisposableEffect(Unit) { onDispose { onDetailsVisibleChange(false) } }
-    val shape=RoundedCornerShape(16.dp)
-    Row(modifier.widthIn(max=480.dp).fillMaxWidth().shadow(6.dp,shape).clip(shape)
-        .background(MiuixTheme.colorScheme.surfaceContainer).padding(start=14.dp,end=4.dp,top=4.dp,bottom=4.dp),
-        verticalAlignment=Alignment.CenterVertically) {
-        Text(message,Modifier.weight(1f).semantics { liveRegion=LiveRegionMode.Polite }
-            .clickable(role=Role.Button) { details=true;onDetailsVisibleChange(true) }.padding(vertical=6.dp),
-            fontSize=13.sp,lineHeight=20.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
-        if(error && retry!=null) SystemTextButton("重試",retry)
-        Box(Modifier.size(48.dp).clip(CircleShape).clickable(role=Role.Button,onClick=dismiss),Alignment.Center) {
-            Icon(SystemGlyph.Close.vector(),contentDescription="關閉通知",modifier=Modifier.size(18.dp),tint=MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    val measurer = rememberTextMeasurer()
+    val style = TextStyle(fontSize = 13.sp, lineHeight = 20.sp)
+    BoxWithConstraints(modifier.widthIn(max = 480.dp), contentAlignment = Alignment.Center) {
+        val textWidth = (constraints.maxWidth - with(LocalDensity.current) { 36.dp.roundToPx() }).coerceAtLeast(1)
+        val singleLine = remember(message) { message.replace(Regex("\\s+"), " ").trim() }
+        val candidates = listOf(singleLine, if (error) "操作未完成，查看詳情" else "查看通知詳情", "詳情")
+        val label = candidates.firstOrNull {
+            !measurer.measure(it, style = style, maxLines = 1, softWrap = false,
+                constraints = Constraints(maxWidth = textWidth)).hasVisualOverflow
+        } ?: "詳情"
+        Box(Modifier.heightIn(min = 48.dp).shadow(6.dp, CircleShape).clip(CircleShape)
+            .background(MiuixTheme.colorScheme.surfaceContainer)
+            .clickable(role = Role.Button) { details=true;onDetailsVisibleChange(true) }
+            .semantics { liveRegion = LiveRegionMode.Polite; contentDescription = message }
+            .padding(horizontal = 18.dp, vertical = 8.dp), Alignment.Center) {
+            Text(label, Modifier.clearAndSetSemantics {}, style = style,
+                maxLines = 1, softWrap = false)
         }
     }
     if(details) SystemModal("通知詳情",closeDetails) {
@@ -834,6 +895,15 @@ internal data class OverviewUiState(
         }
         SystemDialogDone(closeDetails)
     }
+}
+
+/** Reserve the same navigation clearance on every screen. */
+@Composable internal fun systemNoticeBottomOffset(): Dp {
+    val inset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val density = LocalDensity.current
+    val labelHeight = with(density) { 14.sp.toDp() }
+    val barHeight = maxOf(54.dp, 40.dp + labelHeight * if (density.fontScale > 1.4f) 2 else 1)
+    return maxOf(24.dp, inset + 8.dp) + barHeight + 8.dp
 }
 
 @Composable internal fun SystemDisplaySettingsPanel(
@@ -905,12 +975,17 @@ internal data class OverviewUiState(
 
 @Composable internal fun SystemLanguageProgress(progress: ApplyProgress?) {
     Column(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=8.dp)) {
-        top.yukonga.miuix.kmp.basic.LinearProgressIndicator(progress=progress?.fraction,modifier=Modifier.fillMaxWidth())
-        Text(progress?.let { it.stage+if(it.total>0) " · ${it.current}/${it.total}" else "" }?:"正在準備…",
+        top.yukonga.miuix.kmp.basic.LinearProgressIndicator(progress = progress?.fraction,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = MiuixTheme.colorScheme.primary))
+        Text(progress?.let(::formatApplyProgress) ?: "正在準備…",
             Modifier.padding(top=6.dp).semantics { liveRegion=LiveRegionMode.Polite },fontSize=12.sp,lineHeight=18.sp,
             color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
+
+internal fun formatApplyProgress(progress: ApplyProgress): String =
+    if (progress.total > 0) "${progress.stage} · ${progress.current}/${progress.total}" else progress.stage
 
 @Composable internal fun SystemDownloadRefresh(refreshing: Boolean,onRefresh: ()->Unit,topInset: Dp,content: @Composable ()->Unit) {
     top.yukonga.miuix.kmp.basic.PullToRefresh(isRefreshing=refreshing,onRefresh=onRefresh,
@@ -957,8 +1032,8 @@ internal data class OverviewUiState(
     }
 }
 
-@Composable internal fun SystemDownloadedPackCard(name: String,version: String?,active: Boolean,busy: Boolean,enabled: Boolean,
-    progress: ApplyProgress?,onApply: ()->Unit,batchMode: Boolean=false) {
+@Composable internal fun SystemDownloadedPackCard(name: String, version: String?, applied: Boolean, checked: Boolean = false,
+    enabled: Boolean = true, batchMode: Boolean = false, onToggle: () -> Unit = {}) {
     val blue=MiuixTheme.colorScheme.primary
     val outline=MiuixTheme.colorScheme.onSurfaceVariantSummary
     SystemCard(insideMargin=PaddingValues(18.dp)) {
@@ -968,23 +1043,19 @@ internal data class OverviewUiState(
                 Text(packVersionLabel(version),Modifier.padding(top=5.dp),fontSize=13.sp,lineHeight=20.sp,
                     color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
-            Spacer(Modifier.width(12.dp))
-            val label=if(batchMode) "選取 $name" else if(active) "重新套用 $name" else "套用 $name"
-            if(!batchMode) SystemButton(onApply,enabled=enabled) {
-                Icon(if(active) Icons.Default.Refresh else Icons.Default.Check,null,Modifier.size(18.dp),tint=Color.White)
-                Spacer(Modifier.width(6.dp))
-                Text(if(busy) "套用中" else if(active) "重新套用" else "套用",fontSize=14.sp,color=Color.White)
-            } else Box(Modifier.size(48.dp).alpha(if(enabled) 1f else .38f).clip(CircleShape)
-                .semantics {contentDescription=label;stateDescription=if(busy) "套用中" else if(active) if(batchMode) "已選取" else "已套用" else if(batchMode) "未選取" else "未套用"}
-                .toggleable(active,enabled,role=Role.Checkbox,onValueChange={onApply()}),Alignment.Center) {
+            if (batchMode) Box(Modifier.size(48.dp).alpha(if(enabled) 1f else .38f).clip(CircleShape)
+                .semantics { contentDescription = "選取 $name" }
+                .toggleable(checked, enabled, role = Role.Checkbox, onValueChange = { onToggle() }), Alignment.Center) {
                 Canvas(Modifier.size(28.dp)) {
-                    if(active) drawCircle(blue)
+                    if(checked) drawCircle(blue)
                     else drawCircle(outline,style=androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
                 }
-                if(active) Icon(Icons.Default.Check,null,Modifier.size(18.dp),tint=Color.White)
+                if(checked) Icon(Icons.Default.Check,null,Modifier.size(18.dp),tint=Color.White)
+            } else if (applied) {
+                Spacer(Modifier.width(12.dp))
+                SystemStatusLabel("已套用", positive = true)
             }
         }
-        if(busy) SystemLanguageProgress(progress)
     }
 }
 
