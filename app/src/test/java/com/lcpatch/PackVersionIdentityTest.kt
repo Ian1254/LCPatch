@@ -9,6 +9,12 @@ import java.util.zip.ZipOutputStream
 import java.util.zip.ZipFile
 
 class PackVersionIdentityTest {
+    @Test fun appliedContentIdentityTakesPrecedenceOverTheReferenceRelease() {
+        val identity = "sha256:${"a".repeat(64)}"
+        val metadata = """{"schema":1,"content_id":"$identity"}"""
+        val coverage = "零協會完整資源\n來源：https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/2026111901/pack.zip"
+        assertEquals(identity, installedPackVersion(metadata, coverage))
+    }
     @Test fun androidReleaseUrlProvidesItsActualSourceVersion() {
         assertEquals("v1.119.0",installedPackVersion("""{"schema":1,"url":"https://github.com/pzwboy/LocalizeLimbusCompanyForAndroid/releases/download/v1.119.0/jp.zip"}""",null))
         assertNull(releaseAssetVersion("https://github.com.evil.invalid/a/b/releases/download/v1/a.zip"))

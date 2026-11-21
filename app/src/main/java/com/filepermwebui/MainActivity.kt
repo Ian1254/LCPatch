@@ -253,11 +253,15 @@ class MainActivity : ComponentActivity() {
         var stellarStatus by remember { mutableStateOf(NativeStorageClient.status(this@MainActivity)) }
         var activeName by remember { mutableStateOf(translations.activeName()) }
         var activeScript by remember { mutableStateOf(translations.activeScript()) }
+        var activeVersion by remember { mutableStateOf(translations.activeVersion()) }
+        var activePackPath by remember { mutableStateOf(translations.activePackPath()) }
         var translationEnabled by remember { mutableStateOf(translations.translationEnabled()) }
         var targetLanguage by remember { mutableStateOf(translations.targetLanguage()) }
         var fontName by remember { mutableStateOf(translations.fontName()) }
-        var runtimeInspection by remember { mutableStateOf(RuntimeInspection()) }
-        var scopeStatus by rememberSaveable { mutableStateOf("正在連接") }
+        var runtimeInspection by remember(rootMode, activeName, activeVersion, translationEnabled, targetLanguage.id) {
+            mutableStateOf(RuntimeInspection())
+        }
+        val scopeStatus by ModernApp.scopeStatus.collectAsState()
         var rootStatus by remember { mutableStateOf("未檢查") }
         var navigationStyle by remember { mutableStateOf(appPrefs.getString("navigation_style", "floating") ?: "floating") }
         var blurEnabled by remember { mutableStateOf(appPrefs.getBoolean("blur_enabled", true)) }
@@ -354,6 +358,18 @@ class MainActivity : ComponentActivity() {
         }
         val events = remember(revision) { logs.read() }
         val game = remember(resumeRevision) { gameInfo() }
+        DisposableEffect(translations) {
+            fun refreshActivePack() {
+                activeName = translations.activeName()
+                activeScript = translations.activeScript()
+                activeVersion = translations.activeVersion()
+                activePackPath = translations.activePackPath()
+                translationEnabled = translations.translationEnabled()
+            }
+            val stopObserving = translations.observeActivePack(::refreshActivePack)
+            refreshActivePack()
+            onDispose { stopObserving() }
+        }
         DisposableEffect(Unit) {
             val received = Shizuku.OnBinderReceivedListener { stellarStatus = NativeStorageClient.status(this@MainActivity) }
             val dead = Shizuku.OnBinderDeadListener { stellarStatus = NativeStorageClient.status(this@MainActivity) }
@@ -442,7 +458,6 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(page) {
             if (page == DOWNLOAD && catalog.isEmpty() && !catalogLoading) refreshCatalog()
-            if (page == DOWNLOADED || page == CONVERSION) downloadedPacks = translations.downloaded()
         }
         LaunchedEffect(notice,noticeDetailsOpen) {
             notice?.let { current ->
@@ -452,20 +467,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        suspend fun refreshScopeStatus() {
-            ModernApp.refreshScope()
-            delay(300)
-            scopeStatus = when {
-                ModernApp.scopeKnown && ModernApp.scopeGranted -> "已啟用"
-                ModernApp.scopeKnown -> "尚未授權遊戲"
-                else -> "尚未連接"
-            }
-        }
         fun checkScopeStatus() {
-            scope.launch {
-                refreshScopeStatus()
-                taskState.info("模組狀態已更新")
-            }
+            ModernApp.refreshScope()
         }
         fun refreshRootStatus(showNotice: Boolean) {
             if (!rootMode || rootStatus == "正在請求") return
@@ -487,9 +490,6 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(backgroundApply.revision) {
             if (backgroundApply.result != null && backgroundApply.revision > taskState.consumedBackgroundRevision) {
                 taskState.consumedBackgroundRevision = backgroundApply.revision
-                activeName = translations.activeName()
-                translationEnabled = translations.translationEnabled()
-                downloadedPacks = translations.downloaded()
                 if (backgroundApply.failed) taskState.error(backgroundApply.result ?: "套用失敗")
                 else taskState.success(backgroundApply.result ?: "漢化套用完成")
             }
@@ -499,7 +499,7 @@ class MainActivity : ComponentActivity() {
             if (rootMode && (page == OVERVIEW || page == ONBOARDING)) {
                 // Restore accurate state after launch/resume without spamming notices.
                 refreshRootStatus(showNotice = false)
-                refreshScopeStatus()
+                ModernApp.refreshScope()
             } else if (!rootMode) {
                 rootStatus = "未檢查"
                 stellarStatus = NativeStorageClient.status(this@MainActivity)
@@ -577,15 +577,21 @@ class MainActivity : ComponentActivity() {
             } else runCatching {TranslationApplyService.start(this@MainActivity,path)}
                 .onFailure {taskState.error(it.message ?: "無法啟動套用")}
         }
-        LaunchedEffect(page, activeName, applying, targetLanguage.id, rootMode) {
+        LaunchedEffect(page, resumeRevision, applying, installingEntryKey, rootMode) {
             if (!applying && installingEntryKey == null) {
-                activeName = translations.activeName()
-                activeScript = translations.activeScript()
-                translationEnabled = translations.translationEnabled()
-                downloadedPacks = translations.downloaded()
+                if (!rootMode || page == DOWNLOADED || page == CONVERSION) {
+                    downloadedPacks = translations.downloaded()
+                }
             }
-            if (page == OVERVIEW && !applying) {
-                runtimeInspection = withContext(Dispatchers.IO) { translations.inspectRuntime() }
+        }
+        val inspectionInProgress = rootMode && page == OVERVIEW && !applying
+        var checkingRuntime by remember { mutableStateOf(false) }
+        LaunchedEffect(inspectionInProgress, resumeRevision, rootStatus, activeName, activeVersion, translationEnabled, targetLanguage.id) {
+            if (!rootMode) runtimeInspection = RuntimeInspection()
+            if (inspectionInProgress) {
+                checkingRuntime = true
+                try { runtimeInspection = withContext(Dispatchers.IO) { translations.inspectRuntime() } }
+                finally { checkingRuntime = false }
             }
         }
         fun convertCurrent(conversion: TextConversion) {
@@ -712,7 +718,8 @@ class MainActivity : ComponentActivity() {
                                 withContext(Dispatchers.Main.immediate) { localApplyProgress = value }
                             }
                         )
-                        downloadedPacks = translations.downloaded()
+                        downloadedPacks = (downloadedPacks.filterNot { it.path == downloaded.path } + downloaded)
+                            .sortedBy { it.name }
                         if (!rootMode) {
                             transfer=null
                             localApplyProgress=null
@@ -725,7 +732,6 @@ class MainActivity : ComponentActivity() {
                             withContext(Dispatchers.Main.immediate) { localApplyProgress = value }
                         }
                         activeScript = translations.activeScript()
-                        downloadedPacks = translations.downloaded()
                         translationEnabled = translations.translationEnabled()
                         transfer = null
                         taskState.success("已套用，重啟遊戲後生效")
@@ -853,9 +859,9 @@ class MainActivity : ComponentActivity() {
                                 events = events,
                                 activeName = activeName,
                                 activeScript = activeScript,
-                                scopeStatus = scopeStatus,
+                                scopeStatus = scopeStatus.label,
                                 rootStatus = rootStatus,
-                                onCheckScope = { scopeStatus="正在檢查";scope.launch {refreshScopeStatus()} },
+                                onCheckScope = ::checkScopeStatus,
                                 onRequestRoot = { refreshRootStatus(showNotice=false) },
                                 translationEnabled = translationEnabled,
                                 onTranslationEnabled = { enabled ->
@@ -871,11 +877,13 @@ class MainActivity : ComponentActivity() {
                                 },
                                 targetLanguage = targetLanguage,
                                 runtimeInspection = runtimeInspection,
+                                activeVersion = activeVersion,
+                                checkingRuntime = checkingRuntime,
                                 onDownload = { navigateTo(DOWNLOAD) },
                                 onDownloaded = { navigateTo(DOWNLOADED) },
                                 onLaunch = launchSelectedGame,
                                 loadReady = stellarStatus == "已授權",
-                                workProgress = if(backgroundApply.busy) backgroundApply.progress else null,
+                                workProgress = applyProgress,
                                 waitingForGame = backgroundApply.waiting,
                                 selectedPack = if(!rootMode) downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null
                             )
@@ -934,7 +942,7 @@ class MainActivity : ComponentActivity() {
                             )
                             ONBOARDING -> onboardingPage(
                                 rootMode = rootMode,
-                                scopeStatus = scopeStatus,
+                                scopeStatus = scopeStatus.label,
                                 rootStatus = rootStatus,
                                 onCheckScope = ::checkScopeStatus,
                                 onRequestRoot = ::checkRootStatus,
@@ -965,8 +973,8 @@ class MainActivity : ComponentActivity() {
                                 applyingPackPath,
                                 rootMode = rootMode,
                                 stellarGuide = !rootMode,
-                                activePath = translations.activePackPath(),
-                                installedVersion = translations.activeVersion(),
+                                activePath = activePackPath,
+                                installedVersion = activeVersion ?: runtimeInspection.version,
                                 deleteMode = packDeleteMode,
                                 selectedForDeletion = packDeleteSelection.toSet(),
                                 onToggleDelete = {path ->
@@ -1150,12 +1158,13 @@ class MainActivity : ComponentActivity() {
         scopeStatus: String, rootStatus: String,
         onCheckScope: () -> Unit, onRequestRoot: () -> Unit,
         translationEnabled: Boolean, onTranslationEnabled: (Boolean) -> Unit,
-        targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection,
+        targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection, activeVersion: String?, checkingRuntime: Boolean,
         onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?, waitingForGame: Boolean, selectedPack: DownloadedTranslation?
     ) {
         val state = OverviewUiState(activeName, activeScript, targetLanguage.label, translationEnabled,
             rootMode, game.installed, game.version, busy, scopeStatus, rootStatus, loadStatus,
-            runtimeInspection.ready, runtimeInspection.fontReady, runtimeInspection.jsonFiles, translations.pcCoverageSummary(), translations.activeVersion() ?: runtimeInspection.version, loadReady)
+            runtimeInspection.ready, runtimeInspection.fontReady, runtimeInspection.jsonFiles, translations.pcCoverageSummary(),
+            if (rootMode) runtimeInspection.version ?: activeVersion else activeVersion, loadReady, checkingRuntime)
         item { SystemTranslationPanel(state, onTranslationEnabled, onLaunch, onDownload, workProgress, selectedPack, waitingForGame) }
         item { SystemQuickActions(onDownload, onDownloaded) }
         item { SystemSectionLabel("運作狀態") }

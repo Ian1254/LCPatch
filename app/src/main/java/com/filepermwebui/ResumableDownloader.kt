@@ -16,7 +16,8 @@ internal suspend fun downloadResumable(
     part: File,
     displayName: String,
     progress: suspend (TransferProgress) -> Unit,
-    accept: String? = null
+    accept: String? = null,
+    maxBytes: Long = Long.MAX_VALUE
 ): DownloadResult {
     var existing = part.takeIf { it.exists() }?.length() ?: 0L
     var connection = HttpClient.open(url, existing.takeIf { it > 0L }, accept = accept)
@@ -42,6 +43,7 @@ internal suspend fun downloadResumable(
                     coroutineContext.ensureActive()
                     val count = input.read(buffer)
                     if (count < 0) break
+                    require(count <= maxBytes - bytes) { "漢化包超過預期大小" }
                     target.write(buffer, 0, count)
                     bytes += count
                     val now = System.nanoTime()
