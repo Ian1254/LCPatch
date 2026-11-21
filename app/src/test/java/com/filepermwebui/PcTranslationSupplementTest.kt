@@ -615,7 +615,7 @@ class InstalledIdentityAndLogDateTest {
     }
 }
 
-@PreviewTest @Preview(name = "DownloadReview", widthDp = 393, heightDp = 852)
+@PreviewTest @Preview(name = "DownloadReview", widthDp = 393, heightDp = 960)
 @Composable fun DownloadReview() = SystemUiTheme(SystemUiStyle.HyperOS4, "dark") {
     Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SystemInnerTopBar("下載漢化", {})
@@ -631,6 +631,7 @@ class InstalledIdentityAndLogDateTest {
         SystemDownloadEntry(native) {
             SystemProgressActionButton(downloadPackAction(native, DownloadedTranslation(native.name, "native", version = native.version)), onClick = {})
         }
+        SystemProgressActionButton("正在下載…", busy = true, onClick = {})
         SystemProgressActionButton("正在準備漢化", busy = true, onClick = {})
         SystemProgressActionButton("正在寫入語言資源 · 64/100", progress = .64f, busy = true, onClick = {})
     }
@@ -647,7 +648,7 @@ class InstalledIdentityAndLogDateTest {
     }
 }
 
-@PreviewTest @Preview(name = "UpdateSettingReview", widthDp = 393, heightDp = 375)
+@PreviewTest @Preview(name = "UpdateSettingReview", widthDp = 393, heightDp = 430)
 @Composable fun UpdateSettingReview() = SystemUiTheme(SystemUiStyle.HyperOS4, "dark") {
     Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("設定", Modifier.padding(start = 14.dp, top = 20.dp), fontSize = 26.sp)
