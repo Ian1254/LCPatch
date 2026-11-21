@@ -747,36 +747,36 @@ internal data class OverviewUiState(
         if(state.rootMode) SystemSwitchPreference("啟用漢化", checked = state.enabled,
             enabled = !state.busy, onCheckedChange = onEnabled)
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                val name = if (selected) state.name else selectedPack?.name ?: "選擇漢化包"
-                Box(Modifier.weight(1f)) {
-                Row(
-                    Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
-                        .then(if (onChoosePack != null) Modifier.clickable(enabled = !state.busy, role = Role.Button, onClick = onChoosePack) else Modifier),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(name, Modifier.weight(1f, fill = false), fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium)
-                    if (onChoosePack != null) Icon(SystemGlyph.Chevron.vector(), null, Modifier.size(18.dp),
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Box(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                    val name = if (selected) state.name else selectedPack?.name ?: "選擇漢化包"
+                    Row(
+                        Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
+                            .then(if (onChoosePack != null) Modifier.clickable(enabled = !state.busy, role = Role.DropdownList, onClick = onChoosePack) else Modifier),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(name, Modifier.weight(1f, fill = false), fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium)
+                        if (onChoosePack != null) Icon(SystemGlyph.Chevron.vector(), null, Modifier.size(18.dp).rotate(90f),
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
+                    if (selected || workProgress != null || waitingForGame) {
+                        Spacer(Modifier.width(12.dp))
+                        val healthy=state.enabled && (!state.rootMode || state.ready && state.fontReady)
+                        val loading = workProgress != null || waitingForGame || (state.enabled && state.checkingRuntime)
+                        SystemStatusLabel(
+                            text = when {
+                                workProgress != null -> "正在套用"
+                                waitingForGame -> "等待套用"
+                                !state.enabled -> "已停用"
+                                state.checkingRuntime -> "正在檢查"
+                                healthy -> "已啟用"
+                                else -> "需要重新套用"
+                            },
+                            positive=if(loading) null else healthy,
+                            loading=loading)
+                    }
                 }
-                    packMenu()
-                }
-                if (selected || workProgress != null || waitingForGame) {
-                    Spacer(Modifier.width(12.dp))
-                    val healthy=state.enabled && (!state.rootMode || state.ready && state.fontReady)
-                    val loading = workProgress != null || waitingForGame || (state.enabled && state.checkingRuntime)
-                    SystemStatusLabel(
-                        text = when {
-                            workProgress != null -> "正在套用"
-                            waitingForGame -> "等待套用"
-                            !state.enabled -> "已停用"
-                            state.checkingRuntime -> "正在檢查"
-                            healthy -> "已啟用"
-                            else -> "需要重新套用"
-                        },
-                        positive=if(loading) null else healthy,
-                        loading=loading)
-                }
+                packMenu()
             }
             FlowRow(Modifier.padding(top = 5.dp, bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(if(selectedPack != null && !selected) packVersionLabel(selectedPack.version) else if(selectedPack != null && selectedPack.name != state.name) "${selectedPack.name} · ${packVersionLabel(selectedPack.version)}" else if(selected) packVersionLabel(state.packVersion) else "下載漢化包後即可直接套用。",
@@ -796,7 +796,9 @@ internal data class OverviewUiState(
 @Composable internal fun SystemPackMenu(open: Boolean, packs: List<DownloadedTranslation>, loading: Boolean,
     activePath: String?, activeName: String, activeVersion: String?,
     onDismiss: () -> Unit, onDownload: () -> Unit, onApply: (DownloadedTranslation) -> Unit) {
-    top.yukonga.miuix.kmp.overlay.OverlayListPopup(show = open, onDismissRequest = onDismiss, renderInRootScaffold = true) {
+    top.yukonga.miuix.kmp.overlay.OverlayListPopup(show = open,
+        alignment = top.yukonga.miuix.kmp.basic.PopupPositionProvider.Align.End,
+        onDismissRequest = onDismiss, renderInRootScaffold = true) {
         SystemPackMenuItems(packs, loading, activePath, activeName, activeVersion,
             onDownload = { onDismiss(); onDownload() }, onApply = { onDismiss(); onApply(it) })
     }
