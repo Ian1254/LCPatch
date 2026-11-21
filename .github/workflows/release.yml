@@ -41,7 +41,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == "push" && "$VERSION" == "1.2.5-beta.2" && "$VERSION_CODE" == "86" ]]; then
+              echo "Reissuing existing beta.2 release with updated APK."
+              echo "REPLACE_RELEASE=true" >> "$GITHUB_ENV"
+              echo "SKIP_RELEASE=false" >> "$GITHUB_ENV"
+            elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
               echo "Release $RELEASE_TAG already exists; skipping duplicate release."
               echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
             else
@@ -92,13 +96,28 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then
             PRERELEASE_ARGS+=(--prerelease)
           fi
-          gh release create "$RELEASE_TAG" \
-            "dist/LCPatch-$VERSION.apk" \
-            "dist/LCPatch-$VERSION.apk.sha256" \
-            --title "LCPatch $VERSION" \
-            --notes-file RELEASE_NOTES.md \
-            --target "$GITHUB_SHA" \
-            "${PRERELEASE_ARGS[@]}"
+          if [[ "${REPLACE_RELEASE:-false}" == "true" ]]; then
+            # Keep the existing release URL; move its tag and replace both signed assets.
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            RESOLVED_TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
+            test "$RESOLVED_TAG_SHA" = "$GITHUB_SHA" || {
+              echo "Release tag does not point to the new commit"; exit 1;
+            }
+            gh release upload "$RELEASE_TAG" \
+              "dist/LCPatch-$VERSION.apk" \
+              "dist/LCPatch-$VERSION.apk.sha256" --clobber
+            gh release edit "$RELEASE_TAG" --title "LCPatch $VERSION" \
+              --notes-file RELEASE_NOTES.md --prerelease
+          else
+            gh release create "$RELEASE_TAG" \
+              "dist/LCPatch-$VERSION.apk" \
+              "dist/LCPatch-$VERSION.apk.sha256" \
+              --title "LCPatch $VERSION" \
+              --notes-file RELEASE_NOTES.md \
+              --target "$GITHUB_SHA" \
+              "${PRERELEASE_ARGS[@]}"
+          fi
 
       - name: Keep latest prerelease and preserved fallback releases
         if: env.SKIP_RELEASE != 'true' && contains(env.VERSION, '-')
