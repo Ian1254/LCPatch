@@ -1202,7 +1202,7 @@ class MainActivity : ComponentActivity() {
                     dismissedUpdateVersion = promptedRelease.version
                     if (suppress) setUpdatePrompts(false)
                 }
-                SystemAppUpdatePrompt(promptedRelease.version, onDismiss = ::dismissUpdatePrompt, onUpdate = { suppress ->
+                SystemAppUpdatePrompt(promptedRelease, BuildConfig.VERSION_NAME, updateChannel, onDismiss = ::dismissUpdatePrompt, onUpdate = { suppress ->
                     dismissUpdatePrompt(suppress)
                     navigateTo(UPDATE)
                     downloadAppUpdate(promptedRelease)

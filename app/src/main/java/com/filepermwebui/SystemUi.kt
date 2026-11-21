@@ -382,29 +382,66 @@ private val LocalSystemModalClose = staticCompositionLocalOf<(() -> Unit)?> { nu
     }
 }
 
-@Composable internal fun SystemAppUpdatePrompt(version: String, onDismiss: (Boolean) -> Unit, onUpdate: (Boolean) -> Unit) {
-    var suppress by remember(version) { mutableStateOf(false) }
-    SystemModal("應用程式更新", onDismiss = { onDismiss(suppress) }) {
-        val close = LocalSystemModalClose.current ?: { onDismiss(suppress) }
-        SystemAppUpdatePromptContent(version, suppress, { suppress = it }, close, { onUpdate(suppress) })
+@Composable internal fun SystemAppUpdatePrompt(
+    release: AppRelease, currentVersion: String, channel: String,
+    onDismiss: (Boolean) -> Unit, onUpdate: (Boolean) -> Unit
+) {
+    var suppress by remember(release.version) { mutableStateOf(false) }
+    var updateSelected by remember(release.version) { mutableStateOf(false) }
+    val finish = { if (updateSelected) onUpdate(suppress) else onDismiss(suppress) }
+    SystemModal("應用程式更新", onDismiss = finish) {
+        val close = LocalSystemModalClose.current ?: finish
+        SystemAppUpdatePromptContent(currentVersion, release.version, channel, release.notes,
+            suppress, { suppress = it }, close, { updateSelected = true; close() })
     }
 }
 
-@Composable internal fun SystemAppUpdatePromptContent(version: String, suppress: Boolean,
-    onSuppress: (Boolean) -> Unit, onClose: () -> Unit, onUpdate: () -> Unit) {
+@Composable internal fun SystemAppUpdatePromptContent(
+    currentVersion: String, availableVersion: String, channel: String, releaseNotes: String,
+    suppress: Boolean, onSuppress: (Boolean) -> Unit, onClose: () -> Unit, onUpdate: () -> Unit
+) {
     val primary = MiuixTheme.colorScheme.primary
     val outline = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val highlights = remember(releaseNotes) {
+        releaseNotes.lineSequence().map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith("#") && it != "---" }
+            .map { it.removePrefix("- ").removePrefix("* ").replace("**", "").replace("`", "") }
+            .take(3).toList()
+    }
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-        Text("可更新至 LCPatch $version", fontSize = 15.sp, lineHeight = 23.sp)
+        val versions = listOf(
+            "目前版本" to currentVersion,
+            "可用版本" to availableVersion,
+            "更新渠道" to if (channel == "beta") "測試版" else "正式版"
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            versions.forEachIndexed { index, (label, value) ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(label, Modifier.weight(1f), fontSize = 14.sp, lineHeight = 20.sp, color = outline)
+                    Text(value, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium,
+                        color = if (index == 1) primary else MiuixTheme.colorScheme.onSurface)
+                }
+            }
+        }
+        if (highlights.isNotEmpty()) {
+            Text("更新內容", Modifier.padding(top = 16.dp, bottom = 6.dp),
+                fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                highlights.forEach { change ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("•", color = outline, fontSize = 13.sp, lineHeight = 20.sp)
+                        Text(change, fontSize = 13.sp, lineHeight = 20.sp, color = outline)
+                    }
+                }
+            }
+        }
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
+            Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
                 .toggleable(suppress, role = Role.Checkbox, onValueChange = onSuppress),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(Modifier.size(20.dp).clip(RoundedCornerShape(5.dp))
-                .background(if (suppress) primary else Color.Transparent)
-                .border(1.5.dp, if (suppress) primary else outline, RoundedCornerShape(5.dp)), Alignment.Center) {
-                if (suppress) Icon(Icons.Default.Check, null, Modifier.size(16.dp), tint = Color.White)
+            Box(Modifier.size(20.dp).border(1.5.dp, if (suppress) primary else outline, CircleShape), Alignment.Center) {
+                if (suppress) Box(Modifier.size(10.dp).background(primary, CircleShape))
             }
             Text("不再顯示", fontSize = 14.sp, lineHeight = 20.sp)
         }
@@ -797,7 +834,7 @@ internal data class OverviewUiState(
     activePath: String?, activeName: String, activeVersion: String?,
     onDismiss: () -> Unit, onDownload: () -> Unit, onApply: (DownloadedTranslation) -> Unit) {
     top.yukonga.miuix.kmp.overlay.OverlayListPopup(show = open,
-        alignment = top.yukonga.miuix.kmp.basic.PopupPositionProvider.Align.End,
+        alignment = top.yukonga.miuix.kmp.basic.PopupPositionProvider.Align.Start,
         onDismissRequest = onDismiss, renderInRootScaffold = true) {
         SystemPackMenuItems(packs, loading, activePath, activeName, activeVersion,
             onDownload = { onDismiss(); onDownload() }, onApply = { onDismiss(); onApply(it) })

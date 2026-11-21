@@ -605,7 +605,7 @@ class InstalledIdentityAndLogDateTest {
                 SystemEnvironmentPanel(state, {}, {}, {}, "授權／檢查 Stellar")
             }
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .5f)))
-            Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 212.dp, end = 18.dp)
+            Box(Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(top = 212.dp, start = 28.dp)
                 .widthIn(min = 208.dp, max = 260.dp)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
                 .background(MiuixTheme.colorScheme.surfaceContainer)) {
@@ -643,7 +643,9 @@ class InstalledIdentityAndLogDateTest {
         ProposalOverviewContent()
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .5f)))
         SystemSheetSurface("應用程式更新", Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 24.dp)) {
-            SystemAppUpdatePromptContent("1.2.5", suppress = true, {}, {}, {})
+            SystemAppUpdatePromptContent("1.2.5-beta.2", "1.2.5", "beta",
+                "- 可在概觀切換或重新套用已下載的漢化。\n- 下載列表顯示版本與套用進度。\n- 新增可在設定關閉的更新提示。",
+                suppress = true, {}, {}, {})
         }
     }
 }
