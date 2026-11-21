@@ -576,7 +576,7 @@ class InstalledIdentityAndLogDateTest {
     SystemCanvas {
         Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
             Text("下載漢化",Modifier.padding(start=24.dp,top=24.dp,bottom=20.dp),fontSize=20.sp)
-            SystemDownloadRefresh(false,{},0.dp) {
+            SystemListRefresh(false, {}, 0.dp, "重新整理漢化資源") {
                 LazyColumn(contentPadding=PaddingValues(14.dp)) {
                     item { SystemDownloadEntry(TranslationEntry("官方","零協會漢化","都市零協會",
                         "官方版本 2026111401；自動補齊 PC 資源及劇情角色名稱，無須另選整理版","fixture")) {
