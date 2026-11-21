@@ -1096,7 +1096,6 @@ internal fun formatApplyProgress(progress: ApplyProgress): String =
         Spacer(Modifier.height(4.dp))
         Text(validPackVersion(entry.version)?.let(::packVersionLabel) ?: "版本暫無資料",
             fontSize = 13.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        Text(entry.author,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
         Spacer(Modifier.height(6.dp))
         Text(entry.description,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
         Spacer(Modifier.height(12.dp))
