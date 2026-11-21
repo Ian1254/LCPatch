@@ -265,7 +265,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
     val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="Stellar · 已授權",loadReady=true)
     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         SystemTranslationPanel(state, {}, {}, {}, progress, waitingForGame=!writing)
-        SystemDownloadedPackCard("零協會漢化","2026111401",writing,writing,!writing,progress,{})
+        SystemDownloadedPackCard("零協會漢化", "2026111401", applied = writing)
         SystemEnvironmentPanel(state,{}, {}, {}, "授權／檢查 Stellar")
     }
 }
@@ -416,7 +416,7 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
         SystemProgressActionButton("正在下載 · 42%",.42f,true,onClick={})
         SystemProgressActionButton("正在整理完整翻譯…",busy=true,onClick={})
         SystemProgressActionButton("尚未選擇漢化包",enabled=false,onClick={})
-        SystemNotice("下載未完成，請稍後重試。",true,{}, {})
+        SystemNotice("下載未完成，請稍後重試。", true, {})
         SystemSheetSurface("清除日誌？",alert=true) {
             Text("這會清除已儲存的診斷記錄。",Modifier.padding(24.dp),fontSize=14.sp)
             Row(Modifier.padding(20.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -465,16 +465,16 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 @PreviewTest @Preview(name="CompactNotices",widthDp=393,heightDp=320)
 @Composable fun CompactNotices()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        SystemNotice("漢化已套用",false,null,{})
-        SystemNotice("下載未完成，請稍後重試。",true,{}, {})
-        SystemNotice("無法完成下載，點擊通知可查看完整原因。原先已套用的漢化仍會保留；可稍後重新下載或分享診斷文件。",true,{}, {})
+        SystemNotice("漢化已套用", false, null)
+        SystemNotice("下載未完成，請稍後重試。", true, {})
+        SystemNotice("無法完成下載，點擊通知可查看完整原因。原先已套用的漢化仍會保留；可稍後重新下載或分享診斷文件。", true, {})
     }
 }
 @PreviewTest @Preview(name="CompactNoticesLarge",widthDp=360,heightDp=480,fontScale=2f)
 @Composable fun CompactNoticesLarge()=SystemUiTheme(SystemUiStyle.HyperOS4,"light") {
     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        SystemNotice("漢化已套用",false,null,{})
-        SystemNotice("下載未完成，請稍後重試。",true,{}, {})
+        SystemNotice("漢化已套用", false, null)
+        SystemNotice("下載未完成，請稍後重試。", true, {})
     }
 }
 @PreviewTest @Preview(name="StandardNeutral",widthDp=393,heightDp=200)
@@ -594,7 +594,7 @@ class InstalledIdentityAndLogDateTest {
 }
 
 @Composable private fun ProposalPack(name: String,active: Boolean=false,version: String?="2026111401") {
-    SystemDownloadedPackCard(name,version,active,false,true,null,{})
+    SystemDownloadedPackCard(name, version, applied = active)
 }
 
 @Composable private fun ProposalDownloadedContent() {
@@ -649,7 +649,7 @@ class InstalledIdentityAndLogDateTest {
 @Composable fun DeleteProposal()=SystemUiTheme(SystemUiStyle.HyperOS4,"dark") {
     Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
         Column {
-            Spacer(Modifier.height(26.dp));ProposalHeader("選擇套用");ProposalDownloadedContent()
+            Spacer(Modifier.height(26.dp));ProposalHeader("已下載漢化");ProposalDownloadedContent()
         }
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.50f)))
         SystemSheetSurface("刪除漢化包",Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(12.dp),true) {
@@ -740,14 +740,14 @@ class ReleaseDataRegressionTest {
 
 @Composable private fun PackManagementFixture(dark: Boolean, selecting: Boolean) = SystemUiTheme(SystemUiStyle.HyperOS4,if(dark) "dark" else "light") {
     Scaffold(containerColor=MiuixTheme.colorScheme.surface,contentWindowInsets=WindowInsets(0,0,0,0),topBar={
-        SystemInnerTopBar(if(selecting) "2 項" else "選擇套用",{}) {
+        SystemInnerTopBar(if(selecting) "2 項" else "已下載漢化",{}) {
             SystemPackDeleteActions(selecting,false,true,selecting,false,{},{},{})
         }
     }) {padding ->
         LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=14.dp,end=14.dp,top=padding.calculateTopPadding()+12.dp,bottom=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            item {SystemDownloadedPackCard("零協會漢化","2026111401",true,false,true,null,{},selecting)}
-            item {SystemDownloadedPackCard("日文字形漢化（日本語）","v1.119.0",selecting,false,true,null,{},selecting)}
-            item {SystemDownloadedPackCard("匯入漢化包","sha256:"+"a".repeat(64),false,false,true,null,{},selecting)}
+            item { SystemDownloadedPackCard("零協會漢化", "2026111401", applied = true, checked = selecting, batchMode = selecting) }
+            item { SystemDownloadedPackCard("日文字形漢化（日本語）", "v1.119.0", applied = false, checked = selecting, batchMode = selecting) }
+            item { SystemDownloadedPackCard("匯入漢化包", "sha256:" + "a".repeat(64), applied = false, batchMode = selecting) }
         }
     }
 }

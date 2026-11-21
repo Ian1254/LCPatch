@@ -26,7 +26,7 @@ Stellar 使用方式與相容層開關見 [官方說明](https://github.com/roro
 2. 在遊戲內切換至日本語或 한국어，完成對應語言資源下載。
 3. 在 LCPatch 選擇「無 Root」，由概觀的「Stellar 與權限」確認 Stellar 已連線並授予 LCPatch 權限。
 4. 在「設定 → 漢化」選擇對應的覆蓋語言；下載無 Root 專用漢化，或匯入包含 `Localize/jp`／`Localize/kr` 的 ZIP。
-5. 下載完成直接開始套用；已有漢化包可從「已下載漢化」按「套用／重新套用」。通知與畫面顯示實際處理進度及結果。
+5. 下載完成直接開始套用。要切換或重新套用已下載的漢化，點選概觀上的漢化包名稱。下載頁顯示各處理階段的進度。
 6. 從概觀啟動遊戲時，可建立待套用通知；遊戲顯示標題畫面後，點擊整張通知再次套用。
 
 無 Root 來源為 [pzwboy/LocalizeLimbusCompanyForAndroid](https://github.com/pzwboy/LocalizeLimbusCompanyForAndroid)，使用來源提供的相近漢字替換，支援日語與韓語語言文件。
@@ -50,7 +50,7 @@ PUA 編碼、繁簡轉換、自訂 TTF／OTF 字型與 English 覆蓋僅提供�
 
 ## 漢化包管理與版本
 
-- 卡片左側顯示名稱與版本，右側提供帶圖示的「套用／重新套用」文字按鈕。
+- 已下載漢化清單顯示名稱、版本及已套用標示。從概觀的漢化包名稱開啟選單即可套用或切換。
 - 右上角垃圾桶進入批量刪除，可全選／取消全選、返回取消，執行前再次確認。Root 與無 Root 使用相同操作。
 - 刪除只移除下載的漢化包，不影響遊戲內已套用的內容；部分刪除失敗會保留失敗項目供重試。
 - 版本優先依下載來源的 Release 標籤、包內版本資訊與保存的來源網址辨識。
@@ -92,6 +92,8 @@ Root 模式可補充原生事件與遊戲相關系統記錄。可在設定選擇
 CI 從原始碼建立 native 核心，執行測試、Release lint 與介面預覽。一般 CI 提供未簽章 APK；指定的同儲存庫測試分支另提供已簽章測試 artifact。發布流程以 Actions Secrets 完成 APK v3 簽章、16 KB 對齊與 SHA-256 校驗；版本名稱含預發布標記時建立 GitHub Prerelease。
 
 簽章使用 `LCPATCH_KEYSTORE_BASE64`、`LCPATCH_STORE_PASSWORD`、`LCPATCH_KEY_ALIAS`、`LCPATCH_KEY_PASSWORD` 四個 Secrets。各版本的建構結果見 Actions，驗證範圍見 Release 說明。
+
+撰寫發布正文時請參考 [更新說明規範](docs/release-notes.md)。
 
 ## 授權與第三方元件
 

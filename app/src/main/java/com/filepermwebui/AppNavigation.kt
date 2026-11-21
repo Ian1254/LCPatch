@@ -63,7 +63,7 @@ internal fun pageTitle(page: Int): String = when (page) {
     ABOUT -> "關於"
     UPDATE -> "應用程式更新"
     DOWNLOAD -> "下載漢化"
-    DOWNLOADED -> "選擇套用"
+    DOWNLOADED -> "已下載漢化"
     DISPLAY -> "介面與顯示"
     CONVERSION -> "繁簡轉換"
     ONBOARDING -> "環境與權限"

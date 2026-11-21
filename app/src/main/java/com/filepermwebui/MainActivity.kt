@@ -234,15 +234,17 @@ class MainActivity : ComponentActivity() {
         var localApplyProgress by taskState.applyProgress
         var localApplying by taskState.applying
         var processingPackPath by taskState.processingPackPath
-        var localApplyingPackPath by taskState.applyingPackPath
         val backgroundApply by BackgroundApplyState.state.collectAsState()
         val applying = localApplying || backgroundApply.busy
         val applyProgress = if (backgroundApply.busy) backgroundApply.progress else localApplyProgress
-        val applyingPackPath = if (backgroundApply.busy) backgroundApply.packPath else localApplyingPackPath
         var selectedStellarPath by rememberSaveable { mutableStateOf(appPrefs.getString("stellar_selected_pack", appPrefs.getString("shizuku_selected_pack", null))) }
         var installingEntryKey by taskState.installingEntryKey
+        var nativeDownloadEntryKey by taskState.nativeDownloadEntryKey
+        val downloadEntryKey = installingEntryKey ?: nativeDownloadEntryKey
         var changingTargetLanguage by taskState.changingTargetLanguage
         var downloadedPacks by remember { mutableStateOf<List<DownloadedTranslation>>(emptyList()) }
+        var packMenuOpen by rememberSaveable { mutableStateOf(false) }
+        var packMenuLoading by remember { mutableStateOf(true) }
         var packDeleteMode by rememberSaveable { mutableStateOf(false) }
         var packDeleteSelection by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
         var confirmPackDelete by rememberSaveable { mutableStateOf(false) }
@@ -461,8 +463,8 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(notice,noticeDetailsOpen) {
             notice?.let { current ->
-                if (current.kind != UiNoticeKind.Error && !noticeDetailsOpen) {
-                    delay(2800)
+                if (!noticeDetailsOpen) {
+                    delay(if (current.kind == UiNoticeKind.Error) 6500 else 3200)
                     taskState.dismissNotice()
                 }
             }
@@ -490,6 +492,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(backgroundApply.revision) {
             if (backgroundApply.result != null && backgroundApply.revision > taskState.consumedBackgroundRevision) {
                 taskState.consumedBackgroundRevision = backgroundApply.revision
+                nativeDownloadEntryKey = null
                 if (backgroundApply.failed) taskState.error(backgroundApply.result ?: "套用失敗")
                 else taskState.success(backgroundApply.result ?: "漢化套用完成")
             }
@@ -535,16 +538,26 @@ class MainActivity : ComponentActivity() {
         var permissionReapplyPath by rememberSaveable { mutableStateOf<String?>(null) }
         var resumeLaunchAfterPermission by rememberSaveable { mutableStateOf(false) }
         var launchSelectedGame: () -> Unit = {}
+        fun startNativeApply(path: String) {
+            runCatching { TranslationApplyService.start(this@MainActivity, path) }
+                .onFailure {
+                    nativeDownloadEntryKey = null
+                    taskState.error(it.message ?: "無法啟動套用")
+                }
+        }
         val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             val resume = resumeLaunchAfterPermission
             resumeLaunchAfterPermission = false
             val reapplyPath = permissionReapplyPath
             permissionReapplyPath = null
             if (granted && reapplyPath != null) {
-                if (!applying && installingEntryKey == null) runCatching { TranslationApplyService.start(this@MainActivity, reapplyPath) }
-                    .onFailure { taskState.error(it.message ?: "無法啟動套用") }
+                if (!applying && installingEntryKey == null) startNativeApply(reapplyPath)
+                else nativeDownloadEntryKey = null
             } else if (granted && resume) launchSelectedGame()
-            else if (resume || reapplyPath != null) taskState.error("需要通知權限，才能在遊戲標題畫面套用漢化")
+            else if (resume || reapplyPath != null) {
+                nativeDownloadEntryKey = null
+                taskState.error("需要通知權限才能套用")
+            }
         }
         launchSelectedGame = launch@{
             if (applying || installingEntryKey != null) return@launch
@@ -568,14 +581,53 @@ class MainActivity : ComponentActivity() {
         }
         fun applyNativePack(path: String) {
             if(applying || installingEntryKey != null) return
-            if(NativeStorageClient.status(this@MainActivity) != "已授權") {taskState.error("請先授權 Stellar");return}
+            if (NativeStorageClient.status(this@MainActivity) != "已授權") {
+                nativeDownloadEntryKey = null
+                taskState.error("請先授權 Stellar")
+                return
+            }
             selectedStellarPath=path
             appPrefs.edit().putString("stellar_selected_pack",path).apply()
             if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) {
                 permissionReapplyPath=path
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else runCatching {TranslationApplyService.start(this@MainActivity,path)}
-                .onFailure {taskState.error(it.message ?: "無法啟動套用")}
+            } else startNativeApply(path)
+        }
+        fun applySavedPack(pack: DownloadedTranslation) {
+            if (applying || downloadEntryKey != null) return
+            if (!rootMode) {
+                applyNativePack(pack.path)
+                return
+            }
+            localApplying = true
+            localApplyProgress = ApplyProgress("正在準備漢化", 0, 0)
+            taskState.launchTask {
+                try {
+                    translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { localApplyProgress = value } }
+                    taskState.success("已套用，重啟遊戲後生效")
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    taskState.error("套用失敗：${error.message}")
+                } finally {
+                    localApplying = false
+                    localApplyProgress = null
+                }
+            }
+        }
+        LaunchedEffect(packMenuOpen, rootMode) {
+            if (packMenuOpen) {
+                packMenuLoading = true
+                try {
+                    downloadedPacks = translations.downloaded()
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    packMenuOpen = false
+                    taskState.error("無法讀取已下載漢化：${error.message}")
+                }
+                finally { packMenuLoading = false }
+            }
         }
         LaunchedEffect(page, resumeRevision, applying, installingEntryKey, rootMode) {
             if (!applying && installingEntryKey == null) {
@@ -703,7 +755,7 @@ class MainActivity : ComponentActivity() {
 
         lateinit var installTranslation: (TranslationEntry) -> Unit
         installTranslation = { entry ->
-            if (transfer?.finished != false && !applying) {
+            if (downloadEntryKey == null && transfer?.finished != false && !applying) {
                 taskState.clearError()
                 installingEntryKey = entry.url
                 transfer = TransferProgress(entry.name, 0, -1, 0)
@@ -721,6 +773,7 @@ class MainActivity : ComponentActivity() {
                         downloadedPacks = (downloadedPacks.filterNot { it.path == downloaded.path } + downloaded)
                             .sortedBy { it.name }
                         if (!rootMode) {
+                            nativeDownloadEntryKey = entry.url
                             transfer=null
                             localApplyProgress=null
                             installingEntryKey=null
@@ -850,7 +903,7 @@ class MainActivity : ComponentActivity() {
                         when (visiblePage) {
                             OVERVIEW -> overview(
                                 rootMode = rootMode,
-                                busy = applying || installingEntryKey != null,
+                                busy = applying || downloadEntryKey != null,
                                 loadStatus = "服務狀態：$stellarStatus",
                                 loadAction = "授權／檢查 Stellar",
                                 onAuthorize = ::requestStellar,
@@ -885,6 +938,7 @@ class MainActivity : ComponentActivity() {
                                 loadReady = stellarStatus == "已授權",
                                 workProgress = applyProgress,
                                 waitingForGame = backgroundApply.waiting,
+                                onChoosePack = { packMenuLoading = true; packMenuOpen = true },
                                 selectedPack = if(!rootMode) downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null
                             )
                             SETTINGS -> settings(
@@ -958,46 +1012,26 @@ class MainActivity : ComponentActivity() {
                                 transfer,
                                 applyProgress,
                                 applying,
-                                installingEntryKey,
-                                autoApply = true,
-                                stellarGuide = !rootMode,
+                                downloadEntryKey,
                                 refresh = ::refreshCatalog,
                                 install = installTranslation
                             )
                             DOWNLOADED -> downloadedPage(
-                                downloadedPacks,
-                                activeName,
-                                applyProgress,
-                                applying || installingEntryKey != null,
-                                processingPackPath,
-                                applyingPackPath,
-                                rootMode = rootMode,
-                                stellarGuide = !rootMode,
+                                entries = downloadedPacks,
+                                applying = applying || downloadEntryKey != null,
+                                activeName = activeName,
                                 activePath = activePackPath,
-                                installedVersion = activeVersion ?: runtimeInspection.version,
+                                installedVersion = runtimeInspection.version ?: activeVersion,
                                 deleteMode = packDeleteMode,
                                 selectedForDeletion = packDeleteSelection.toSet(),
-                                onToggleDelete = {path ->
-                                    if(!applying) packDeleteSelection=ArrayList(if(path in packDeleteSelection) packDeleteSelection-path else packDeleteSelection+path)
-                                }
-                            ) { pack ->
-                                if (!applying && installingEntryKey == null) {
-                                    if (!rootMode) {
-                                        applyNativePack(pack.path)
-                                    } else {
-                                        localApplying = true
-                                        localApplyingPackPath = pack.path
-                                        taskState.launchTask {
-                                            runCatching { translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { localApplyProgress = value } } }
-                                                .onSuccess { activeName = it; activeScript = translations.activeScript(); taskState.success("已套用，重啟遊戲後生效") }
-                                                .onFailure { taskState.error("套用失敗：${it.message}") }
-                                            localApplying = false
-                                            localApplyingPackPath = null
-                                            localApplyProgress = null
-                                        }
+                                onToggleDelete = { path ->
+                                    if (!applying && downloadEntryKey == null) {
+                                        packDeleteSelection = ArrayList(
+                                            if (path in packDeleteSelection) packDeleteSelection - path else packDeleteSelection + path
+                                        )
                                     }
                                 }
-                            }
+                            )
 
                         }
                     } }
@@ -1008,7 +1042,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val renderNotice: @Composable (PaddingValues) -> Unit = { padding ->
+        val renderNotice: @Composable () -> Unit = {
             Box(Modifier.fillMaxSize()) {
                 notice?.let { currentNotice ->
                     val noticeModifier = Modifier
@@ -1016,10 +1050,10 @@ class MainActivity : ComponentActivity() {
                         .padding(
                             start = 18.dp,
                             end = 18.dp,
-                            bottom = padding.calculateBottomPadding() + 12.dp
+                            bottom = systemNoticeBottomOffset()
                         )
                     SystemNotice(currentNotice.message, currentNotice.kind == UiNoticeKind.Error,
-                        if (taskState.retryAction != null) taskState::retry else null, taskState::dismissNotice, noticeModifier,
+                        if (taskState.retryAction != null) taskState::retry else null, noticeModifier,
                         onDetailsVisibleChange={noticeDetailsOpen=it})
                 }
             }
@@ -1132,13 +1166,18 @@ class MainActivity : ComponentActivity() {
                         } else {
                             renderPage(animatedShell, padding)
                         }
-                        if (animatedShell == shellTarget) renderNotice(padding)
                     }
                 }
+                if (animatedShell == shellTarget && packMenuOpen) SystemPackMenu(
+                    downloadedPacks, packMenuLoading, activePackPath, activeName, runtimeInspection.version ?: activeVersion,
+                    onDismiss = { packMenuOpen = false },
+                    onDownload = { packMenuOpen = false; navigateTo(DOWNLOAD) }, onApply = ::applySavedPack
+                )
             }
             }
             }
 
+            renderNotice()
             EnvironmentStatusOverlayHost(
                 state = environmentOverlayState,
                 modifier = Modifier.fillMaxSize()
@@ -1159,13 +1198,14 @@ class MainActivity : ComponentActivity() {
         onCheckScope: () -> Unit, onRequestRoot: () -> Unit,
         translationEnabled: Boolean, onTranslationEnabled: (Boolean) -> Unit,
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection, activeVersion: String?, checkingRuntime: Boolean,
-        onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?, waitingForGame: Boolean, selectedPack: DownloadedTranslation?
+        onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?,
+        waitingForGame: Boolean, onChoosePack: () -> Unit, selectedPack: DownloadedTranslation?
     ) {
         val state = OverviewUiState(activeName, activeScript, targetLanguage.label, translationEnabled,
             rootMode, game.installed, game.version, busy, scopeStatus, rootStatus, loadStatus,
             runtimeInspection.ready, runtimeInspection.fontReady, runtimeInspection.jsonFiles, translations.pcCoverageSummary(),
             if (rootMode) runtimeInspection.version ?: activeVersion else activeVersion, loadReady, checkingRuntime)
-        item { SystemTranslationPanel(state, onTranslationEnabled, onLaunch, onDownload, workProgress, selectedPack, waitingForGame) }
+        item { SystemTranslationPanel(state, onTranslationEnabled, onLaunch, onDownload, workProgress, selectedPack, waitingForGame, onChoosePack) }
         item { SystemQuickActions(onDownload, onDownloaded) }
         item { SystemSectionLabel("運作狀態") }
         item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onAuthorize, loadAction) }
@@ -1200,7 +1240,8 @@ class MainActivity : ComponentActivity() {
                 }
                 ArrowPreference(modifier = PreferenceItemModifier, enabled = !applying, title = "匯入漢化包", last=!rootMode, value = "ZIP 檔案", onClick = onImport)
                 if (rootMode) {
-                    SystemSecondaryEntry("更換字型", value=fontName) {
+                    SystemSecondaryEntry("字型", value = if (hasCustomFont) "自訂" else "預設") {
+                        if (hasCustomFont) Text(fontName, fontSize = 14.sp)
                         SystemSecondaryButton("選擇字型", onFont, Modifier.fillMaxWidth(), enabled=!applying)
                         if(hasCustomFont) com.lcpatch.SystemTextButton("移除自訂字型", onClearFont, enabled=!applying)
                     }
@@ -1421,59 +1462,51 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.downloadPage(
         entries: List<TranslationEntry>, loading: Boolean, error: String?, transfer: TransferProgress?,
-        applyProgress: ApplyProgress?, applying: Boolean, installingEntryKey: String?,
-        autoApply: Boolean,
-        stellarGuide: Boolean,
+        applyProgress: ApplyProgress?, applying: Boolean, activeEntryKey: String?,
         refresh: () -> Unit, install: (TranslationEntry) -> Unit
     ) {
-        if(error!=null) item {
-            Card(insideMargin=PaddingValues(18.dp)) {
-                Text(error,color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                TextButton(text="重試",enabled=!loading && !applying,onClick=refresh)
+        if (error != null) item {
+            Card(insideMargin = PaddingValues(18.dp)) {
+                Text(error, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                TextButton(text = "重試", enabled = !loading && !applying, onClick = refresh)
             }
         }
-        if(!loading && error==null && entries.isEmpty()) item {InfoCard("目前沒有可用漢化","下拉可重新取得漢化資源。")}
+        if (!loading && error == null && entries.isEmpty()) item { InfoCard("目前沒有可用漢化", "下拉可重新取得漢化資源。") }
         items(entries) { entry ->
             SystemDownloadEntry(entry) {
-                val ownsTask = installingEntryKey == entry.url
-                val downloadFraction = transfer?.takeIf { ownsTask }?.let { value ->
-                    value.total.takeIf { it > 0 }?.let {
-                        (value.bytes.toFloat() / it).coerceIn(0f, 1f)
-                    }
+                val ownsTask = activeEntryKey == entry.url
+                val downloading = ownsTask && transfer?.finished == false && applyProgress == null && !applying
+                val downloadFraction = transfer?.let { value ->
+                    value.total.takeIf { it > 0 }?.let { (value.bytes.toFloat() / it).coerceIn(0f, 1f) }
                 }
-                val postDownload = ownsTask && (transfer?.finished == true || applyProgress != null || applying)
-                val buttonProgress = when {
-                    postDownload -> 1f
-                    ownsTask -> downloadFraction
+                val fraction = when {
+                    downloading -> downloadFraction
+                    ownsTask -> applyProgress?.fraction
                     else -> null
                 }
-                val buttonText = when {
-                    !ownsTask -> if (stellarGuide) "下載並套用" else if (autoApply) "下載並套用" else "下載漢化"
-                    postDownload -> progressStageLabel(applyProgress?.stage)
-                    else -> progressDownloadLabel(downloadFraction)
+                val label = when {
+                    !ownsTask -> "下載並套用"
+                    downloading -> progressDownloadLabel(downloadFraction)
+                    applyProgress != null -> formatApplyProgress(applyProgress)
+                    else -> "等待套用…"
                 }
-                ProgressActionButton(
-                    text = buttonText,
-                    progress = buttonProgress,
-                    busy = ownsTask,
-                    enabled = installingEntryKey == null && transfer?.finished != false && !applying,
-                    onClick = { install(entry) }
-                )
+                ProgressActionButton(label, fraction, busy = ownsTask,
+                    enabled = activeEntryKey == null && !applying, onClick = { install(entry) })
             }
         }
     }
 
     private fun LazyListScope.downloadedPage(
-        entries: List<DownloadedTranslation>,activeName: String,applyProgress: ApplyProgress?,applying: Boolean,
-        processingPackPath: String?,applyingPackPath: String?,rootMode: Boolean,stellarGuide: Boolean,
-        activePath: String?,installedVersion: String?,deleteMode: Boolean,selectedForDeletion: Set<String>,onToggleDelete: (String)->Unit,
-        apply: (DownloadedTranslation)->Unit
+        entries: List<DownloadedTranslation>, applying: Boolean, activeName: String, activePath: String?,
+        installedVersion: String?, deleteMode: Boolean, selectedForDeletion: Set<String>, onToggleDelete: (String) -> Unit
     ) {
-        if(entries.isEmpty()) item {InfoCard("尚無已下載漢化","請先從「下載漢化」取得漢化包。")}
-        items(entries,key={it.path}) {entry ->
-            val active=if(deleteMode) entry.path in selectedForDeletion else (activePath?.let {it==entry.path} ?: (entry.name==activeName)) && entry.version!=null && entry.version==installedVersion
-            SystemDownloadedPackCard(entry.name,entry.version,active,applyingPackPath==entry.path,!applying,
-                applyProgress,{if(deleteMode) onToggleDelete(entry.path) else apply(entry)},deleteMode)
+        if (entries.isEmpty()) item { InfoCard("尚無已下載漢化", "請先從「下載漢化」取得漢化包。") }
+        items(entries, key = { it.path }) { entry ->
+            SystemDownloadedPackCard(
+                entry.name, entry.version, applied = isCurrentPack(entry, activePath, activeName, installedVersion),
+                checked = entry.path in selectedForDeletion, enabled = !applying, batchMode = deleteMode,
+                onToggle = { onToggleDelete(entry.path) }
+            )
         }
     }
 
@@ -1483,12 +1516,6 @@ private data class GameInfo(val installed: Boolean, val version: String, val ver
 private fun progressDownloadLabel(progress: Float?): String =
     progress?.let { "正在下載 ${(it.coerceIn(0f, 1f) * 100).roundToInt()}%" } ?: "正在下載…"
 
-private fun progressStageLabel(stage: String?): String = when {
-    stage == null -> "正在準備…"
-    "套用" in stage -> "正在套用…"
-    "準備" in stage || "解壓" in stage || "掃描" in stage -> "正在準備…"
-    else -> "正在處理…"
-}
 
 private fun formatBytes(value: Long): String = when {
     value < 1024 -> "$value B"
