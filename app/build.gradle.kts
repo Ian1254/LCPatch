@@ -34,7 +34,7 @@ android {
     }
 
     buildFeatures {
-        aidl = true
+        aidl = false
         compose = true
         buildConfig = true
     }
@@ -59,10 +59,9 @@ android {
 }
 
 dependencies {
-    // Stellar's official compatibility layer implements this protocol. This is
-    // the client SDK only: installing Shizuku Manager is not required.
-    implementation("dev.rikka.shizuku:api:13.1.5")
-    implementation("dev.rikka.shizuku:provider:13.1.5")
+    implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
+    implementation("org.conscrypt:conscrypt-android:2.5.3")
+    implementation("org.bouncycastle:bcpkix-jdk15to18:1.86")
     implementation("androidx.activity:activity-compose:1.12.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.documentfile:documentfile:1.1.0")

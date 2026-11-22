@@ -709,7 +709,7 @@ internal fun preferenceGlyph(title: String): SystemGlyph? = when {
     var details by remember { mutableStateOf(false) }
     SystemArrowPreference("運作方式說明",last=last,onClick={details=true})
     if(details) SystemModal("運作方式說明",{details=false}) {
-        Text("Root 模式透過模組載入；離開 Root 模式前請先停用模組漢化。無 Root 模式直接覆蓋語言文件，須安裝並授權 Stellar。",
+        Text("Root 模式透過模組載入；離開 Root 模式前請先停用模組漢化。無 Root 模式直接覆蓋語言文件，須開啟無線偵錯並在 LCPatch 內配對連線（Android 11 以上）。",
             Modifier.padding(horizontal=24.dp,vertical=8.dp),fontSize=14.sp,lineHeight=22.sp)
         SystemDialogDone({details=false})
     }
@@ -879,7 +879,7 @@ internal fun isCurrentPack(pack: DownloadedTranslation, activePath: String?, act
     var translationDetails by remember {mutableStateOf(false)}
     val authorized = if (state.rootMode) state.scopeStatus == "已啟用" && state.rootStatus == "已授權" else state.loadReady
     SystemCard {
-        SystemArrowPreference(if (state.rootMode) "環境與權限" else "Stellar 與權限",
+        SystemArrowPreference(if (state.rootMode) "環境與權限" else "無線 ADB 與權限",
             authorization = authorized, onClick = {
                 showDetails = true
                 if(state.rootMode) { onCheckScope();onRequestRoot() }
@@ -897,7 +897,7 @@ internal fun isCurrentPack(pack: DownloadedTranslation, activePath: String?, act
         }
         SystemDialogDone({ translationDetails = false })
     }
-    if (showDetails) SystemModal(if (state.rootMode) "環境與權限" else "Stellar 與權限", { showDetails = false }) {
+    if (showDetails) SystemModal(if (state.rootMode) "環境與權限" else "無線 ADB 與權限", { showDetails = false }) {
         SystemEnvironmentDialogBody(state,onAuthorize,loadAction) { showDetails=false }
     }
 }

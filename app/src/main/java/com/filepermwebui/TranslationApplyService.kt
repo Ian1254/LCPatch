@@ -168,7 +168,7 @@ class TranslationApplyService : Service() {
             try {
                 val repository = TranslationRepository(this@TranslationApplyService)
                 check(!repository.rootMode()) {
-                    "目前不是 Stellar 無 Root 模式"
+                    "目前不是 無線 ADB 無 Root 模式"
                 }
                 val entry = repository.downloaded().firstOrNull { it.path == packPath }
                     ?: error("找不到指定的已下載漢化包")

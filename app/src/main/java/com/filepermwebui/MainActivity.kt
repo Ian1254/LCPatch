@@ -136,7 +136,6 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import com.kyant.backdrop.backdrops.layerBackdrop
-import rikka.shizuku.Shizuku
 
 private val PreferenceItemModifier = Modifier
 private val PageTransitionEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -194,8 +193,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private suspend fun prepareStellarGuide(packPath: String) {
-        check(NativeStorageClient.status(this@MainActivity) == "已授權") { "請先授權 Stellar" }
+    private suspend fun prepareAdbGuide(packPath: String) {
+        check(NativeStorageClient.status(this@MainActivity) == "已授權") { "請先連線無線 ADB" }
         check(packageManager.getLaunchIntentForPackage(LogProvider.GAME) != null) {
             "找不到遊戲啟動入口"
         }
@@ -239,7 +238,7 @@ class MainActivity : ComponentActivity() {
         val backgroundApply by BackgroundApplyState.state.collectAsState()
         val applying = localApplying || backgroundApply.busy
         val applyProgress = if (backgroundApply.busy) backgroundApply.progress else localApplyProgress
-        var selectedStellarPath by rememberSaveable { mutableStateOf(appPrefs.getString("stellar_selected_pack", appPrefs.getString("shizuku_selected_pack", null))) }
+        var selectedAdbPath by rememberSaveable { mutableStateOf(appPrefs.getString("stellar_selected_pack", appPrefs.getString("shizuku_selected_pack", null))) }
         var installingEntryKey by taskState.installingEntryKey
         var nativeDownloadEntryKey by taskState.nativeDownloadEntryKey
         val downloadEntryKey = installingEntryKey ?: nativeDownloadEntryKey
@@ -254,7 +253,7 @@ class MainActivity : ComponentActivity() {
             packDeleteSelection=ArrayList(packDeleteSelection.filter {path -> downloadedPacks.any {it.path==path}})
         }
         var rootMode by remember { mutableStateOf(translations.rootMode()) }
-        var stellarStatus by remember { mutableStateOf(NativeStorageClient.status(this@MainActivity)) }
+        var adbStatus by remember { mutableStateOf(NativeStorageClient.status(this@MainActivity)) }
         var activeName by remember { mutableStateOf(translations.activeName()) }
         var activeScript by remember { mutableStateOf(translations.activeScript()) }
         var activeVersion by remember { mutableStateOf(translations.activeVersion()) }
@@ -393,37 +392,11 @@ class MainActivity : ComponentActivity() {
             refreshActivePack()
             onDispose { stopObserving() }
         }
-        DisposableEffect(Unit) {
-            val received = Shizuku.OnBinderReceivedListener { stellarStatus = NativeStorageClient.status(this@MainActivity) }
-            val dead = Shizuku.OnBinderDeadListener { stellarStatus = NativeStorageClient.status(this@MainActivity) }
-            val permission = Shizuku.OnRequestPermissionResultListener { _, _ -> stellarStatus = NativeStorageClient.status(this@MainActivity) }
-            Shizuku.addBinderReceivedListenerSticky(received)
-            Shizuku.addBinderDeadListener(dead)
-            Shizuku.addRequestPermissionResultListener(permission)
-            onDispose {
-                Shizuku.removeBinderReceivedListener(received)
-                Shizuku.removeBinderDeadListener(dead)
-                Shizuku.removeRequestPermissionResultListener(permission)
-            }
-        }
-        fun requestStellar() {
-            runCatching {
-                if(!NativeStorageClient.managerInstalled(this@MainActivity)) {
-                    startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(NativeStorageClient.STELLAR_DOWNLOAD)))
-                    taskState.info("請安裝 Stellar，啟動服務並開啟 Shizuku 相容層後返回")
-                    return
-                }
-                if(!Shizuku.pingBinder()) {
-                    packageManager.getLaunchIntentForPackage(NativeStorageClient.STELLAR_MANAGER)?.let {startActivity(it)}
-                    taskState.info("請在 Stellar 啟動服務並開啟 Shizuku 相容層後返回")
-                    return
-                }
-                if (NativeStorageClient.status(this@MainActivity) == "已授權") {
-                    stellarStatus = "已授權"
-                    taskState.info("Stellar 已授權，可套用原生語言文件")
-                } else Shizuku.requestPermission(101)
-            }.onFailure { taskState.error(it.message ?: "無法請求 Stellar 權限") }
-        }
+        var showAdbSetup by remember { mutableStateOf(false) }
+        fun requestAdb() { showAdbSetup = true }
+        if (showAdbSetup) AdbSetupDialog(this@MainActivity,
+            onDismiss = { showAdbSetup = false; adbStatus = NativeStorageClient.status(this@MainActivity) },
+            onChanged = { adbStatus = NativeStorageClient.status(this@MainActivity) })
         val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if(uri!=null) {
                 runCatching {logs.setSelectedFolder(uri)}
@@ -526,7 +499,7 @@ class MainActivity : ComponentActivity() {
                 ModernApp.refreshScope()
             } else if (!rootMode) {
                 rootStatus = "未檢查"
-                stellarStatus = NativeStorageClient.status(this@MainActivity)
+                adbStatus = NativeStorageClient.refreshStatus(this@MainActivity)
                 activeName = translations.activeName()
                 translationEnabled = translations.translationEnabled()
             }
@@ -583,7 +556,7 @@ class MainActivity : ComponentActivity() {
         launchSelectedGame = launch@{
             if (applying || installingEntryKey != null) return@launch
             if (rootMode) { launchGame(); return@launch }
-            val pack = downloadedPacks.firstOrNull { it.path == selectedStellarPath }
+            val pack = downloadedPacks.firstOrNull { it.path == selectedAdbPath }
                 ?: downloadedPacks.firstOrNull { it.name == activeName }
             if (pack == null) { launchGame(); return@launch }
             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -594,7 +567,7 @@ class MainActivity : ComponentActivity() {
             localApplying = true
             taskState.launchTask {
                 try {
-                    prepareStellarGuide(pack.path)
+                    prepareAdbGuide(pack.path)
                     taskState.info("遊戲進入標題畫面後，點擊通知套用漢化")
                 } catch (error: Exception) { taskState.error(error.message ?: "無法準備漢化") }
                 finally { localApplying = false }
@@ -604,10 +577,10 @@ class MainActivity : ComponentActivity() {
             if(applying || installingEntryKey != null) return
             if (NativeStorageClient.status(this@MainActivity) != "已授權") {
                 nativeDownloadEntryKey = null
-                taskState.error("請先授權 Stellar")
+                taskState.error("請先連線無線 ADB")
                 return
             }
-            selectedStellarPath=path
+            selectedAdbPath=path
             appPrefs.edit().putString("stellar_selected_pack",path).apply()
             if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) {
                 permissionReapplyPath=path
@@ -850,8 +823,8 @@ class MainActivity : ComponentActivity() {
                             downloadedPacks=translations.downloaded()
                             packDeleteSelection=ArrayList(failures)
                             packDeleteMode=failures.isNotEmpty()
-                            if(selectedStellarPath!=null && downloadedPacks.none {it.path==selectedStellarPath}) {
-                                selectedStellarPath=null;appPrefs.edit().remove("stellar_selected_pack").remove("shizuku_selected_pack").apply()
+                            if(selectedAdbPath!=null && downloadedPacks.none {it.path==selectedAdbPath}) {
+                                selectedAdbPath=null;appPrefs.edit().remove("stellar_selected_pack").remove("shizuku_selected_pack").apply()
                             }
                             if(failures.isEmpty()) taskState.success("已刪除 ${targets.size} 個漢化包")
                             else taskState.error("已刪除 ${targets.size-failures.size} 個；${failures.size} 個刪除失敗，已保留勾選，可重試")
@@ -925,9 +898,9 @@ class MainActivity : ComponentActivity() {
                             OVERVIEW -> overview(
                                 rootMode = rootMode,
                                 busy = applying || downloadEntryKey != null,
-                                loadStatus = "服務狀態：$stellarStatus",
-                                loadAction = "授權／檢查 Stellar",
-                                onAuthorize = ::requestStellar,
+                                loadStatus = "服務狀態：$adbStatus",
+                                loadAction = "設定／連線無線 ADB",
+                                onAuthorize = ::requestAdb,
                                 overlayState = environmentOverlayState,
                                 game = game,
                                 events = events,
@@ -956,11 +929,11 @@ class MainActivity : ComponentActivity() {
                                 onDownload = { navigateTo(DOWNLOAD) },
                                 onDownloaded = { navigateTo(DOWNLOADED) },
                                 onLaunch = launchSelectedGame,
-                                loadReady = stellarStatus == "已授權",
+                                loadReady = adbStatus == "已授權",
                                 workProgress = applyProgress,
                                 waitingForGame = backgroundApply.waiting,
                                 onChoosePack = { packMenuLoading = true; packMenuOpen = true },
-                                selectedPack = if(!rootMode) downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null,
+                                selectedPack = if(!rootMode) downloadedPacks.firstOrNull {it.path == selectedAdbPath} else null,
                                 hasPackUpdate = catalog.any {
                                     safePackName(it.name) == activeName &&
                                         isNewerPackVersion(it.version, runtimeInspection.version ?: activeVersion)
@@ -1426,7 +1399,7 @@ class MainActivity : ComponentActivity() {
         onRequestRoot: () -> Unit,
         onDone: () -> Unit
     ) {
-        if (!rootMode) item { InfoCard("無 root 使用方式", "下載後直接套用漢化。Stellar 可在通知查看進度；需要再次套用時，等遊戲標題畫面顯示後點擊通知。") }
+        if (!rootMode) item { InfoCard("無 root 使用方式", "下載後直接套用漢化。可在通知查看套用進度；需要再次套用時，等遊戲標題畫面顯示後點擊通知。") }
         if (rootMode) item { InfoCard("歡迎使用 LCPatch", "完成模組作用域與 Root 權限設定後，即可在 App 內下載並套用漢化。") }
         if (rootMode) item {
             Card(insideMargin = PaddingValues(18.dp)) {

@@ -1,3 +1,5 @@
+> 歷史文件：內建無線 ADB 分支已替換此後端，現行設計見 [內建無線 ADB](embedded-adb.md)。
+
 # Stellar 文件後端（1.2.4-test.4）
 
 本次改為引導使用 Stellar 管理器，透過其官方 Shizuku 相容層連接既有文件服務。沒有接入獨立 Stellar API，也沒有把 Shizuku Manager 包含在 APK 內。
