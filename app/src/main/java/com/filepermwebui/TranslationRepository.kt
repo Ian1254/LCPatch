@@ -2,7 +2,6 @@ package com.lcpatch
 
 import android.content.Context
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
@@ -434,17 +433,9 @@ class TranslationRepository(private val context: Context) {
                 val archive = File(staging, "native-transfer.zip")
                 try {
                     zipDirectory(directory, archive.outputStream())
-                    progress(ApplyProgress("正在透過 Stellar 寫入原生語言文件", 0, 0))
-                    NativeStorageClient.use(context) { service ->
-                        ParcelFileDescriptor.open(archive, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                            val callback = object : INativeProgressCallback.Stub() {
-                                override fun onProgress(completed: Int, total: Int) {
-                                    nativeProgress?.invoke(completed, total)
-                                }
-                            }
-                            val error = service.apply(descriptor, targetLanguage().id, callback)
-                            check(error.isEmpty()) { error }
-                        }
+                    progress(ApplyProgress("正在透過內建 ADB 寫入原生語言文件", 0, 0))
+                    NativeStorageClient.apply(context, archive, targetLanguage().id) { done, total ->
+                        nativeProgress?.invoke(done, total)
                     }
                 } finally { archive.delete() }
             }

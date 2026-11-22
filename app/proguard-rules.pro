@@ -11,3 +11,12 @@
 -keep class com.github.houbb.opencc4j.support.segment.impl.FastForwardSegment { *; }
 -keep class com.github.houbb.opencc4j.support.datamap.impl.DataMapDefault { *; }
 -keep class com.github.houbb.opencc4j.support.data.impl.** { *; }
+
+# app_process loads this entry by its fully qualified name.
+-keep class com.lcpatch.AdbFileService { *; }
+# LibADB discovers the TLS provider by class name.
+-keep class org.conscrypt.OpenSSLProvider { public <init>(); }
+-keep class org.conscrypt.Conscrypt { public static *** exportKeyingMaterial(...); }
+# Conscrypt's adapters for Android versions below this app's minSdk (28).
+-dontwarn com.android.org.conscrypt.SSLParametersImpl
+-dontwarn org.apache.harmony.xnet.provider.jsse.SSLParametersImpl

@@ -3,10 +3,21 @@ Copyright 2026 LCPatch contributors
 
 Third-party components:
 
-- Shizuku API and provider 13.1.5, MIT License
-  Copyright (c) 2021 RikkaW
-  https://github.com/RikkaApps/Shizuku-API
-  Full license: app/src/main/assets/Shizuku-API-LICENSE.txt
+- LibADB Android 3.1.1, Apache License 2.0 option
+  Copyright 2021 Muntashir Al-Islam
+  https://github.com/MuntashirAkon/libadb-android/tree/3.1.1
+  TimedPairingConnection.java is adapted from PairingConnectionCtx.java;
+  LCPatch adds socket timeouts and null-safe cleanup.
+  Full license: app/src/main/assets/LibADB-Apache-2.0.txt
+- Spake2 Java/Android 2.2.1 (LibADB transitive dependency), LGPL-3.0
+  https://github.com/MuntashirAkon/spake2-java/tree/2.2.1
+  Full license: app/src/main/assets/Spake2-LGPL-3.0.txt and Spake2-GPL-3.0.txt
+  Source and rebuild instructions: docs/embedded-adb.md
+- Conscrypt Android 2.5.3, Apache License 2.0
+  https://github.com/google/conscrypt
+- Bouncy Castle 1.86, Bouncy Castle License (MIT-style)
+  https://www.bouncycastle.org/licence.html
+  Full license: app/src/main/assets/Bouncy-Castle-LICENSE.txt
 - Dobby, commit 5dfc8546954ce3b3198132ab13fddb89ee92cdd7,
   Apache License 2.0
   https://github.com/jmpews/Dobby

@@ -13,18 +13,16 @@ LCPatch 是供 Android ARM64 裝置使用的 Limbus Company 漢化管理器，�
 
 - Android 9（API 28）以上，ARM64（`arm64-v8a`）裝置。
 - 已安裝 Limbus Company，並下載所選的遊戲語言資源。
-- 無 Root：使用 [Stellar](https://github.com/roro2239/Stellar)，開啟其 **Shizuku 相容層**。
+- 無 Root：Android 11 以上，使用 LCPatch 內建無線 ADB 配對及寫檔服務。
 - Root：Root 權限與支援 libxposed API 102 的 LSPosed 環境。
 
-Stellar 是外部服務管理器。LCPatch 透過其官方 Shizuku 相容層連線及授權。請啟動 Stellar，並保持相容層開啟。
-
-Stellar 使用方式與相容層開關見 [官方說明](https://github.com/roro2239/Stellar#shizuku-兼容层)。
+內建無線 ADB 不需安裝外部管理器；須連上 Wi-Fi 並開啟系統無線偵錯。Root 模式仍支援 Android 9 以上。
 
 ## 無 Root 使用方式
 
-1. 安裝並透過 ADB／無線偵錯啟動 [Stellar](https://github.com/roro2239/Stellar/releases/latest)，確認「Shizuku 相容層」已開啟。
+1. 開啟開發人員選項 → 無線偵錯，在 LCPatch「無線 ADB 與權限」開啟配對介面。首次使用時，以分割畫面保留系統「使用配對碼配對裝置」視窗，輸入配對連接埠及六位數配對碼。
 2. 在遊戲內切換至日本語或 한국어，完成對應語言資源下載。
-3. 在 LCPatch 選擇「無 Root」，由概觀的「Stellar 與權限」確認 Stellar 已連線並授予 LCPatch 權限。
+3. 關閉系統配對碼視窗，輸入無線偵錯首頁的連線連接埠並點擊「連線」。配對與連線連接埠通常不同；服務重啟或 App 程序結束後，需重新輸入目前的連線連接埠。
 4. 在「設定 → 漢化」選擇對應的覆蓋語言；下載無 Root 專用漢化，或匯入包含 `Localize/jp`／`Localize/kr` 的 ZIP。
 5. 下載完成直接開始套用。要切換或重新套用已下載的漢化，點選概觀上的漢化包名稱。下載頁顯示各處理階段的進度。
 6. 從概觀啟動遊戲時，可建立待套用通知；遊戲顯示標題畫面後，點擊整張通知再次套用。
@@ -77,12 +75,12 @@ Root 的遊戲目錄位於 `/sdcard/Android/data/com.ProjectMoon.LimbusCompany/`
 
 Root 模式可補充原生事件與遊戲相關系統記錄。可在設定選擇診斷儲存位置；未指定時使用暫存檔，透過分享功能取得。回報請附上 LCPatch 版本、遊戲版本、運作模式及實際操作步驟。
 
-服務整合細節見 [Stellar 適配說明](docs/stellar-backend.md)。
+服務整合細節及測試界線見 [內建無線 ADB](docs/embedded-adb.md)。
 
 ## 原始碼與建構
 
 - `native-refactor/lcpatch_core.cpp`：Root 本地化重導、字型載入、跨版本驗證與原生記錄。
-- `app/src/main/java/com/filepermwebui/NativeStorageClient.kt`：Stellar 相容層連線與文件服務。
+- `app/src/main/java/com/filepermwebui/EmbeddedAdb.kt`：內建 ADB 連線與文件傳輸；`AdbFileService.kt` 為 shell 寫檔入口。
 - `app/src/main/java/com/filepermwebui/TranslationApplyService.kt`：背景套用及通知。
 - `app/src/main/java/com/filepermwebui/TranslationRepository.kt`：下載、版本辨識、轉換與套用。
 - `app/src/main/java/com/filepermwebui/MainActivity.kt`：Compose／Miuix 管理介面。
@@ -95,7 +93,7 @@ CI 從原始碼建立 native 核心，執行測試、Release lint 與介面預�
 
 ## 授權與第三方元件
 
-LCPatch 原始碼採 Apache License 2.0。主要使用 Dobby、Compose Miuix、opencc4j、libxposed、Shizuku API／provider（用於 Stellar 相容層）及 AndroidX／Jetpack Compose；詳細授權見 [NOTICE](NOTICE)。Stellar 管理器為另行安裝的外部程式。
+LCPatch 原始碼採 Apache License 2.0。主要使用 Dobby、Compose Miuix、opencc4j、libxposed、LibADB Android、Conscrypt、Bouncy Castle及 AndroidX／Jetpack Compose；詳細授權見 [NOTICE](NOTICE)。
 
 內建字型以 Sarasa Gothic SC Bold 1.0.29 為基礎，包含 3,912 字 BMP PUA 映射。字型依 SIL Open Font License 1.1 散布，LCPatch PUA 映射為 CC0 1.0；來源、修改說明與授權文件保留在專案中。遊戲圖像與第三方翻譯內容不屬於 LCPatch 的 Apache-2.0 授權範圍。
 

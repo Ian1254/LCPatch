@@ -262,11 +262,11 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
 
 @Composable private fun ShizukuFlowFixture(dark: Boolean, writing: Boolean) = SystemUiTheme(SystemUiStyle.HyperOS4, if(dark) "dark" else "light") {
     val progress=if(writing) ApplyProgress("正在寫入語言資源", 1100, 3838) else null
-    val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="Stellar · 已授權",loadReady=true)
+    val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="無線 ADB · 已授權",loadReady=true)
     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         SystemTranslationPanel(state, {}, {}, {}, progress, waitingForGame=!writing)
         SystemDownloadedPackCard("零協會漢化", "2026111401", applied = writing)
-        SystemEnvironmentPanel(state,{}, {}, {}, "授權／檢查 Stellar")
+        SystemEnvironmentPanel(state,{}, {}, {}, "設定／連線無線 ADB")
     }
 }
 
@@ -280,9 +280,9 @@ private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", 
     Column(Modifier.background(MiuixTheme.colorScheme.surface).padding(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         val state=sampleOverview.copy(name="日文字形漢化（日本語）",rootMode=false,packVersion="v1.119.0",loadReady=false)
         SystemTranslationPanel(state.copy(enabled=false),{},{},{})
-        SystemEnvironmentPanel(state,{},{},{},"授權 Stellar")
+        SystemEnvironmentPanel(state,{},{},{},"連線無線 ADB")
         SystemTranslationPanel(state.copy(enabled=true),{},{},{})
-        SystemEnvironmentPanel(state.copy(loadReady=true),{},{},{},"檢查 Stellar")
+        SystemEnvironmentPanel(state.copy(loadReady=true),{},{},{},"檢查無線 ADB")
     }
 }
 
@@ -602,7 +602,7 @@ class InstalledIdentityAndLogDateTest {
                 SystemTranslationPanel(state, {}, {}, {}, onChoosePack = {}, hasPackUpdate = true)
                 SystemQuickActions({}, {})
                 SystemSectionLabel("運作狀態")
-                SystemEnvironmentPanel(state, {}, {}, {}, "授權／檢查 Stellar")
+                SystemEnvironmentPanel(state, {}, {}, {}, "設定／連線無線 ADB")
             }
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .5f)))
             Box(Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(top = 212.dp, start = 28.dp)

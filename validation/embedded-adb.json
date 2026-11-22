@@ -1,0 +1,28 @@
+{
+  "scope": "Embedded wireless ADB backend; game APK is unchanged",
+  "date": "2026-11-22",
+  "base": "5ec64cfc7726792a8999130428bc3b4979a03490",
+  "checks": [
+    "testDebugUnitTest",
+    "lintRelease",
+    "assembleDebug",
+    "assembleRelease",
+    "native core NDK 27.2.12479018 build",
+    "Release R8 entry names retained",
+    "ARM64 ELF LOAD alignment 16 KB",
+    "zipalign -c -P 16 4"
+  ],
+  "tests": {
+    "failed": 0,
+    "passed": 93,
+    "skipped": 8,
+    "total": 101
+  },
+  "lint": {
+    "warnings": 82,
+    "hints": 1,
+    "errors": 0
+  },
+  "runtime": "Not tested on an Android device; pairing, ROM storage permissions, UI layout and game loading remain unverified",
+  "game_verification": "Unchanged; apply after title screen remains required"
+}
