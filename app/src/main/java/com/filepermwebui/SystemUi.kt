@@ -1082,10 +1082,12 @@ internal fun isCurrentPack(pack: DownloadedTranslation, activePath: String?, act
 internal fun formatApplyProgress(progress: ApplyProgress): String =
     if (progress.total > 0) "${progress.stage} · ${progress.current}/${progress.total}" else progress.stage
 
-@Composable internal fun SystemDownloadRefresh(refreshing: Boolean,onRefresh: ()->Unit,topInset: Dp,content: @Composable ()->Unit) {
+@Composable internal fun SystemListRefresh(
+    refreshing: Boolean, onRefresh: () -> Unit, topInset: Dp, refreshLabel: String, content: @Composable () -> Unit
+) {
     top.yukonga.miuix.kmp.basic.PullToRefresh(isRefreshing=refreshing,onRefresh=onRefresh,
         modifier=Modifier.fillMaxSize().semantics {
-            customActions=listOf(CustomAccessibilityAction("重新整理漢化資源") {onRefresh();true})
+            customActions=listOf(CustomAccessibilityAction(refreshLabel) {onRefresh();true})
         },contentPadding=PaddingValues(top=topInset),
         refreshTexts=listOf("下拉重新整理","放開以重新整理","正在重新整理…","已更新"),content=content)
 }

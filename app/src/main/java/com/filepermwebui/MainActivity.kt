@@ -219,6 +219,8 @@ class MainActivity : ComponentActivity() {
         var topNavigationTarget by rememberSaveable { mutableIntStateOf(pagerState.currentPage) }
         var topNavigationTransaction by rememberSaveable { mutableIntStateOf(0) }
         var revision by remember { mutableIntStateOf(0) }
+        var refreshingLogs by remember { mutableStateOf(false) }
+        var events by remember { mutableStateOf<List<LogEvent>>(emptyList()) }
         var diagnosticBusy by remember { mutableStateOf(false) }
         var showClearLogDialog by rememberSaveable { mutableStateOf(false) }
         var notice by taskState.notice
@@ -365,7 +367,19 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        val events = remember(revision) { logs.read() }
+        LaunchedEffect(revision) {
+            try {
+                events = withContext(Dispatchers.IO) { logs.read() }
+                refreshingLogs = false
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                val requested = refreshingLogs
+                refreshingLogs = false
+                if (requested) taskState.error("重新整理日誌失敗：${error.message}")
+                else android.util.Log.w("LCPatch", "Unable to read logs", error)
+            }
+        }
         val game = remember(resumeRevision) { gameInfo() }
         DisposableEffect(translations) {
             fun refreshActivePack() {
@@ -1054,9 +1068,18 @@ class MainActivity : ComponentActivity() {
 
                         }
                     } }
-                    if(visiblePage==DOWNLOAD) SystemDownloadRefresh(catalogLoading,{
-                        if(!catalogLoading && !applying && installingEntryKey==null) refreshCatalog()
-                    },padding.calculateTopPadding(),listContent) else listContent()
+                    when (visiblePage) {
+                        DOWNLOAD -> SystemListRefresh(catalogLoading, {
+                            if (!catalogLoading && !applying && installingEntryKey == null) refreshCatalog()
+                        }, padding.calculateTopPadding(), "重新整理漢化資源", listContent)
+                        LOGS -> SystemListRefresh(refreshingLogs, {
+                            if (!refreshingLogs) {
+                                refreshingLogs = true
+                                revision++
+                            }
+                        }, padding.calculateTopPadding(), "重新整理日誌", listContent)
+                        else -> listContent()
+                    }
                 }
             }
         }
