@@ -22,7 +22,7 @@ jobs:
       # Same-repo test branch only. Produce an installable APK with the existing
       # release certificate, but do NOT create a tag or GitHub Release.
       - name: Sign installable test APK (no publishing)
-        if: github.event_name == 'pull_request' && (github.head_ref == 'test/verification-guard-adaptive-icon' || github.head_ref == 'test/localization-hyperos4-coloros17' || github.head_ref == 'test/shizuku-background-apply' || github.head_ref == 'test/stellar-backend') && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && (github.head_ref == 'test/verification-guard-adaptive-icon' || github.head_ref == 'test/localization-hyperos4-coloros17' || github.head_ref == 'test/shizuku-background-apply' || github.head_ref == 'test/stellar-backend' || github.head_ref == 'fix/pack-version-lcta-source') && github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.LCPATCH_KEYSTORE_BASE64 }}
@@ -38,7 +38,7 @@ jobs:
           mkdir -p build/ci-signing dist
           trap 'rm -rf build/ci-signing' EXIT
           TEST_APK="dist/LCPatch-test-NO-RELEASE.apk"
-          if [[ "$GITHUB_HEAD_REF" == "test/shizuku-background-apply" || "$GITHUB_HEAD_REF" == "test/stellar-backend" ]]; then
+          if [[ "$GITHUB_HEAD_REF" == "test/shizuku-background-apply" || "$GITHUB_HEAD_REF" == "test/stellar-backend" || "$GITHUB_HEAD_REF" == "fix/pack-version-lcta-source" ]]; then
             VERSION="$(sed -n 's/^VERSION_NAME=//p' version.properties | head -n1)"
             TEST_APK="dist/LCPatch-$VERSION.apk"
           fi
@@ -57,14 +57,14 @@ jobs:
           "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 4 "$TEST_APK"
 
       - name: Record signed test checksums
-        if: github.event_name == 'pull_request' && (github.head_ref == 'test/localization-hyperos4-coloros17' || github.head_ref == 'test/shizuku-background-apply' || github.head_ref == 'test/stellar-backend') && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && (github.head_ref == 'test/localization-hyperos4-coloros17' || github.head_ref == 'test/shizuku-background-apply' || github.head_ref == 'test/stellar-backend' || github.head_ref == 'fix/pack-version-lcta-source') && github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         run: |
           sha256sum "$TEST_APK" > "$TEST_APK.sha256"
           printf '%s\n' "Source: $GITHUB_SHA" "Device testing: not run (user testing)" > dist/BUILD.txt
 
       - name: Upload installable test APK (artifact only)
-        if: github.event_name == 'pull_request' && (github.head_ref == 'test/verification-guard-adaptive-icon' || github.head_ref == 'test/localization-hyperos4-coloros17' || github.head_ref == 'test/shizuku-background-apply' || github.head_ref == 'test/stellar-backend') && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && (github.head_ref == 'test/verification-guard-adaptive-icon' || github.head_ref == 'test/localization-hyperos4-coloros17' || github.head_ref == 'test/shizuku-background-apply' || github.head_ref == 'test/stellar-backend' || github.head_ref == 'fix/pack-version-lcta-source') && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/upload-artifact@v6
         with:
           name: LCPatch-test-NO-RELEASE
