@@ -40,6 +40,30 @@ class TranslationCatalogTest {
         assertNull(localizeRelativePath("BepInEx/plugins/plugin.dll"))
     }
 
+    @Test fun normalizesLctaTextOnly() {
+        assertEquals("Localize/cn/StoryData/S1000.json", localizeRelativePath("LLc-CN-LCTA/StoryData/S1000.json"))
+        assertEquals("Localize/cn/Skills.json", localizeRelativePath("LLc-CN-LCTA/Skills.json"))
+        assertNull(localizeRelativePath("LLc-CN-LCTA/Info/version.json"))
+        assertNull(localizeRelativePath("LLc-CN-LCTA/install.exe"))
+    }
+
+    @Test fun lctaReleaseUsesExactZipAndDigest() {
+        val tag = "2026111901"
+        val digest = "sha256:" + "a".repeat(64)
+        val url = "https://github.com/HZBHZB1234/LCTA_auto_update/releases/download/$tag/LLc-CN-LCTA-$tag.zip"
+        val asset = org.json.JSONObject().put("name", "LLc-CN-LCTA-$tag.zip")
+            .put("browser_download_url", url).put("size", 5994399).put("digest", digest)
+        val release = org.json.JSONObject().put("tag_name", tag).put("assets", org.json.JSONArray().put(asset))
+        val entry = parseLctaRelease(release)
+        assertEquals(tag, entry.version)
+        assertEquals(url, entry.url)
+        assertEquals(digest, entry.sourceDigest)
+        assertFalse(isNewerPackVersion(tag, tag))
+        assertTrue(isNewerPackVersion("2026111902", tag))
+        asset.put("digest", "")
+        assertTrue(runCatching { parseLctaRelease(release) }.isFailure)
+    }
+
     @Test fun correctsLanguageFilePrefixes() {
         assertEquals("KR_Story.json", correctedLanguageFileName("JP_Story.json", "KR"))
         assertEquals("EN_Test.json", correctedLanguageFileName("kr_Test.json", "en"))

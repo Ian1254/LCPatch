@@ -625,6 +625,9 @@ class MainActivity : ComponentActivity() {
             taskState.launchTask {
                 try {
                     translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { localApplyProgress = value } }
+                    activeVersion = translations.activeVersion()
+                    runtimeInspection = withContext(Dispatchers.IO) { translations.inspectRuntime() }
+                    refreshCatalog()
                     taskState.success("已套用，重啟遊戲後生效")
                 } catch (error: kotlinx.coroutines.CancellationException) {
                     throw error
@@ -806,7 +809,10 @@ class MainActivity : ComponentActivity() {
                             withContext(Dispatchers.Main.immediate) { localApplyProgress = value }
                         }
                         activeScript = translations.activeScript()
+                        activeVersion = translations.activeVersion()
                         translationEnabled = translations.translationEnabled()
+                        runtimeInspection = withContext(Dispatchers.IO) { translations.inspectRuntime() }
+                        refreshCatalog()
                         transfer = null
                         taskState.success("已套用，重啟遊戲後生效")
                     } catch (error: Throwable) {
