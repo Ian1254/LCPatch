@@ -22,6 +22,12 @@ internal fun isNewerPackVersion(candidate: String?, current: String?): Boolean {
     }
 }
 
+internal fun activeCatalogEntry(catalog: List<TranslationEntry>, activeName: String): TranslationEntry? {
+    val variant = OurPlayTranslation.Variant.entries.firstOrNull { safePackName(it.title) == activeName }
+    return if (variant != null) catalog.singleOrNull { OurPlayTranslation.variantFor(it) == variant }
+        else catalog.filter { safePackName(it.name) == activeName }.singleOrNull()
+}
+
 internal fun downloadPackAction(entry: TranslationEntry, downloaded: DownloadedTranslation?): String = when {
     downloaded == null -> "下載並套用"
     isNewerPackVersion(entry.version, downloaded.version) -> "更新並套用"

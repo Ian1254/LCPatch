@@ -144,7 +144,12 @@ class TranslationRepository(private val context: Context) {
         }
         val ourPlayResults = OurPlayTranslation.Variant.entries.map { variant ->
             variant to async {
-                try { OurPlayTranslation.latest(variant).version }
+                try {
+                    val asset = OurPlayTranslation.latest(variant)
+                    LogRepository.append(context, "INFO", "translation.ourplay.remote_version",
+                        "${variant.title}：遠端版本 ${asset.version}")
+                    asset.version
+                }
                 catch (error: kotlinx.coroutines.CancellationException) { throw error }
                 catch (error: Exception) {
                     LogRepository.append(context, "WARN", "translation.ourplay.catalog_failed",
@@ -294,6 +299,14 @@ class TranslationRepository(private val context: Context) {
                 metadataFile.writeText(metadata.toString())
             }
             val publicPath = savePack(prepared, entry.name)
+            if (ourPlayVariant != null) {
+                val savedMetadata = executeRoot("head -c 8192 " + quote("$publicPath/.lcpatch-upstream.json"))
+                require(savedMetadata.success && installedPackVersion(savedMetadata.output, null) == identifiedVersion) {
+                    "OurPlay 下載版本寫入驗證失敗：預期 $identifiedVersion"
+                }
+                LogRepository.append(context, "INFO", "translation.ourplay.saved_version",
+                    "${entry.name}：清單 ${entry.version ?: "未知"}，下載並保存 $identifiedVersion")
+            }
             output.delete()
             progress(TransferProgress(fileName, result.bytes, if (result.total > 0) result.total else result.bytes, 0, true))
             LogRepository.append(context, "INFO", "download.completed", "${entry.name} 已下載並解壓到獨立目錄")
@@ -371,7 +384,7 @@ class TranslationRepository(private val context: Context) {
         require(inspection.fontReady) { "遊戲快取驗證失敗：中文字型未寫入" }
         progress(ApplyProgress("套用完成", 1, 1))
         prefs.edit().putString("active_name", displayName).putString("active_script", script).putString("active_version",installedVersion).putString("active_source_path",prefs.getString("applying_source_path",null)).apply()
-        LogRepository.append(context, "INFO", "translation.applied", "已套用 $displayName")
+        LogRepository.append(context, "INFO", "translation.applied", "已套用 $displayName，版本 $installedVersion；遊戲讀回 ${inspection.version}")
         return displayName
     }
 
@@ -538,7 +551,13 @@ class TranslationRepository(private val context: Context) {
         File(work,".lcpatch-script").writeText(script)
         File(work,PUA_MARKER).writeText("1")
         validateJsonDirectory(File(work,"Localize"))
-        if(keepDownload) savePack(work,name)
+        if(keepDownload) {
+            val downloaded = downloaded().firstOrNull { it.path == "$PUBLIC_DOWNLOADS/${safeName(name)}" }
+            val installed = installedPackVersion(File(work, ".lcpatch-upstream.json").takeIf(File::isFile)?.readText(), null)
+            // Converting installed text must not roll back a different downloaded version.
+            if (downloaded != null && installed != null && downloaded.version == installed) savePack(work,name)
+            else LogRepository.append(context, "INFO", "translation.conversion.keep_download", "保留版本不同或未知的已下載漢化")
+        }
         applyPrepared(work,name,progress)
         // applyPrepared replaces the disabled directory directly when disabled;
         // calling setTranslationEnabled(false) again would delete that directory.
