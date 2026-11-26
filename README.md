@@ -49,10 +49,11 @@ Stellar 使用方式與相容層開關見 [官方說明](https://github.com/roro
 | 來源 | 支援模式 | 說明 |
 | --- | --- | --- |
 | [零協會漢化](https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany) | Root | 整合 PC 版中文文字資源 |
+| OurPlay 一般漢化 | Root | OurPlay 正常版漢化，使用零協會文字檔對應遊戲資源 |
 | OurPlay 神人漢化 | Root | OurPlay 社群版，使用零協會文字檔對應遊戲資源 |
 | [日文字形漢化](https://github.com/pzwboy/LocalizeLimbusCompanyForAndroid) | 無 Root | 相近漢字替換，支援日語及韓語覆蓋 |
 
-OurPlay 神人漢化中無法可靠對應的文字會保留零協會翻譯。各來源的更新時間與翻譯品質由上游決定，LCPatch 不維護第三方譯文。
+OurPlay 一般版與神人版分別下載、保存及檢查版本；無法可靠對應的文字會保留零協會翻譯。各來源的更新時間與翻譯品質由上游決定，LCPatch 不維護第三方譯文。
 
 ## Root 模式其他功能
 

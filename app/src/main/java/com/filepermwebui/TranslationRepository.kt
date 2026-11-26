@@ -142,7 +142,17 @@ class TranslationRepository(private val context: Context) {
             catch(error: Exception) {LogRepository.append(context,"WARN","translation.version_lookup_failed",error.message ?: "版本比對未完成，保留內容識別")}
             return@withContext listOf(entry)
         }
-        val ourPlayResult = async { runCatching { OurPlayTranslation.latest().version } }
+        val ourPlayResults = OurPlayTranslation.Variant.entries.map { variant ->
+            variant to async {
+                try { OurPlayTranslation.latest(variant).version }
+                catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                catch (error: Exception) {
+                    LogRepository.append(context, "WARN", "translation.ourplay.catalog_failed",
+                        "${variant.title}：${error.message ?: error.javaClass.simpleName}")
+                    null
+                }
+            }
+        }
         val primaryResult = runCatching {
             HttpClient.open(SOURCE).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
         }.map(::parseTranslationCatalog)
@@ -155,7 +165,7 @@ class TranslationRepository(private val context: Context) {
         listOfNotNull(primaryResult.exceptionOrNull(), officialResult.exceptionOrNull()).forEach { error ->
             LogRepository.append(context, "WARN", "translation.catalog_source_failed", error.message ?: error.javaClass.simpleName)
         }
-        val ourPlay = OurPlayTranslation.entry.copy(version = ourPlayResult.await().getOrNull())
+        val ourPlay = ourPlayResults.map { (variant, result) -> OurPlayTranslation.entry(variant).copy(version = result.await()) }
         (community + ourPlay + primary).distinctBy { it.name to it.url }
     }
 
@@ -230,12 +240,13 @@ class TranslationRepository(private val context: Context) {
         progress: suspend (TransferProgress) -> Unit,
         preparation: suspend (ApplyProgress) -> Unit = {}
     ): DownloadedTranslation = withContext(Dispatchers.IO) {
-        val ourPlay = if (entry.url == OurPlayTranslation.entry.url && entry.name == OurPlayTranslation.entry.name) {
-            check(rootMode()) { "OurPlay 神人漢化需要 Root ＋ LSPosed" }
-            OurPlayTranslation.latest().also { asset ->
+        val ourPlayVariant = OurPlayTranslation.variantFor(entry)
+        val ourPlay = ourPlayVariant?.let { variant ->
+            check(rootMode()) { "OurPlay 漢化需要 Root ＋ LSPosed" }
+            OurPlayTranslation.latest(variant).also { asset ->
                 require(!isNewerPackVersion(entry.version, asset.version)) { "OurPlay 遠端版本已變動，請重新整理漢化清單" }
             }
-        } else null
+        }
         val fileName = "${safeName(entry.name)}.zip"
         val sourceKey = java.security.MessageDigest.getInstance("SHA-256").digest(entry.url.toByteArray())
             .take(12).joinToString("") { "%02x".format(it) }
@@ -276,6 +287,12 @@ class TranslationRepository(private val context: Context) {
             prepareCharacters(prepared, preparation)
             val identifiedVersion = ensurePackIdentity(prepared, ourPlay?.url ?: entry.url,
                 ourPlay?.version ?: validPackVersion(entry.version) ?: releaseAssetVersion(entry.url) ?: archivePackVersion(output))
+            if (ourPlayVariant != null) {
+                val metadataFile = File(prepared, ".lcpatch-upstream.json")
+                val metadata = JSONObject(metadataFile.readText())
+                    .put("source_id", ourPlayVariant.sourceId)
+                metadataFile.writeText(metadata.toString())
+            }
             val publicPath = savePack(prepared, entry.name)
             output.delete()
             progress(TransferProgress(fileName, result.bytes, if (result.total > 0) result.total else result.bytes, 0, true))
@@ -333,8 +350,10 @@ class TranslationRepository(private val context: Context) {
         val installedVersion = installedPackVersion(sourceMetadata, null) ?: ensurePackIdentity(raw)
         val runtimeMetadata = JSONObject().put("schema", 1)
         runtimeMetadata.put(if (installedVersion.startsWith("sha256:")) "content_id" else "version", installedVersion)
-        sourceMetadata?.let { runCatching { JSONObject(it).optString("url") }.getOrNull() }
-            ?.takeIf(String::isNotBlank)?.let { runtimeMetadata.put("url", it) }
+        val upstreamMetadata = sourceMetadata?.let { runCatching { JSONObject(it) }.getOrNull() }
+        for (key in listOf("url", "source_id")) {
+            upstreamMetadata?.optString(key)?.takeIf(String::isNotBlank)?.let { runtimeMetadata.put(key, it) }
+        }
         File(unpacked, "Localize/cn/$VERSION_MARKER").writeText(runtimeMetadata.toString())
         progress(ApplyProgress("正在驗證語言文件",0,0))
         validateJsonDirectory(File(unpacked, "Localize/cn"))

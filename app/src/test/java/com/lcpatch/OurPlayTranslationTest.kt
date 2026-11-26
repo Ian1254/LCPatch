@@ -14,6 +14,22 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class OurPlayTranslationTest {
+    @Test fun standardAndCommunityUseIndependentCatalogKeysAndRequestVariants() {
+        val standard = OurPlayTranslation.Variant.STANDARD
+        val community = OurPlayTranslation.Variant.COMMUNITY
+        val standardEntry = OurPlayTranslation.entry(standard)
+        val communityEntry = OurPlayTranslation.entry(community)
+        assertEquals("OurPlay 一般漢化", standardEntry.name)
+        assertEquals("OurPlay 神人漢化", communityEntry.name)
+        assertTrue(standardEntry.url != communityEntry.url)
+        assertTrue(standard.sourceId != community.sourceId)
+        assertEquals(standard, OurPlayTranslation.variantFor(standardEntry.copy(version = "200")))
+        assertEquals(community, OurPlayTranslation.variantFor(communityEntry.copy(version = "189")))
+        assertEquals(null, OurPlayTranslation.variantFor(standardEntry.copy(url = communityEntry.url)))
+        assertTrue(OurPlayTranslation.requestForm(standard).contains("&is_unofficial=2&"))
+        assertTrue(OurPlayTranslation.requestForm(community).contains("&is_unofficial=3&"))
+    }
+
     @Test fun readsTheCommunityVersionAndRejectsUnexpectedDownloadHosts() {
         val response = """{"code":1,"data":{"versionCode":189,"size":9232641,"md5":"69105abcdf2190f631941c087848fc0e","url":"https://cdnvc.excean.com/xspace/news/community.language"}}"""
         assertEquals("189", OurPlayTranslation.parseAsset(response).version)
