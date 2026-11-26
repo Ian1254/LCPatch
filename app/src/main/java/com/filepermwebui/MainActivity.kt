@@ -625,6 +625,9 @@ class MainActivity : ComponentActivity() {
             taskState.launchTask {
                 try {
                     translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { localApplyProgress = value } }
+                    activeVersion = translations.activeVersion()
+                    runtimeInspection = withContext(Dispatchers.IO) { translations.inspectRuntime() }
+                    refreshCatalog()
                     taskState.success("已套用，重啟遊戲後生效")
                 } catch (error: kotlinx.coroutines.CancellationException) {
                     throw error
@@ -638,23 +641,37 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(packMenuOpen, rootMode) {
             if (packMenuOpen) {
-                packMenuLoading = true
+                packMenuLoading = downloadedPacks.isEmpty()
                 try {
                     downloadedPacks = translations.downloaded()
                 } catch (error: kotlinx.coroutines.CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    packMenuOpen = false
+                    if (downloadedPacks.isEmpty()) packMenuOpen = false
                     taskState.error("無法讀取已下載漢化：${error.message}")
                 }
                 finally { packMenuLoading = false }
             }
         }
-        LaunchedEffect(page, resumeRevision, applying, installingEntryKey, rootMode) {
+        LaunchedEffect(page, resumeRevision, applying, installingEntryKey, rootMode, rootStatus) {
             if (!applying && installingEntryKey == null) {
-                if (!rootMode || page == DOWNLOAD || page == DOWNLOADED || page == CONVERSION) {
-                    downloadedPacks = translations.downloaded()
+                if (!rootMode || page == DOWNLOAD || page == DOWNLOADED || page == CONVERSION || (page == OVERVIEW && rootStatus == "已授權")) {
+                    try {
+                        downloadedPacks = translations.downloaded()
+                    } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                    catch (error: Exception) {
+                        taskState.error("無法讀取已下載漢化：${error.message}")
+                    }
                 }
+            }
+        }
+        LaunchedEffect(page, rootMode, rootStatus, applying, installingEntryKey) {
+            if (rootMode && rootStatus == "已授權" && page == DOWNLOADED && !applying && installingEntryKey == null) {
+                try {
+                    translations.migrateLegacyDownloads()
+                    downloadedPacks = translations.downloaded()
+                } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                catch (error: Exception) { taskState.error("無法整理舊漢化包：${error.message}") }
             }
         }
         val inspectionInProgress = rootMode && page == OVERVIEW && !applying
@@ -806,7 +823,10 @@ class MainActivity : ComponentActivity() {
                             withContext(Dispatchers.Main.immediate) { localApplyProgress = value }
                         }
                         activeScript = translations.activeScript()
+                        activeVersion = translations.activeVersion()
                         translationEnabled = translations.translationEnabled()
+                        runtimeInspection = withContext(Dispatchers.IO) { translations.inspectRuntime() }
+                        refreshCatalog()
                         transfer = null
                         taskState.success("已套用，重啟遊戲後生效")
                     } catch (error: Throwable) {
@@ -959,12 +979,14 @@ class MainActivity : ComponentActivity() {
                                 loadReady = stellarStatus == "已授權",
                                 workProgress = applyProgress,
                                 waitingForGame = backgroundApply.waiting,
-                                onChoosePack = { packMenuLoading = true; packMenuOpen = true },
+                                onChoosePack = { packMenuLoading = downloadedPacks.isEmpty(); packMenuOpen = true },
                                 selectedPack = if(!rootMode) downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null,
-                                hasPackUpdate = catalog.any {
-                                    safePackName(it.name) == activeName &&
-                                        isNewerPackVersion(it.version, runtimeInspection.version ?: activeVersion)
-                                },
+                                hasPackUpdate = isNewerPackVersion(activeCatalogEntry(catalog, activeName)?.version,
+                                    runtimeInspection.version ?: activeVersion),
+                                remotePackVersion = activeCatalogEntry(catalog, activeName)?.version,
+                                downloadedPackVersion = downloadedPacks.firstOrNull {
+                                    it.path == activePackPath || (activePackPath == null && it.name == activeName)
+                                }?.version,
                                 packMenu = {
                                     SystemPackMenu(packMenuOpen, downloadedPacks, packMenuLoading, activePackPath, activeName,
                                         runtimeInspection.version ?: activeVersion, onDismiss = { packMenuOpen = false },
@@ -1253,14 +1275,14 @@ class MainActivity : ComponentActivity() {
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection, activeVersion: String?, checkingRuntime: Boolean,
         onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?,
         waitingForGame: Boolean, onChoosePack: () -> Unit, selectedPack: DownloadedTranslation?,
-        hasPackUpdate: Boolean, packMenu: @Composable () -> Unit
+        hasPackUpdate: Boolean, remotePackVersion: String?, downloadedPackVersion: String?, packMenu: @Composable () -> Unit
     ) {
         val state = OverviewUiState(activeName, activeScript, targetLanguage.label, translationEnabled,
             rootMode, game.installed, game.version, busy, scopeStatus, rootStatus, loadStatus,
             runtimeInspection.ready, runtimeInspection.fontReady, runtimeInspection.jsonFiles, translations.pcCoverageSummary(),
             if (rootMode) runtimeInspection.version ?: activeVersion else activeVersion, loadReady, checkingRuntime)
         item { SystemTranslationPanel(state, onTranslationEnabled, onLaunch, onDownload, workProgress, selectedPack, waitingForGame,
-            onChoosePack, hasPackUpdate, packMenu) }
+            onChoosePack, hasPackUpdate, remotePackVersion, downloadedPackVersion, packMenu) }
         item { SystemQuickActions(onDownload, onDownloaded) }
         item { SystemSectionLabel("運作狀態") }
         item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onAuthorize, loadAction) }

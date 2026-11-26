@@ -778,7 +778,8 @@ internal data class OverviewUiState(
 @Composable internal fun SystemTranslationPanel(state: OverviewUiState, onEnabled: (Boolean) -> Unit,
     onLaunch: () -> Unit, onDownload: () -> Unit, workProgress: ApplyProgress? = null, selectedPack: DownloadedTranslation? = null,
     waitingForGame: Boolean = false, onChoosePack: (() -> Unit)? = null,
-    hasPackUpdate: Boolean = false, packMenu: @Composable () -> Unit = {}) {
+    hasPackUpdate: Boolean = false, remotePackVersion: String? = null, downloadedPackVersion: String? = null,
+    packMenu: @Composable () -> Unit = {}) {
     val selected = state.name != "尚未選擇"
     SystemCard {
         if(state.rootMode) SystemSwitchPreference("啟用漢化", checked = state.enabled,
@@ -818,8 +819,13 @@ internal data class OverviewUiState(
             FlowRow(Modifier.padding(top = 5.dp, bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(if(selectedPack != null && !selected) packVersionLabel(selectedPack.version) else if(selectedPack != null && selectedPack.name != state.name) "${selectedPack.name} · ${packVersionLabel(selectedPack.version)}" else if(selected) packVersionLabel(state.packVersion) else "下載漢化包後即可直接套用。",
                     fontSize = 13.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                if (hasPackUpdate) Text("有可用更新", fontSize = 13.sp, lineHeight = 20.sp,
+                if (hasPackUpdate) Text(remotePackVersion?.let { "有可用更新 → $it" } ?: "有可用更新",
+                    modifier = Modifier.clickable(enabled = !state.busy, onClick = onDownload),
+                    fontSize = 13.sp, lineHeight = 20.sp,
                     color = Color(if (LocalSystemUiDark.current) 0xFFF47777 else 0xFFB3261E))
+                if (selected && downloadedPackVersion != null && downloadedPackVersion != state.packVersion)
+                    Text("已下載 $downloadedPackVersion", fontSize = 13.sp, lineHeight = 20.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             if(waitingForGame) Text("遊戲進入標題畫面後，點擊通知套用漢化",fontSize=13.sp,lineHeight=20.sp,modifier=Modifier.padding(bottom=12.dp),color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
             if(workProgress != null) SystemLanguageProgress(workProgress)

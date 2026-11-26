@@ -142,7 +142,22 @@ class TranslationRepository(private val context: Context) {
             catch(error: Exception) {LogRepository.append(context,"WARN","translation.version_lookup_failed",error.message ?: "版本比對未完成，保留內容識別")}
             return@withContext listOf(entry)
         }
-        val ourPlayResult = async { runCatching { OurPlayTranslation.latest().version } }
+        val ourPlayResults = OurPlayTranslation.Variant.entries.map { variant ->
+            variant to async {
+                try {
+                    val asset = OurPlayTranslation.latest(variant)
+                    LogRepository.append(context, "INFO", "translation.ourplay.remote_version",
+                        "${variant.title}：遠端版本 ${asset.version}")
+                    asset.version
+                }
+                catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                catch (error: Exception) {
+                    LogRepository.append(context, "WARN", "translation.ourplay.catalog_failed",
+                        "${variant.title}：${error.message ?: error.javaClass.simpleName}")
+                    null
+                }
+            }
+        }
         val primaryResult = runCatching {
             HttpClient.open(SOURCE).run { inputStream.bufferedReader().use { it.readText() }.also { disconnect() } }
         }.map(::parseTranslationCatalog)
@@ -155,7 +170,7 @@ class TranslationRepository(private val context: Context) {
         listOfNotNull(primaryResult.exceptionOrNull(), officialResult.exceptionOrNull()).forEach { error ->
             LogRepository.append(context, "WARN", "translation.catalog_source_failed", error.message ?: error.javaClass.simpleName)
         }
-        val ourPlay = OurPlayTranslation.entry.copy(version = ourPlayResult.await().getOrNull())
+        val ourPlay = ourPlayResults.map { (variant, result) -> OurPlayTranslation.entry(variant).copy(version = result.await()) }
         (community + ourPlay + primary).distinctBy { it.name to it.url }
     }
 
@@ -230,10 +245,13 @@ class TranslationRepository(private val context: Context) {
         progress: suspend (TransferProgress) -> Unit,
         preparation: suspend (ApplyProgress) -> Unit = {}
     ): DownloadedTranslation = withContext(Dispatchers.IO) {
-        val ourPlay = if (entry.url == OurPlayTranslation.entry.url && entry.name == OurPlayTranslation.entry.name) {
-            check(rootMode()) { "OurPlay 神人漢化需要 Root ＋ LSPosed" }
-            OurPlayTranslation.latest()
-        } else null
+        val ourPlayVariant = OurPlayTranslation.variantFor(entry)
+        val ourPlay = ourPlayVariant?.let { variant ->
+            check(rootMode()) { "OurPlay 漢化需要 Root ＋ LSPosed" }
+            OurPlayTranslation.latest(variant).also { asset ->
+                require(!isNewerPackVersion(entry.version, asset.version)) { "OurPlay 遠端版本已變動，請重新整理漢化清單" }
+            }
+        }
         val fileName = "${safeName(entry.name)}.zip"
         val sourceKey = java.security.MessageDigest.getInstance("SHA-256").digest(entry.url.toByteArray())
             .take(12).joinToString("") { "%02x".format(it) }
@@ -274,7 +292,21 @@ class TranslationRepository(private val context: Context) {
             prepareCharacters(prepared, preparation)
             val identifiedVersion = ensurePackIdentity(prepared, ourPlay?.url ?: entry.url,
                 ourPlay?.version ?: validPackVersion(entry.version) ?: releaseAssetVersion(entry.url) ?: archivePackVersion(output))
+            if (ourPlayVariant != null) {
+                val metadataFile = File(prepared, ".lcpatch-upstream.json")
+                val metadata = JSONObject(metadataFile.readText())
+                    .put("source_id", ourPlayVariant.sourceId)
+                metadataFile.writeText(metadata.toString())
+            }
             val publicPath = savePack(prepared, entry.name)
+            if (ourPlayVariant != null) {
+                val savedMetadata = executeRoot("head -c 8192 " + quote("$publicPath/.lcpatch-upstream.json"))
+                require(savedMetadata.success && installedPackVersion(savedMetadata.output, null) == identifiedVersion) {
+                    "OurPlay 下載版本寫入驗證失敗：預期 $identifiedVersion"
+                }
+                LogRepository.append(context, "INFO", "translation.ourplay.saved_version",
+                    "${entry.name}：清單 ${entry.version ?: "未知"}，下載並保存 $identifiedVersion")
+            }
             output.delete()
             progress(TransferProgress(fileName, result.bytes, if (result.total > 0) result.total else result.bytes, 0, true))
             LogRepository.append(context, "INFO", "download.completed", "${entry.name} 已下載並解壓到獨立目錄")
@@ -331,8 +363,10 @@ class TranslationRepository(private val context: Context) {
         val installedVersion = installedPackVersion(sourceMetadata, null) ?: ensurePackIdentity(raw)
         val runtimeMetadata = JSONObject().put("schema", 1)
         runtimeMetadata.put(if (installedVersion.startsWith("sha256:")) "content_id" else "version", installedVersion)
-        sourceMetadata?.let { runCatching { JSONObject(it).optString("url") }.getOrNull() }
-            ?.takeIf(String::isNotBlank)?.let { runtimeMetadata.put("url", it) }
+        val upstreamMetadata = sourceMetadata?.let { runCatching { JSONObject(it) }.getOrNull() }
+        for (key in listOf("url", "source_id")) {
+            upstreamMetadata?.optString(key)?.takeIf(String::isNotBlank)?.let { runtimeMetadata.put(key, it) }
+        }
         File(unpacked, "Localize/cn/$VERSION_MARKER").writeText(runtimeMetadata.toString())
         progress(ApplyProgress("正在驗證語言文件",0,0))
         validateJsonDirectory(File(unpacked, "Localize/cn"))
@@ -344,12 +378,13 @@ class TranslationRepository(private val context: Context) {
         val command = "am force-stop $GAME_PACKAGE && $nativeAction"
         val result = executeRoot(command)
         require(result.success) { result.output.ifBlank { "root 套用失敗" } }
-        val inspection = inspectRuntime()
+        val inspection = inspectRuntime(allowVersionFallback = false)
+        require(inspection.version == installedVersion) { "遊戲快取版本驗證失敗：預期 $installedVersion，實際 ${inspection.version ?: "無法讀取"}" }
         require(inspection.ready) { "遊戲快取驗證失敗：找不到 ${targetLanguage().prefix} 漢化文件" }
         require(inspection.fontReady) { "遊戲快取驗證失敗：中文字型未寫入" }
         progress(ApplyProgress("套用完成", 1, 1))
         prefs.edit().putString("active_name", displayName).putString("active_script", script).putString("active_version",installedVersion).putString("active_source_path",prefs.getString("applying_source_path",null)).apply()
-        LogRepository.append(context, "INFO", "translation.applied", "已套用 $displayName")
+        LogRepository.append(context, "INFO", "translation.applied", "已套用 $displayName，版本 $installedVersion；遊戲讀回 ${inspection.version}")
         return displayName
     }
 
@@ -382,38 +417,25 @@ class TranslationRepository(private val context: Context) {
             val version=readLocalPackVersion(file)
             DownloadedTranslation(file.name, file.absolutePath, script, File(file, PUA_MARKER).isFile,version)
         }
-        repairStorage()
-        val result = executeRoot("find ${quote(PUBLIC_DOWNLOADS)} -mindepth 1 -maxdepth 1 -type d ! -name '.*' -print")
-        if (!result.success) return@withContext emptyList()
-        result.output.lineSequence().filter(String::isNotBlank).mapNotNull { original ->
-            val oldName = File(original).name
-            if (isLegacyRootSimplified(oldName) && oldName != activeName()) {
-                if (runRoot("rm -rf -- ${quote(original)}")) {
-                    LogRepository.append(context, "INFO", "translation.legacy_removed", "已移除舊版 Root 簡體漢化")
-                    return@mapNotNull null
-                }
-            }
-            val cleanName = safeName(oldName)
-            val canonical = "$PUBLIC_DOWNLOADS/$cleanName"
-            if (original != canonical) runRoot("mv -f ${quote(original)} ${quote(canonical)}")
-            DownloadedTranslation(cleanName, canonical, readScript(canonical, cleanName), rootFileExists("$canonical/$PUA_MARKER"),
-                rootDownloadedPackVersion(canonical))
-        }.toList().distinctBy { it.path }.sortedBy { it.name.lowercase() }
+        // Listing is metadata-only: no migration, hashing or deletion in a UI read.
+        val command = rootPackMetadataCommand(PUBLIC_DOWNLOADS)
+        val result = RootShell.run(command, timeoutMs = 8_000L, maxOutputChars = 4 * 1024 * 1024,
+            keepTail = false, readOnlyMetadata = true)
+        require(result.success && !result.truncated) {
+            if (result.timedOut) "讀取漢化包逾時，請重試" else "無法讀取漢化包清單"
+        }
+        parseRootPackMetadata(result.output, PUBLIC_DOWNLOADS)
     }
 
-    private fun rootDownloadedPackVersion(directory: String): String? {
-        val metadata=executeRoot("cat ${quote("$directory/.lcpatch-upstream.json")} 2>/dev/null").output
-        installedPackVersion(metadata,null)?.let {return it}
-        val coverage=executeRoot("cat ${quote("$directory/Localize/cn/.lcpatch-coverage.txt")} 2>/dev/null").output
-        installedPackVersion(null,coverage)?.let {return it}
-        val result=RootShell.run("cd ${quote(directory)} && find Localize -type f -name '*.json' ! -name '.*' -exec sha256sum {} \\;",timeoutMs=120_000L,maxOutputChars=4*1024*1024)
-        if(!result.success || result.truncated) return null
-        val records=mutableListOf<Pair<String,String>>()
-        for(line in result.output.lineSequence().filter {it.isNotBlank()}) {
-            val match=Regex("^([a-f0-9]{64})  (Localize/.*)$").matchEntire(line) ?: return null
-            records+=match.groupValues[2] to match.groupValues[1]
+    private val legacyMigrationStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    suspend fun migrateLegacyDownloads() = withContext(Dispatchers.IO) {
+        if (!rootMode() || !legacyMigrationStarted.compareAndSet(false, true)) return@withContext
+        try { repairStorage() }
+        catch (error: Exception) {
+            legacyMigrationStarted.set(false)
+            throw error
         }
-        return records.takeIf {it.isNotEmpty()}?.let(::contentPackIdentity)
     }
 
     suspend fun apply(
@@ -529,7 +551,13 @@ class TranslationRepository(private val context: Context) {
         File(work,".lcpatch-script").writeText(script)
         File(work,PUA_MARKER).writeText("1")
         validateJsonDirectory(File(work,"Localize"))
-        if(keepDownload) savePack(work,name)
+        if(keepDownload) {
+            val downloaded = downloaded().firstOrNull { it.path == "$PUBLIC_DOWNLOADS/${safeName(name)}" }
+            val installed = installedPackVersion(File(work, ".lcpatch-upstream.json").takeIf(File::isFile)?.readText(), null)
+            // Converting installed text must not roll back a different downloaded version.
+            if (downloaded != null && installed != null && downloaded.version == installed) savePack(work,name)
+            else LogRepository.append(context, "INFO", "translation.conversion.keep_download", "保留版本不同或未知的已下載漢化")
+        }
         applyPrepared(work,name,progress)
         // applyPrepared replaces the disabled directory directly when disabled;
         // calling setTranslationEnabled(false) again would delete that directory.
@@ -596,7 +624,7 @@ class TranslationRepository(private val context: Context) {
         return runRoot(validLanguageDirectoryTest(NATIVE_COMPAT))
     }
 
-    fun inspectRuntime(): RuntimeInspection {
+    fun inspectRuntime(allowVersionFallback: Boolean = true): RuntimeInspection {
         if (!rootMode()) return RuntimeInspection()
         val prefix = targetLanguage().prefix.uppercase()
         val directory = if (translationEnabled()) NATIVE_COMPAT else NATIVE_DISABLED
@@ -621,8 +649,8 @@ class TranslationRepository(private val context: Context) {
             jsonFiles = counts.getOrNull(0)?.trim()?.toIntOrNull() ?: 0,
             matchingFiles = counts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0,
             fontBytes = counts.getOrNull(2)?.trim()?.toLongOrNull() ?: 0,
-            version = installedPackVersion(evidence.firstOrNull()?.trim(), null) ?: activeVersion()
-                ?: installedPackVersion(null, evidence.getOrNull(1))
+            version = installedPackVersion(evidence.firstOrNull()?.trim(), null)
+                ?: if (allowVersionFallback) activeVersion() ?: installedPackVersion(null, evidence.getOrNull(1)) else null
         )
     }
 
@@ -843,6 +871,43 @@ class TranslationRepository(private val context: Context) {
 
     private fun safeName(value: String): String = safePackName(value)
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
+}
+
+internal fun rootPackMetadataCommand(directory: String): String {
+    val quoted = "'" + directory.replace("'", "'\\''") + "'"
+    return """
+        for d in $quoted/*; do
+            [ -d "${'$'}d" ] && [ ! -L "${'$'}d" ] || continue
+            printf '%s\000' "${'$'}d"
+            head -c 128 "${'$'}d/.lcpatch-script" 2>/dev/null
+            printf '\000'
+            if [ -f "${'$'}d/.lcpatch-pua" ]; then printf '1'; fi
+            printf '\000'
+            head -c 8192 "${'$'}d/.lcpatch-upstream.json" 2>/dev/null
+            printf '\000'
+            head -c 8192 "${'$'}d/Localize/cn/.lcpatch-coverage.txt" 2>/dev/null
+            printf '\000'
+        done
+    """.trimIndent()
+}
+
+internal fun parseRootPackMetadata(output: String, directory: String): List<DownloadedTranslation> {
+    if (output.isEmpty()) return emptyList()
+    require(output.endsWith('\u0000')) { "漢化清單資料不完整" }
+    val fields = output.dropLast(1).split('\u0000')
+    require(fields.size % 5 == 0) { "漢化清單資料不完整" }
+    return fields.chunked(5).mapNotNull { (path, script, pua, metadata, coverage) ->
+        val file = File(path)
+        if (file.parent != directory || file.name.startsWith(".")) return@mapNotNull null
+        val name = safePackName(file.name)
+        val inferred = when {
+            name.contains("繁體") || name.contains("繁体") -> "繁體"
+            name.contains("簡體") || name.contains("简体") -> "簡體"
+            else -> "未判定"
+        }
+        DownloadedTranslation(name, path, script.trim().takeIf { it in setOf("簡體", "繁體") } ?: inferred,
+            pua == "1", installedPackVersion(metadata, coverage))
+    }.distinctBy { it.path }.sortedBy { it.name.lowercase() }
 }
 
 internal fun isLegacyRootSimplified(name: String): Boolean =

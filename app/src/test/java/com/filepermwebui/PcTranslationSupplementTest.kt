@@ -620,7 +620,7 @@ class InstalledIdentityAndLogDateTest {
     Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SystemInnerTopBar("下載漢化", {})
         val official = TranslationEntry("官方", "零協會漢化", "都市零協會", "自動補齊 PC 資源及劇情角色名稱。", "llc", version = "2026111901")
-        val ourPlay = OurPlayTranslation.entry.copy(version = "190")
+        val ourPlay = OurPlayTranslation.entry(OurPlayTranslation.Variant.COMMUNITY).copy(version = "190")
         val native = TranslationEntry("原生", "日文字形漢化", "pzwboy / ghcruise", "透過遊戲原生語言文件載入。", "native", version = "v1.119.0")
         SystemDownloadEntry(official) {
             SystemProgressActionButton(downloadPackAction(official, null), onClick = {})
@@ -772,7 +772,7 @@ class InstalledIdentityAndLogDateTest {
 
 class ReleaseDataRegressionTest {
     @Test fun downloadActionDistinguishesNewInstalledAndNewerVersions() {
-        val entry = OurPlayTranslation.entry.copy(version = "190")
+        val entry = OurPlayTranslation.entry(OurPlayTranslation.Variant.COMMUNITY).copy(version = "190")
         val downloaded = DownloadedTranslation(entry.name, "ourplay", version = "189")
         assertEquals("下載並套用", downloadPackAction(entry, null))
         assertEquals("更新並套用", downloadPackAction(entry, downloaded))

@@ -17,14 +17,31 @@ internal object OurPlayTranslation {
     private const val MAX_TEXT_CHARS = 2 * 1024 * 1024
     private val hashName = Regex("[a-fA-F0-9]{32}")
 
-    val entry = TranslationEntry(
+    enum class Variant(val sourceId: String, val apiValue: Int, val title: String, val author: String) {
+        STANDARD("ourplay-standard", 2, "OurPlay 一般漢化", "OurPlay"),
+        COMMUNITY("ourplay-community", 3, "OurPlay 神人漢化", "OurPlay 社群版")
+    }
+
+    // The community catalog key is retained for compatibility. The standard variant
+    // has a separate key, while both POST requests go to ENDPOINT.
+    fun entry(variant: Variant) = TranslationEntry(
         section = "漢化-XP",
-        name = "OurPlay 神人漢化",
-        author = "OurPlay 社群版",
-        description = "下載目前的社群漢化，使用零協會文字檔對應遊戲資源。",
-        url = ENDPOINT,
+        name = variant.title,
+        author = variant.author,
+        description = if (variant == Variant.STANDARD)
+            "下載 OurPlay 正常版漢化，使用零協會文字檔對應遊戲資源。"
+            else "下載目前的社群漢化，使用零協會文字檔對應遊戲資源。",
+        url = if (variant == Variant.COMMUNITY) ENDPOINT else "$ENDPOINT?is_unofficial=${variant.apiValue}",
         script = "簡體"
     )
+
+    fun variantFor(entry: TranslationEntry): Variant? = Variant.entries.firstOrNull {
+        val candidate = this.entry(it)
+        candidate.name == entry.name && candidate.url == entry.url
+    }
+
+    internal fun requestForm(variant: Variant): String =
+        "pkg=$GAME&language_type=chinese&language_ver=0&split=1&is_unofficial=${variant.apiValue}&ver=406"
 
     data class Asset(val version: String, val url: String, val bytes: Long, val md5: String) {
         fun verify(file: File) {
@@ -48,10 +65,10 @@ internal object OurPlayTranslation {
         }
     }
 
-    fun latest(): Asset {
+    fun latest(variant: Variant): Asset {
         // This profile contains only generic platform and application versions.
         val profile = """{"os":"Android","mainver":306800,"productId":6000,"release":"9","abi":"arm64-v8a","pkg":"com.excean.gspace","vc":11020,"apiPublicFlag":110,"vn":"8.5.9","packageName":"com.excean.gspace","api":28,"isHOS":0,"compver":127200,"language":"zh","country":"cn"}"""
-        val form = "pkg=$GAME&language_type=chinese&language_ver=0&split=1&is_unofficial=3&ver=406"
+        val form = requestForm(variant)
         val connection = (URI(ENDPOINT).toURL().openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             instanceFollowRedirects = false

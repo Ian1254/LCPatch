@@ -9,6 +9,16 @@ import java.util.zip.ZipOutputStream
 import java.util.zip.ZipFile
 
 class PackVersionIdentityTest {
+    @org.junit.Test fun ourPlayUpdateLookupIgnoresOtherVariantsAndNameCollisions() {
+        val standard = OurPlayTranslation.entry(OurPlayTranslation.Variant.STANDARD).copy(version = "201")
+        val community = OurPlayTranslation.entry(OurPlayTranslation.Variant.COMMUNITY).copy(version = "189")
+        val unrelated = community.copy(url = "https://example.com/pack.zip", version = "999")
+        val selected = activeCatalogEntry(listOf(standard, community, unrelated), community.name)
+        org.junit.Assert.assertEquals("189", selected?.version)
+        org.junit.Assert.assertFalse(isNewerPackVersion(selected?.version, "189"))
+        org.junit.Assert.assertEquals("201", activeCatalogEntry(listOf(standard, community), standard.name)?.version)
+    }
+
     @Test fun appliedContentIdentityTakesPrecedenceOverTheReferenceRelease() {
         val identity = "sha256:${"a".repeat(64)}"
         val metadata = """{"schema":1,"content_id":"$identity"}"""

@@ -40,6 +40,20 @@ class TranslationCatalogTest {
         assertNull(localizeRelativePath("BepInEx/plugins/plugin.dll"))
     }
 
+    @Test fun listsRootPackagesWithoutRequiringContentHashes() {
+        val directory = "/example/packs"
+        val known = listOf("$directory/OurPlay 神人漢化", "簡體", "1", """{"schema":1,"version":"189"}""", "")
+        val legacy = listOf("$directory/舊漢化", "", "", "", "")
+        val output = (known + legacy).joinToString("\u0000", postfix = "\u0000")
+        val packs = parseRootPackMetadata(output, directory)
+        assertEquals(2, packs.size)
+        assertEquals("189", packs.first { it.name == "OurPlay 神人漢化" }.version)
+        assertTrue(packs.first { it.name == "OurPlay 神人漢化" }.puaPrepared)
+        assertNull(packs.first { it.name == "舊漢化" }.version)
+        assertFalse(rootPackMetadataCommand(directory).contains("sha256sum"))
+        assertTrue(runCatching { parseRootPackMetadata(output.dropLast(1), directory) }.isFailure)
+    }
+
     @Test fun correctsLanguageFilePrefixes() {
         assertEquals("KR_Story.json", correctedLanguageFileName("JP_Story.json", "KR"))
         assertEquals("EN_Test.json", correctedLanguageFileName("kr_Test.json", "en"))
