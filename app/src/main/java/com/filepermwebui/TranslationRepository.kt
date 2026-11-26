@@ -404,38 +404,25 @@ class TranslationRepository(private val context: Context) {
             val version=readLocalPackVersion(file)
             DownloadedTranslation(file.name, file.absolutePath, script, File(file, PUA_MARKER).isFile,version)
         }
-        repairStorage()
-        val result = executeRoot("find ${quote(PUBLIC_DOWNLOADS)} -mindepth 1 -maxdepth 1 -type d ! -name '.*' -print")
-        if (!result.success) return@withContext emptyList()
-        result.output.lineSequence().filter(String::isNotBlank).mapNotNull { original ->
-            val oldName = File(original).name
-            if (isLegacyRootSimplified(oldName) && oldName != activeName()) {
-                if (runRoot("rm -rf -- ${quote(original)}")) {
-                    LogRepository.append(context, "INFO", "translation.legacy_removed", "已移除舊版 Root 簡體漢化")
-                    return@mapNotNull null
-                }
-            }
-            val cleanName = safeName(oldName)
-            val canonical = "$PUBLIC_DOWNLOADS/$cleanName"
-            if (original != canonical) runRoot("mv -f ${quote(original)} ${quote(canonical)}")
-            DownloadedTranslation(cleanName, canonical, readScript(canonical, cleanName), rootFileExists("$canonical/$PUA_MARKER"),
-                rootDownloadedPackVersion(canonical))
-        }.toList().distinctBy { it.path }.sortedBy { it.name.lowercase() }
+        // Listing is metadata-only: no migration, hashing or deletion in a UI read.
+        val command = rootPackMetadataCommand(PUBLIC_DOWNLOADS)
+        val result = RootShell.run(command, timeoutMs = 8_000L, maxOutputChars = 4 * 1024 * 1024,
+            keepTail = false, readOnlyMetadata = true)
+        require(result.success && !result.truncated) {
+            if (result.timedOut) "讀取漢化包逾時，請重試" else "無法讀取漢化包清單"
+        }
+        parseRootPackMetadata(result.output, PUBLIC_DOWNLOADS)
     }
 
-    private fun rootDownloadedPackVersion(directory: String): String? {
-        val metadata=executeRoot("cat ${quote("$directory/.lcpatch-upstream.json")} 2>/dev/null").output
-        installedPackVersion(metadata,null)?.let {return it}
-        val coverage=executeRoot("cat ${quote("$directory/Localize/cn/.lcpatch-coverage.txt")} 2>/dev/null").output
-        installedPackVersion(null,coverage)?.let {return it}
-        val result=RootShell.run("cd ${quote(directory)} && find Localize -type f -name '*.json' ! -name '.*' -exec sha256sum {} \\;",timeoutMs=120_000L,maxOutputChars=4*1024*1024)
-        if(!result.success || result.truncated) return null
-        val records=mutableListOf<Pair<String,String>>()
-        for(line in result.output.lineSequence().filter {it.isNotBlank()}) {
-            val match=Regex("^([a-f0-9]{64})  (Localize/.*)$").matchEntire(line) ?: return null
-            records+=match.groupValues[2] to match.groupValues[1]
+    private val legacyMigrationStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    suspend fun migrateLegacyDownloads() = withContext(Dispatchers.IO) {
+        if (!rootMode() || !legacyMigrationStarted.compareAndSet(false, true)) return@withContext
+        try { repairStorage() }
+        catch (error: Exception) {
+            legacyMigrationStarted.set(false)
+            throw error
         }
-        return records.takeIf {it.isNotEmpty()}?.let(::contentPackIdentity)
     }
 
     suspend fun apply(
@@ -865,6 +852,666 @@ class TranslationRepository(private val context: Context) {
 
     private fun safeName(value: String): String = safePackName(value)
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
+}
+
+internal fun rootPackMetadataCommand(directory: String): String {
+    val quoted = "'" + directory.replace("'", "'\\''") + "'"
+    return """
+        for d in $quoted/*; do
+            [ -d "${'
+    Regex("^Root\\s*简体汉化$", RegexOption.IGNORE_CASE).matches(name)
+
+internal fun parseTranslationCatalog(text: String): List<TranslationEntry> {
+    var section = ""
+    return text.lineSequence().mapNotNull { raw ->
+        val line = raw.trim()
+        if (line.startsWith("[") && line.endsWith("]")) {
+            section = line.substring(1, line.length - 1)
+            null
+        } else if (line.isBlank() || line.startsWith("#") ||
+            !(section == "漢化-XP" || section == "汉化-XP")) null
+        else {
+            val columns = line.split('|').map(String::trim)
+            if (columns.size < 4) null else TranslationEntry(section, columns[0], columns[1], columns[2], columns[3])
+        }
+    }.toList()
+}
+
+internal fun localizeRelativePath(value: String): String? {
+    val path = value.replace('\\', '/').trimStart('/')
+    val marker = "/Localize/"
+    val officialMarker = "/Lang/LLC_zh-CN/"
+    return when {
+        path == "Localize" || path == "Localize/" -> "Localize/"
+        path.startsWith("Localize/") -> path
+        marker in path -> "Localize/" + path.substringAfter(marker)
+        officialMarker in path -> path.substringAfter(officialMarker).takeUnless { it.startsWith("Info/") }?.let { "Localize/cn/"+it }
+        else -> null
+    }
+}
+
+internal fun correctedLanguageFileName(value: String, prefix: String): String {
+    if (!value.endsWith(".json", ignoreCase = true)) return value
+    val normalizedPrefix = "${prefix.uppercase()}_"
+    if(value == "kr_settings-ui-donttranslate.json") return normalizedPrefix+value
+    return if (Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE).containsMatchIn(value)) {
+        value.replace(Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE), normalizedPrefix)
+    } else {
+        normalizedPrefix + value
+    }
+}
+
+internal fun decodeCjkUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0x3400..0x9FFF || character.code in 0xF900..0xFAFF) character.toString() else match.value
+    }
+
+internal fun decodePuaUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0xE000..0xF8FF) character.toString() else match.value
+    }
+
+internal fun isOfficialLlcUrl(url: String): Boolean = url.startsWith("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/")
+
+/** Countable work reports real batches; shell/network phases report unknown totals. */
+internal suspend fun copyLanguageResources(source: File,destination: File,language: OverrideLanguage,
+    includeNonJson: Boolean,progress: suspend (ApplyProgress)->Unit) {
+    val files=source.walkTopDown().filter {it.isFile && (includeNonJson || it.extension.equals("json",true))}.toList()
+    val stage="正在整理${language.label}覆蓋文件"
+    progress(ApplyProgress(stage,0,files.size))
+    files.forEachIndexed { index,input ->
+        val relative=input.relativeTo(source)
+        val name=correctedLanguageFileName(relative.name,language.prefix)
+        val parent=relative.parent?.let {File(destination,it)}?:destination
+        input.copyTo(File(parent.apply {mkdirs()},name),overwrite=true)
+        if(index==files.lastIndex || (index+1)%16==0) progress(ApplyProgress(stage,index+1,files.size))
+    }
+}
+
+
+internal fun officialReleaseUrl(value: String?): String? = value?.takeIf {
+    it.lineSequence().any {line ->line.trim()=="零協會完整資源與劇情角色名稱已自動整理"}
+}?.let {
+    Regex("""https://github\.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/[^\s]+""")
+        .find(it)?.value
+}
+
+internal fun installedPackVersion(metadata: String?,coverage: String?): String? {
+    val json=metadata?.takeIf {it.length<8192}?.let {runCatching {JSONObject(it)}.getOrNull()}?.takeIf {it.optInt("schema")==1}
+    validPackVersion(json?.optString("version"))?.let {return it}
+    releaseAssetVersion(json?.optString("url"))?.let {return it}
+    json?.optString("content_id")?.takeIf { it.matches(Regex("sha256:[a-f0-9]{64}")) }?.let { return it }
+    return releaseAssetVersion(officialReleaseUrl(coverage))
+}
+
+internal fun readLocalPackVersion(directory: File): String = ensurePackIdentity(directory)
+}d" ] && [ ! -L "${'
+    Regex("^Root\\s*简体汉化$", RegexOption.IGNORE_CASE).matches(name)
+
+internal fun parseTranslationCatalog(text: String): List<TranslationEntry> {
+    var section = ""
+    return text.lineSequence().mapNotNull { raw ->
+        val line = raw.trim()
+        if (line.startsWith("[") && line.endsWith("]")) {
+            section = line.substring(1, line.length - 1)
+            null
+        } else if (line.isBlank() || line.startsWith("#") ||
+            !(section == "漢化-XP" || section == "汉化-XP")) null
+        else {
+            val columns = line.split('|').map(String::trim)
+            if (columns.size < 4) null else TranslationEntry(section, columns[0], columns[1], columns[2], columns[3])
+        }
+    }.toList()
+}
+
+internal fun localizeRelativePath(value: String): String? {
+    val path = value.replace('\\', '/').trimStart('/')
+    val marker = "/Localize/"
+    val officialMarker = "/Lang/LLC_zh-CN/"
+    return when {
+        path == "Localize" || path == "Localize/" -> "Localize/"
+        path.startsWith("Localize/") -> path
+        marker in path -> "Localize/" + path.substringAfter(marker)
+        officialMarker in path -> path.substringAfter(officialMarker).takeUnless { it.startsWith("Info/") }?.let { "Localize/cn/"+it }
+        else -> null
+    }
+}
+
+internal fun correctedLanguageFileName(value: String, prefix: String): String {
+    if (!value.endsWith(".json", ignoreCase = true)) return value
+    val normalizedPrefix = "${prefix.uppercase()}_"
+    if(value == "kr_settings-ui-donttranslate.json") return normalizedPrefix+value
+    return if (Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE).containsMatchIn(value)) {
+        value.replace(Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE), normalizedPrefix)
+    } else {
+        normalizedPrefix + value
+    }
+}
+
+internal fun decodeCjkUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0x3400..0x9FFF || character.code in 0xF900..0xFAFF) character.toString() else match.value
+    }
+
+internal fun decodePuaUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0xE000..0xF8FF) character.toString() else match.value
+    }
+
+internal fun isOfficialLlcUrl(url: String): Boolean = url.startsWith("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/")
+
+/** Countable work reports real batches; shell/network phases report unknown totals. */
+internal suspend fun copyLanguageResources(source: File,destination: File,language: OverrideLanguage,
+    includeNonJson: Boolean,progress: suspend (ApplyProgress)->Unit) {
+    val files=source.walkTopDown().filter {it.isFile && (includeNonJson || it.extension.equals("json",true))}.toList()
+    val stage="正在整理${language.label}覆蓋文件"
+    progress(ApplyProgress(stage,0,files.size))
+    files.forEachIndexed { index,input ->
+        val relative=input.relativeTo(source)
+        val name=correctedLanguageFileName(relative.name,language.prefix)
+        val parent=relative.parent?.let {File(destination,it)}?:destination
+        input.copyTo(File(parent.apply {mkdirs()},name),overwrite=true)
+        if(index==files.lastIndex || (index+1)%16==0) progress(ApplyProgress(stage,index+1,files.size))
+    }
+}
+
+
+internal fun officialReleaseUrl(value: String?): String? = value?.takeIf {
+    it.lineSequence().any {line ->line.trim()=="零協會完整資源與劇情角色名稱已自動整理"}
+}?.let {
+    Regex("""https://github\.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/[^\s]+""")
+        .find(it)?.value
+}
+
+internal fun installedPackVersion(metadata: String?,coverage: String?): String? {
+    val json=metadata?.takeIf {it.length<8192}?.let {runCatching {JSONObject(it)}.getOrNull()}?.takeIf {it.optInt("schema")==1}
+    validPackVersion(json?.optString("version"))?.let {return it}
+    releaseAssetVersion(json?.optString("url"))?.let {return it}
+    json?.optString("content_id")?.takeIf { it.matches(Regex("sha256:[a-f0-9]{64}")) }?.let { return it }
+    return releaseAssetVersion(officialReleaseUrl(coverage))
+}
+
+internal fun readLocalPackVersion(directory: File): String = ensurePackIdentity(directory)
+}d" ] || continue
+            printf '%s\000' "${'
+    Regex("^Root\\s*简体汉化$", RegexOption.IGNORE_CASE).matches(name)
+
+internal fun parseTranslationCatalog(text: String): List<TranslationEntry> {
+    var section = ""
+    return text.lineSequence().mapNotNull { raw ->
+        val line = raw.trim()
+        if (line.startsWith("[") && line.endsWith("]")) {
+            section = line.substring(1, line.length - 1)
+            null
+        } else if (line.isBlank() || line.startsWith("#") ||
+            !(section == "漢化-XP" || section == "汉化-XP")) null
+        else {
+            val columns = line.split('|').map(String::trim)
+            if (columns.size < 4) null else TranslationEntry(section, columns[0], columns[1], columns[2], columns[3])
+        }
+    }.toList()
+}
+
+internal fun localizeRelativePath(value: String): String? {
+    val path = value.replace('\\', '/').trimStart('/')
+    val marker = "/Localize/"
+    val officialMarker = "/Lang/LLC_zh-CN/"
+    return when {
+        path == "Localize" || path == "Localize/" -> "Localize/"
+        path.startsWith("Localize/") -> path
+        marker in path -> "Localize/" + path.substringAfter(marker)
+        officialMarker in path -> path.substringAfter(officialMarker).takeUnless { it.startsWith("Info/") }?.let { "Localize/cn/"+it }
+        else -> null
+    }
+}
+
+internal fun correctedLanguageFileName(value: String, prefix: String): String {
+    if (!value.endsWith(".json", ignoreCase = true)) return value
+    val normalizedPrefix = "${prefix.uppercase()}_"
+    if(value == "kr_settings-ui-donttranslate.json") return normalizedPrefix+value
+    return if (Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE).containsMatchIn(value)) {
+        value.replace(Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE), normalizedPrefix)
+    } else {
+        normalizedPrefix + value
+    }
+}
+
+internal fun decodeCjkUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0x3400..0x9FFF || character.code in 0xF900..0xFAFF) character.toString() else match.value
+    }
+
+internal fun decodePuaUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0xE000..0xF8FF) character.toString() else match.value
+    }
+
+internal fun isOfficialLlcUrl(url: String): Boolean = url.startsWith("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/")
+
+/** Countable work reports real batches; shell/network phases report unknown totals. */
+internal suspend fun copyLanguageResources(source: File,destination: File,language: OverrideLanguage,
+    includeNonJson: Boolean,progress: suspend (ApplyProgress)->Unit) {
+    val files=source.walkTopDown().filter {it.isFile && (includeNonJson || it.extension.equals("json",true))}.toList()
+    val stage="正在整理${language.label}覆蓋文件"
+    progress(ApplyProgress(stage,0,files.size))
+    files.forEachIndexed { index,input ->
+        val relative=input.relativeTo(source)
+        val name=correctedLanguageFileName(relative.name,language.prefix)
+        val parent=relative.parent?.let {File(destination,it)}?:destination
+        input.copyTo(File(parent.apply {mkdirs()},name),overwrite=true)
+        if(index==files.lastIndex || (index+1)%16==0) progress(ApplyProgress(stage,index+1,files.size))
+    }
+}
+
+
+internal fun officialReleaseUrl(value: String?): String? = value?.takeIf {
+    it.lineSequence().any {line ->line.trim()=="零協會完整資源與劇情角色名稱已自動整理"}
+}?.let {
+    Regex("""https://github\.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/[^\s]+""")
+        .find(it)?.value
+}
+
+internal fun installedPackVersion(metadata: String?,coverage: String?): String? {
+    val json=metadata?.takeIf {it.length<8192}?.let {runCatching {JSONObject(it)}.getOrNull()}?.takeIf {it.optInt("schema")==1}
+    validPackVersion(json?.optString("version"))?.let {return it}
+    releaseAssetVersion(json?.optString("url"))?.let {return it}
+    json?.optString("content_id")?.takeIf { it.matches(Regex("sha256:[a-f0-9]{64}")) }?.let { return it }
+    return releaseAssetVersion(officialReleaseUrl(coverage))
+}
+
+internal fun readLocalPackVersion(directory: File): String = ensurePackIdentity(directory)
+}d"
+            head -c 128 "${'
+    Regex("^Root\\s*简体汉化$", RegexOption.IGNORE_CASE).matches(name)
+
+internal fun parseTranslationCatalog(text: String): List<TranslationEntry> {
+    var section = ""
+    return text.lineSequence().mapNotNull { raw ->
+        val line = raw.trim()
+        if (line.startsWith("[") && line.endsWith("]")) {
+            section = line.substring(1, line.length - 1)
+            null
+        } else if (line.isBlank() || line.startsWith("#") ||
+            !(section == "漢化-XP" || section == "汉化-XP")) null
+        else {
+            val columns = line.split('|').map(String::trim)
+            if (columns.size < 4) null else TranslationEntry(section, columns[0], columns[1], columns[2], columns[3])
+        }
+    }.toList()
+}
+
+internal fun localizeRelativePath(value: String): String? {
+    val path = value.replace('\\', '/').trimStart('/')
+    val marker = "/Localize/"
+    val officialMarker = "/Lang/LLC_zh-CN/"
+    return when {
+        path == "Localize" || path == "Localize/" -> "Localize/"
+        path.startsWith("Localize/") -> path
+        marker in path -> "Localize/" + path.substringAfter(marker)
+        officialMarker in path -> path.substringAfter(officialMarker).takeUnless { it.startsWith("Info/") }?.let { "Localize/cn/"+it }
+        else -> null
+    }
+}
+
+internal fun correctedLanguageFileName(value: String, prefix: String): String {
+    if (!value.endsWith(".json", ignoreCase = true)) return value
+    val normalizedPrefix = "${prefix.uppercase()}_"
+    if(value == "kr_settings-ui-donttranslate.json") return normalizedPrefix+value
+    return if (Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE).containsMatchIn(value)) {
+        value.replace(Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE), normalizedPrefix)
+    } else {
+        normalizedPrefix + value
+    }
+}
+
+internal fun decodeCjkUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0x3400..0x9FFF || character.code in 0xF900..0xFAFF) character.toString() else match.value
+    }
+
+internal fun decodePuaUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0xE000..0xF8FF) character.toString() else match.value
+    }
+
+internal fun isOfficialLlcUrl(url: String): Boolean = url.startsWith("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/")
+
+/** Countable work reports real batches; shell/network phases report unknown totals. */
+internal suspend fun copyLanguageResources(source: File,destination: File,language: OverrideLanguage,
+    includeNonJson: Boolean,progress: suspend (ApplyProgress)->Unit) {
+    val files=source.walkTopDown().filter {it.isFile && (includeNonJson || it.extension.equals("json",true))}.toList()
+    val stage="正在整理${language.label}覆蓋文件"
+    progress(ApplyProgress(stage,0,files.size))
+    files.forEachIndexed { index,input ->
+        val relative=input.relativeTo(source)
+        val name=correctedLanguageFileName(relative.name,language.prefix)
+        val parent=relative.parent?.let {File(destination,it)}?:destination
+        input.copyTo(File(parent.apply {mkdirs()},name),overwrite=true)
+        if(index==files.lastIndex || (index+1)%16==0) progress(ApplyProgress(stage,index+1,files.size))
+    }
+}
+
+
+internal fun officialReleaseUrl(value: String?): String? = value?.takeIf {
+    it.lineSequence().any {line ->line.trim()=="零協會完整資源與劇情角色名稱已自動整理"}
+}?.let {
+    Regex("""https://github\.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/[^\s]+""")
+        .find(it)?.value
+}
+
+internal fun installedPackVersion(metadata: String?,coverage: String?): String? {
+    val json=metadata?.takeIf {it.length<8192}?.let {runCatching {JSONObject(it)}.getOrNull()}?.takeIf {it.optInt("schema")==1}
+    validPackVersion(json?.optString("version"))?.let {return it}
+    releaseAssetVersion(json?.optString("url"))?.let {return it}
+    json?.optString("content_id")?.takeIf { it.matches(Regex("sha256:[a-f0-9]{64}")) }?.let { return it }
+    return releaseAssetVersion(officialReleaseUrl(coverage))
+}
+
+internal fun readLocalPackVersion(directory: File): String = ensurePackIdentity(directory)
+}d/.lcpatch-script" 2>/dev/null
+            printf '\000'
+            if [ -f "${'
+    Regex("^Root\\s*简体汉化$", RegexOption.IGNORE_CASE).matches(name)
+
+internal fun parseTranslationCatalog(text: String): List<TranslationEntry> {
+    var section = ""
+    return text.lineSequence().mapNotNull { raw ->
+        val line = raw.trim()
+        if (line.startsWith("[") && line.endsWith("]")) {
+            section = line.substring(1, line.length - 1)
+            null
+        } else if (line.isBlank() || line.startsWith("#") ||
+            !(section == "漢化-XP" || section == "汉化-XP")) null
+        else {
+            val columns = line.split('|').map(String::trim)
+            if (columns.size < 4) null else TranslationEntry(section, columns[0], columns[1], columns[2], columns[3])
+        }
+    }.toList()
+}
+
+internal fun localizeRelativePath(value: String): String? {
+    val path = value.replace('\\', '/').trimStart('/')
+    val marker = "/Localize/"
+    val officialMarker = "/Lang/LLC_zh-CN/"
+    return when {
+        path == "Localize" || path == "Localize/" -> "Localize/"
+        path.startsWith("Localize/") -> path
+        marker in path -> "Localize/" + path.substringAfter(marker)
+        officialMarker in path -> path.substringAfter(officialMarker).takeUnless { it.startsWith("Info/") }?.let { "Localize/cn/"+it }
+        else -> null
+    }
+}
+
+internal fun correctedLanguageFileName(value: String, prefix: String): String {
+    if (!value.endsWith(".json", ignoreCase = true)) return value
+    val normalizedPrefix = "${prefix.uppercase()}_"
+    if(value == "kr_settings-ui-donttranslate.json") return normalizedPrefix+value
+    return if (Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE).containsMatchIn(value)) {
+        value.replace(Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE), normalizedPrefix)
+    } else {
+        normalizedPrefix + value
+    }
+}
+
+internal fun decodeCjkUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0x3400..0x9FFF || character.code in 0xF900..0xFAFF) character.toString() else match.value
+    }
+
+internal fun decodePuaUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0xE000..0xF8FF) character.toString() else match.value
+    }
+
+internal fun isOfficialLlcUrl(url: String): Boolean = url.startsWith("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/")
+
+/** Countable work reports real batches; shell/network phases report unknown totals. */
+internal suspend fun copyLanguageResources(source: File,destination: File,language: OverrideLanguage,
+    includeNonJson: Boolean,progress: suspend (ApplyProgress)->Unit) {
+    val files=source.walkTopDown().filter {it.isFile && (includeNonJson || it.extension.equals("json",true))}.toList()
+    val stage="正在整理${language.label}覆蓋文件"
+    progress(ApplyProgress(stage,0,files.size))
+    files.forEachIndexed { index,input ->
+        val relative=input.relativeTo(source)
+        val name=correctedLanguageFileName(relative.name,language.prefix)
+        val parent=relative.parent?.let {File(destination,it)}?:destination
+        input.copyTo(File(parent.apply {mkdirs()},name),overwrite=true)
+        if(index==files.lastIndex || (index+1)%16==0) progress(ApplyProgress(stage,index+1,files.size))
+    }
+}
+
+
+internal fun officialReleaseUrl(value: String?): String? = value?.takeIf {
+    it.lineSequence().any {line ->line.trim()=="零協會完整資源與劇情角色名稱已自動整理"}
+}?.let {
+    Regex("""https://github\.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/[^\s]+""")
+        .find(it)?.value
+}
+
+internal fun installedPackVersion(metadata: String?,coverage: String?): String? {
+    val json=metadata?.takeIf {it.length<8192}?.let {runCatching {JSONObject(it)}.getOrNull()}?.takeIf {it.optInt("schema")==1}
+    validPackVersion(json?.optString("version"))?.let {return it}
+    releaseAssetVersion(json?.optString("url"))?.let {return it}
+    json?.optString("content_id")?.takeIf { it.matches(Regex("sha256:[a-f0-9]{64}")) }?.let { return it }
+    return releaseAssetVersion(officialReleaseUrl(coverage))
+}
+
+internal fun readLocalPackVersion(directory: File): String = ensurePackIdentity(directory)
+}d/.lcpatch-pua" ]; then printf '1'; fi
+            printf '\000'
+            head -c 8192 "${'
+    Regex("^Root\\s*简体汉化$", RegexOption.IGNORE_CASE).matches(name)
+
+internal fun parseTranslationCatalog(text: String): List<TranslationEntry> {
+    var section = ""
+    return text.lineSequence().mapNotNull { raw ->
+        val line = raw.trim()
+        if (line.startsWith("[") && line.endsWith("]")) {
+            section = line.substring(1, line.length - 1)
+            null
+        } else if (line.isBlank() || line.startsWith("#") ||
+            !(section == "漢化-XP" || section == "汉化-XP")) null
+        else {
+            val columns = line.split('|').map(String::trim)
+            if (columns.size < 4) null else TranslationEntry(section, columns[0], columns[1], columns[2], columns[3])
+        }
+    }.toList()
+}
+
+internal fun localizeRelativePath(value: String): String? {
+    val path = value.replace('\\', '/').trimStart('/')
+    val marker = "/Localize/"
+    val officialMarker = "/Lang/LLC_zh-CN/"
+    return when {
+        path == "Localize" || path == "Localize/" -> "Localize/"
+        path.startsWith("Localize/") -> path
+        marker in path -> "Localize/" + path.substringAfter(marker)
+        officialMarker in path -> path.substringAfter(officialMarker).takeUnless { it.startsWith("Info/") }?.let { "Localize/cn/"+it }
+        else -> null
+    }
+}
+
+internal fun correctedLanguageFileName(value: String, prefix: String): String {
+    if (!value.endsWith(".json", ignoreCase = true)) return value
+    val normalizedPrefix = "${prefix.uppercase()}_"
+    if(value == "kr_settings-ui-donttranslate.json") return normalizedPrefix+value
+    return if (Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE).containsMatchIn(value)) {
+        value.replace(Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE), normalizedPrefix)
+    } else {
+        normalizedPrefix + value
+    }
+}
+
+internal fun decodeCjkUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0x3400..0x9FFF || character.code in 0xF900..0xFAFF) character.toString() else match.value
+    }
+
+internal fun decodePuaUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0xE000..0xF8FF) character.toString() else match.value
+    }
+
+internal fun isOfficialLlcUrl(url: String): Boolean = url.startsWith("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/")
+
+/** Countable work reports real batches; shell/network phases report unknown totals. */
+internal suspend fun copyLanguageResources(source: File,destination: File,language: OverrideLanguage,
+    includeNonJson: Boolean,progress: suspend (ApplyProgress)->Unit) {
+    val files=source.walkTopDown().filter {it.isFile && (includeNonJson || it.extension.equals("json",true))}.toList()
+    val stage="正在整理${language.label}覆蓋文件"
+    progress(ApplyProgress(stage,0,files.size))
+    files.forEachIndexed { index,input ->
+        val relative=input.relativeTo(source)
+        val name=correctedLanguageFileName(relative.name,language.prefix)
+        val parent=relative.parent?.let {File(destination,it)}?:destination
+        input.copyTo(File(parent.apply {mkdirs()},name),overwrite=true)
+        if(index==files.lastIndex || (index+1)%16==0) progress(ApplyProgress(stage,index+1,files.size))
+    }
+}
+
+
+internal fun officialReleaseUrl(value: String?): String? = value?.takeIf {
+    it.lineSequence().any {line ->line.trim()=="零協會完整資源與劇情角色名稱已自動整理"}
+}?.let {
+    Regex("""https://github\.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/[^\s]+""")
+        .find(it)?.value
+}
+
+internal fun installedPackVersion(metadata: String?,coverage: String?): String? {
+    val json=metadata?.takeIf {it.length<8192}?.let {runCatching {JSONObject(it)}.getOrNull()}?.takeIf {it.optInt("schema")==1}
+    validPackVersion(json?.optString("version"))?.let {return it}
+    releaseAssetVersion(json?.optString("url"))?.let {return it}
+    json?.optString("content_id")?.takeIf { it.matches(Regex("sha256:[a-f0-9]{64}")) }?.let { return it }
+    return releaseAssetVersion(officialReleaseUrl(coverage))
+}
+
+internal fun readLocalPackVersion(directory: File): String = ensurePackIdentity(directory)
+}d/.lcpatch-upstream.json" 2>/dev/null
+            printf '\000'
+            head -c 8192 "${'
+    Regex("^Root\\s*简体汉化$", RegexOption.IGNORE_CASE).matches(name)
+
+internal fun parseTranslationCatalog(text: String): List<TranslationEntry> {
+    var section = ""
+    return text.lineSequence().mapNotNull { raw ->
+        val line = raw.trim()
+        if (line.startsWith("[") && line.endsWith("]")) {
+            section = line.substring(1, line.length - 1)
+            null
+        } else if (line.isBlank() || line.startsWith("#") ||
+            !(section == "漢化-XP" || section == "汉化-XP")) null
+        else {
+            val columns = line.split('|').map(String::trim)
+            if (columns.size < 4) null else TranslationEntry(section, columns[0], columns[1], columns[2], columns[3])
+        }
+    }.toList()
+}
+
+internal fun localizeRelativePath(value: String): String? {
+    val path = value.replace('\\', '/').trimStart('/')
+    val marker = "/Localize/"
+    val officialMarker = "/Lang/LLC_zh-CN/"
+    return when {
+        path == "Localize" || path == "Localize/" -> "Localize/"
+        path.startsWith("Localize/") -> path
+        marker in path -> "Localize/" + path.substringAfter(marker)
+        officialMarker in path -> path.substringAfter(officialMarker).takeUnless { it.startsWith("Info/") }?.let { "Localize/cn/"+it }
+        else -> null
+    }
+}
+
+internal fun correctedLanguageFileName(value: String, prefix: String): String {
+    if (!value.endsWith(".json", ignoreCase = true)) return value
+    val normalizedPrefix = "${prefix.uppercase()}_"
+    if(value == "kr_settings-ui-donttranslate.json") return normalizedPrefix+value
+    return if (Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE).containsMatchIn(value)) {
+        value.replace(Regex("^(JP|KR|EN)_", RegexOption.IGNORE_CASE), normalizedPrefix)
+    } else {
+        normalizedPrefix + value
+    }
+}
+
+internal fun decodeCjkUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0x3400..0x9FFF || character.code in 0xF900..0xFAFF) character.toString() else match.value
+    }
+
+internal fun decodePuaUnicodeEscapes(value: String): String =
+    Regex("(?<!\\\\)\\\\u([0-9a-fA-F]{4})").replace(value) { match ->
+        val character = match.groupValues[1].toInt(16).toChar()
+        if (character.code in 0xE000..0xF8FF) character.toString() else match.value
+    }
+
+internal fun isOfficialLlcUrl(url: String): Boolean = url.startsWith("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/")
+
+/** Countable work reports real batches; shell/network phases report unknown totals. */
+internal suspend fun copyLanguageResources(source: File,destination: File,language: OverrideLanguage,
+    includeNonJson: Boolean,progress: suspend (ApplyProgress)->Unit) {
+    val files=source.walkTopDown().filter {it.isFile && (includeNonJson || it.extension.equals("json",true))}.toList()
+    val stage="正在整理${language.label}覆蓋文件"
+    progress(ApplyProgress(stage,0,files.size))
+    files.forEachIndexed { index,input ->
+        val relative=input.relativeTo(source)
+        val name=correctedLanguageFileName(relative.name,language.prefix)
+        val parent=relative.parent?.let {File(destination,it)}?:destination
+        input.copyTo(File(parent.apply {mkdirs()},name),overwrite=true)
+        if(index==files.lastIndex || (index+1)%16==0) progress(ApplyProgress(stage,index+1,files.size))
+    }
+}
+
+
+internal fun officialReleaseUrl(value: String?): String? = value?.takeIf {
+    it.lineSequence().any {line ->line.trim()=="零協會完整資源與劇情角色名稱已自動整理"}
+}?.let {
+    Regex("""https://github\.com/LocalizeLimbusCompany/LocalizeLimbusCompany/releases/download/[^\s]+""")
+        .find(it)?.value
+}
+
+internal fun installedPackVersion(metadata: String?,coverage: String?): String? {
+    val json=metadata?.takeIf {it.length<8192}?.let {runCatching {JSONObject(it)}.getOrNull()}?.takeIf {it.optInt("schema")==1}
+    validPackVersion(json?.optString("version"))?.let {return it}
+    releaseAssetVersion(json?.optString("url"))?.let {return it}
+    json?.optString("content_id")?.takeIf { it.matches(Regex("sha256:[a-f0-9]{64}")) }?.let { return it }
+    return releaseAssetVersion(officialReleaseUrl(coverage))
+}
+
+internal fun readLocalPackVersion(directory: File): String = ensurePackIdentity(directory)
+}d/Localize/cn/.lcpatch-coverage.txt" 2>/dev/null
+            printf '\000'
+        done
+    """.trimIndent()
+}
+
+internal fun parseRootPackMetadata(output: String, directory: String): List<DownloadedTranslation> {
+    if (output.isEmpty()) return emptyList()
+    require(output.endsWith('\u0000')) { "漢化清單資料不完整" }
+    val fields = output.dropLast(1).split('\u0000')
+    require(fields.size % 5 == 0) { "漢化清單資料不完整" }
+    return fields.chunked(5).mapNotNull { (path, script, pua, metadata, coverage) ->
+        val file = File(path)
+        if (file.parent != directory || file.name.startsWith(".")) return@mapNotNull null
+        val name = safePackName(file.name)
+        val inferred = when {
+            name.contains("繁體") || name.contains("繁体") -> "繁體"
+            name.contains("簡體") || name.contains("简体") -> "簡體"
+            else -> "未判定"
+        }
+        DownloadedTranslation(name, path, script.trim().takeIf { it in setOf("簡體", "繁體") } ?: inferred,
+            pua == "1", installedPackVersion(metadata, coverage))
+    }.distinctBy { it.path }.sortedBy { it.name.lowercase() }
 }
 
 internal fun isLegacyRootSimplified(name: String): Boolean =

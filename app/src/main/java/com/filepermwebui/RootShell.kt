@@ -12,14 +12,16 @@ internal data class RootCommandResult(
 
 internal object RootShell {
     private val operationLock = Any()
+    private val metadataLock = Any()
 
     fun run(
         command: String,
         timeoutMs: Long? = null,
         maxOutputChars: Int = 256 * 1024,
         keepTail: Boolean = true,
-        executable: String = "su"
-    ): RootCommandResult = synchronized(operationLock) {
+        executable: String = "su",
+        readOnlyMetadata: Boolean = false
+    ): RootCommandResult = synchronized(if (readOnlyMetadata) metadataLock else operationLock) {
         try {
             val process = ProcessBuilder(executable, "-c", command)
                 .redirectErrorStream(true)

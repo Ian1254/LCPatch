@@ -641,23 +641,37 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(packMenuOpen, rootMode) {
             if (packMenuOpen) {
-                packMenuLoading = true
+                packMenuLoading = downloadedPacks.isEmpty()
                 try {
                     downloadedPacks = translations.downloaded()
                 } catch (error: kotlinx.coroutines.CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    packMenuOpen = false
+                    if (downloadedPacks.isEmpty()) packMenuOpen = false
                     taskState.error("無法讀取已下載漢化：${error.message}")
                 }
                 finally { packMenuLoading = false }
             }
         }
-        LaunchedEffect(page, resumeRevision, applying, installingEntryKey, rootMode) {
+        LaunchedEffect(page, resumeRevision, applying, installingEntryKey, rootMode, rootStatus) {
             if (!applying && installingEntryKey == null) {
-                if (!rootMode || page == DOWNLOAD || page == DOWNLOADED || page == CONVERSION) {
-                    downloadedPacks = translations.downloaded()
+                if (!rootMode || page == DOWNLOAD || page == DOWNLOADED || page == CONVERSION || (page == OVERVIEW && rootStatus == "已授權")) {
+                    try {
+                        downloadedPacks = translations.downloaded()
+                    } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                    catch (error: Exception) {
+                        taskState.error("無法讀取已下載漢化：${error.message}")
+                    }
                 }
+            }
+        }
+        LaunchedEffect(page, rootMode, rootStatus, applying, installingEntryKey) {
+            if (rootMode && rootStatus == "已授權" && page == DOWNLOADED && !applying && installingEntryKey == null) {
+                try {
+                    translations.migrateLegacyDownloads()
+                    downloadedPacks = translations.downloaded()
+                } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                catch (error: Exception) { taskState.error("無法整理舊漢化包：${error.message}") }
             }
         }
         val inspectionInProgress = rootMode && page == OVERVIEW && !applying
@@ -965,7 +979,7 @@ class MainActivity : ComponentActivity() {
                                 loadReady = stellarStatus == "已授權",
                                 workProgress = applyProgress,
                                 waitingForGame = backgroundApply.waiting,
-                                onChoosePack = { packMenuLoading = true; packMenuOpen = true },
+                                onChoosePack = { packMenuLoading = downloadedPacks.isEmpty(); packMenuOpen = true },
                                 selectedPack = if(!rootMode) downloadedPacks.firstOrNull {it.path == selectedStellarPath} else null,
                                 hasPackUpdate = catalog.any {
                                     safePackName(it.name) == activeName &&
