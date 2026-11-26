@@ -150,19 +150,13 @@ class TranslationRepository(private val context: Context) {
             it.name.contains("零協") || it.author.contains("零協") || it.author.contains("都市零協會") ||
                 isLegacyRootSimplified(it.name)
         }
-        val lctaResult = async { runCatching { fetchLctaLatest() } }
         val officialResult = runCatching { fetchOfficialLatest() }
         val community = officialResult.getOrDefault(emptyList())
         listOfNotNull(primaryResult.exceptionOrNull(), officialResult.exceptionOrNull()).forEach { error ->
             LogRepository.append(context, "WARN", "translation.catalog_source_failed", error.message ?: error.javaClass.simpleName)
         }
         val ourPlay = OurPlayTranslation.entry.copy(version = ourPlayResult.await().getOrNull())
-        val lcta = lctaResult.await()
-        lcta.exceptionOrNull()?.let { error ->
-            if (error is kotlinx.coroutines.CancellationException) throw error
-            LogRepository.append(context, "WARN", "translation.lcta.catalog_failed", error.message ?: error.javaClass.simpleName)
-        }
-        (community + ourPlay + listOfNotNull(lcta.getOrNull()) + primary).distinctBy { it.name to it.url }
+        (community + ourPlay + primary).distinctBy { it.name to it.url }
     }
 
     /** Legacy test.1 packs had no upstream metadata. Match content, never assign today's tag by name alone. */
@@ -206,13 +200,6 @@ class TranslationRepository(private val context: Context) {
             }
             prefs.edit().putString("version_checked.$identity",entry.url+entry.sourceDigest.orEmpty()).apply()
         }
-    }
-
-    private fun fetchLctaLatest(): TranslationEntry {
-        val connection = HttpClient.open("https://api.github.com/repos/HZBHZB1234/LCTA_auto_update/releases/latest", accept = "application/vnd.github+json")
-        val raw = try { connection.inputStream.bufferedReader().use { it.readText() } }
-                  finally { connection.disconnect() }
-        return parseLctaRelease(JSONObject(raw))
     }
 
     private fun fetchOfficialLatest(): List<TranslationEntry> {
@@ -262,14 +249,10 @@ class TranslationRepository(private val context: Context) {
                 part = part,
                 displayName = fileName,
                 progress = progress,
-                maxBytes = ourPlay?.bytes ?: if (entry.url.startsWith("https://github.com/HZBHZB1234/LCTA_auto_update/releases/download/")) 64L * 1024 * 1024 else Long.MAX_VALUE
+                maxBytes = ourPlay?.bytes ?: Long.MAX_VALUE
             )
             require(part.length() > 4 && part.inputStream().use { it.read() == 0x50 && it.read() == 0x4b }) { "下載內容不是 ZIP 漢化包" }
             ourPlay?.verify(part)
-            if (ourPlay == null && entry.sourceDigest != null) {
-                try { verifyPackSourceDigest(part, entry.sourceDigest) }
-                catch (error: Exception) { part.delete(); throw error }
-            }
             if (ourPlay == null) ZipFile(part).use {
                 require(it.entries().asSequence().any { item -> localizeRelativePath(item.name) != null }) { "漢化包缺少 Localize 資料夾" }
             }
@@ -865,36 +848,6 @@ class TranslationRepository(private val context: Context) {
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }
 
-internal fun parseLctaRelease(release: JSONObject): TranslationEntry {
-    val tag = release.getString("tag_name")
-    require(tag.matches(Regex("[0-9]{10}"))) { "LCTA 版本格式無效" }
-    val assets = release.getJSONArray("assets")
-    val filename = "LLc-CN-LCTA-$tag.zip"
-    val asset = (0 until assets.length()).map(assets::getJSONObject)
-        .singleOrNull { it.optString("name") == filename } ?: error("LCTA Release 缺少 ZIP")
-    val url = "https://github.com/HZBHZB1234/LCTA_auto_update/releases/download/$tag/$filename"
-    require(asset.optString("browser_download_url") == url) { "LCTA 下載網址無效" }
-    require(asset.optLong("size") in 1..(64L * 1024 * 1024)) { "LCTA 漢化包大小無效" }
-    val digest = asset.optString("digest")
-    require(digest.matches(Regex("sha256:[a-f0-9]{64}"))) { "LCTA Release 缺少 SHA-256" }
-    return TranslationEntry("漢化-XP", "LCTA 快速漢化", "LCTA Auto Update",
-        "以零協會翻譯為基礎，AI 補全新內容；譯文可能有誤。", url, "簡體", tag, digest)
-}
-
-internal fun verifyPackSourceDigest(file: File, expected: String) {
-    val digest = java.security.MessageDigest.getInstance("SHA-256")
-    file.inputStream().buffered().use { input ->
-        val buffer = ByteArray(64 * 1024)
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            digest.update(buffer, 0, count)
-        }
-    }
-    val actual = "sha256:" + digest.digest().joinToString("") { "%02x".format(it) }
-    require(actual == expected) { "漢化包 SHA-256 驗證失敗" }
-}
-
 internal fun isLegacyRootSimplified(name: String): Boolean =
     Regex("^Root\\s*简体汉化$", RegexOption.IGNORE_CASE).matches(name)
 
@@ -918,11 +871,6 @@ internal fun localizeRelativePath(value: String): String? {
     val path = value.replace('\\', '/').trimStart('/')
     val marker = "/Localize/"
     val officialMarker = "/Lang/LLC_zh-CN/"
-    if (path.startsWith("LLc-CN-LCTA/")) {
-        val relative = path.removePrefix("LLc-CN-LCTA/")
-        return relative.takeIf { it.endsWith(".json", ignoreCase = true) && !it.startsWith("Info/", ignoreCase = true) }
-            ?.let { "Localize/cn/$it" }
-    }
     return when {
         path == "Localize" || path == "Localize/" -> "Localize/"
         path.startsWith("Localize/") -> path
