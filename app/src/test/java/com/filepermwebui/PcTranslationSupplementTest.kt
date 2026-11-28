@@ -260,6 +260,27 @@ class AutomaticLlcPreparationTest {
 private val sampleOverview = OverviewUiState("零協會漢化", "繁體中文", "日本語", true,
     true, true, "1.119.0", false, "已啟用", "已授權", "已連接", true, true, 2383, "PC 翻譯與目前漢化一致", "2026111401")
 
+@PreviewTest @Preview(name="DownloadedApplyProgressDark",widthDp=375,heightDp=600)
+@Composable fun DownloadedApplyProgressDark() = SystemUiTheme(SystemUiStyle.HyperOS4, "dark") {
+    SystemCanvas {
+        Column(Modifier.padding(12.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            SystemDownloadedPackCard("零協會漢化", "2026112801", applied=false, enabled=false,
+                onApply={}, workProgress=ApplyProgress("正在整理日本語覆蓋文件", 1191, 2383))
+            SystemDownloadedPackCard("OurPlay 神人漢化", "192", applied=false, enabled=false, onApply={})
+        }
+    }
+}
+
+@PreviewTest @Preview(name="DownloadedApplyPreparingLargeText",widthDp=700,heightDp=375,fontScale=2f)
+@Composable fun DownloadedApplyPreparingLargeText() = SystemUiTheme(SystemUiStyle.HyperOS4, "light") {
+    SystemCanvas {
+        Column(Modifier.padding(12.dp)) {
+            SystemDownloadedPackCard("零協會漢化", "2026112801", applied=true, enabled=false,
+                onApply={}, workProgress=ApplyProgress("正在讀取已下載漢化", 0, 0))
+        }
+    }
+}
+
 @Composable private fun ShizukuFlowFixture(dark: Boolean, writing: Boolean) = SystemUiTheme(SystemUiStyle.HyperOS4, if(dark) "dark" else "light") {
     val progress=if(writing) ApplyProgress("正在寫入語言資源", 1100, 3838) else null
     val state=sampleOverview.copy(rootMode=false,enabled=writing,busy=writing,loadStatus="Stellar · 已授權",loadReady=true)

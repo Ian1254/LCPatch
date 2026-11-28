@@ -625,6 +625,7 @@ class MainActivity : ComponentActivity() {
             }
             localApplying = true
             localApplyProgress = ApplyProgress("正在準備漢化", 0, 0)
+            processingPackPath = pack.path
             taskState.launchTask {
                 try {
                     translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { localApplyProgress = value } }
@@ -637,6 +638,7 @@ class MainActivity : ComponentActivity() {
                 } finally {
                     localApplying = false
                     localApplyProgress = null
+                    processingPackPath = null
                 }
             }
         }
@@ -806,6 +808,7 @@ class MainActivity : ComponentActivity() {
                             return@launchTask
                         }
                         localApplying = true
+                        processingPackPath = downloaded.path
                         translations.apply(downloaded) { value ->
                             withContext(Dispatchers.Main.immediate) { localApplyProgress = value }
                         }
@@ -827,6 +830,7 @@ class MainActivity : ComponentActivity() {
                         localApplying = false
                         localApplyProgress = null
                         installingEntryKey = null
+                        processingPackPath = null
                     }
                 }
             }
@@ -1058,6 +1062,9 @@ class MainActivity : ComponentActivity() {
                             DOWNLOADED -> downloadedPage(
                                 entries = downloadedPacks,
                                 applying = applying || downloadEntryKey != null,
+                                processingPath = if (backgroundApply.busy) backgroundApply.packPath
+                                    else if (localApplying) processingPackPath else null,
+                                applyProgress = applyProgress,
                                 activeName = activeName,
                                 activePath = activePackPath,
                                 installedVersion = runtimeInspection.version ?: activeVersion,
@@ -1563,6 +1570,7 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.downloadedPage(
         entries: List<DownloadedTranslation>, applying: Boolean, activeName: String, activePath: String?,
+        processingPath: String?, applyProgress: ApplyProgress?,
         installedVersion: String?, onApply: (DownloadedTranslation) -> Unit,
         deleteMode: Boolean, selectedForDeletion: Set<String>, onToggleDelete: (String) -> Unit
     ) {
@@ -1571,6 +1579,8 @@ class MainActivity : ComponentActivity() {
             SystemDownloadedPackCard(
                 entry.name, entry.version, applied = isCurrentPack(entry, activePath, activeName, installedVersion),
                 checked = entry.path in selectedForDeletion, enabled = !applying, batchMode = deleteMode,
+                workProgress = if (entry.path == processingPath)
+                    applyProgress ?: ApplyProgress("正在準備漢化", 0, 0) else null,
                 onToggle = { onToggleDelete(entry.path) }, onApply = { onApply(entry) }
             )
         }
