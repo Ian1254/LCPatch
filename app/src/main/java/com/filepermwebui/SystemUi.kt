@@ -1137,7 +1137,8 @@ internal fun formatApplyProgress(progress: ApplyProgress): String =
 }
 
 @Composable internal fun SystemDownloadedPackCard(name: String, version: String?, applied: Boolean, checked: Boolean = false,
-    enabled: Boolean = true, batchMode: Boolean = false, onToggle: () -> Unit = {}, onApply: (() -> Unit)? = null) {
+    enabled: Boolean = true, batchMode: Boolean = false, onToggle: () -> Unit = {}, onApply: (() -> Unit)? = null,
+    workProgress: ApplyProgress? = null) {
     val blue=MiuixTheme.colorScheme.primary
     val outline=MiuixTheme.colorScheme.onSurfaceVariantSummary
     SystemCard(insideMargin=PaddingValues(18.dp)) {
@@ -1155,13 +1156,24 @@ internal fun formatApplyProgress(progress: ApplyProgress): String =
                     else drawCircle(outline,style=androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
                 }
                 if(checked) Icon(Icons.Default.Check,null,Modifier.size(18.dp),tint=Color.White)
+            } else if (workProgress != null) {
+                Spacer(Modifier.width(12.dp))
+                SystemStatusLabel("正在套用", loading = true)
             } else if (applied) {
                 Spacer(Modifier.width(12.dp))
                 SystemStatusLabel("已套用", positive = true)
             }
         }
-        if (!batchMode && !applied && onApply != null) {
-            SystemSecondaryButton("套用此版本", onApply, Modifier.fillMaxWidth().padding(top = 12.dp), enabled = enabled)
+        if (!batchMode && (!applied || workProgress != null) && onApply != null) {
+            Box(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                SystemProgressActionButton(
+                    text = workProgress?.let(::formatApplyProgress) ?: "套用此版本",
+                    progress = workProgress?.fraction,
+                    busy = workProgress != null,
+                    enabled = enabled,
+                    onClick = onApply
+                )
+            }
         }
     }
 }
