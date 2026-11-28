@@ -10,6 +10,17 @@ import java.util.zip.ZipFile
 private val numberedPackVersion = Regex("v?[0-9]+")
 private val dottedPackVersion = Regex("v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?")
 
+/** A downloaded replacement is not installed until applying it succeeds. */
+internal fun pendingDownloadedUpdate(packs: List<DownloadedTranslation>, activePath: String?,
+    activeName: String, installedVersion: String?): DownloadedTranslation? = packs.firstOrNull { pack ->
+    (activePath?.let { it == pack.path } ?: (pack.name == activeName)) &&
+        isNewerPackVersion(pack.version, installedVersion)
+}
+
+internal fun requireAppliedPackVersion(expected: String, actual: String?) {
+    require(actual == expected) { "遊戲快取版本驗證失敗，請重新套用漢化" }
+}
+
 internal fun isNewerPackVersion(candidate: String?, current: String?): Boolean {
     val newer = validPackVersion(candidate) ?: return false
     val installed = validPackVersion(current) ?: return false

@@ -778,7 +778,8 @@ internal data class OverviewUiState(
 @Composable internal fun SystemTranslationPanel(state: OverviewUiState, onEnabled: (Boolean) -> Unit,
     onLaunch: () -> Unit, onDownload: () -> Unit, workProgress: ApplyProgress? = null, selectedPack: DownloadedTranslation? = null,
     waitingForGame: Boolean = false, onChoosePack: (() -> Unit)? = null,
-    hasPackUpdate: Boolean = false, packMenu: @Composable () -> Unit = {}) {
+    hasPackUpdate: Boolean = false, packMenu: @Composable () -> Unit = {},
+    downloadedUpdate: DownloadedTranslation? = null, onApplyUpdate: (DownloadedTranslation) -> Unit = {}) {
     val selected = state.name != "尚未選擇"
     SystemCard {
         if(state.rootMode) SystemSwitchPreference("啟用漢化", checked = state.enabled,
@@ -818,8 +819,13 @@ internal data class OverviewUiState(
             FlowRow(Modifier.padding(top = 5.dp, bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(if(selectedPack != null && !selected) packVersionLabel(selectedPack.version) else if(selectedPack != null && selectedPack.name != state.name) "${selectedPack.name} · ${packVersionLabel(selectedPack.version)}" else if(selected) packVersionLabel(state.packVersion) else "下載漢化包後即可直接套用。",
                     fontSize = 13.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                if (hasPackUpdate) Text("有可用更新", fontSize = 13.sp, lineHeight = 20.sp,
+                if (hasPackUpdate || downloadedUpdate != null) Text(
+                    if (downloadedUpdate != null) "已下載 ${downloadedUpdate.version}，尚未套用" else "有可用更新", fontSize = 13.sp, lineHeight = 20.sp,
                     color = Color(if (LocalSystemUiDark.current) 0xFFF47777 else 0xFFB3261E))
+            }
+            if (downloadedUpdate != null) {
+                SystemSecondaryButton("套用已下載更新", { onApplyUpdate(downloadedUpdate) },
+                    Modifier.fillMaxWidth().padding(bottom = 12.dp), enabled = !state.busy)
             }
             if(waitingForGame) Text("遊戲進入標題畫面後，點擊通知套用漢化",fontSize=13.sp,lineHeight=20.sp,modifier=Modifier.padding(bottom=12.dp),color=MiuixTheme.colorScheme.onSurfaceVariantSummary)
             if(workProgress != null) SystemLanguageProgress(workProgress)
@@ -1131,7 +1137,7 @@ internal fun formatApplyProgress(progress: ApplyProgress): String =
 }
 
 @Composable internal fun SystemDownloadedPackCard(name: String, version: String?, applied: Boolean, checked: Boolean = false,
-    enabled: Boolean = true, batchMode: Boolean = false, onToggle: () -> Unit = {}) {
+    enabled: Boolean = true, batchMode: Boolean = false, onToggle: () -> Unit = {}, onApply: (() -> Unit)? = null) {
     val blue=MiuixTheme.colorScheme.primary
     val outline=MiuixTheme.colorScheme.onSurfaceVariantSummary
     SystemCard(insideMargin=PaddingValues(18.dp)) {
@@ -1153,6 +1159,9 @@ internal fun formatApplyProgress(progress: ApplyProgress): String =
                 Spacer(Modifier.width(12.dp))
                 SystemStatusLabel("已套用", positive = true)
             }
+        }
+        if (!batchMode && !applied && onApply != null) {
+            SystemSecondaryButton("套用此版本", onApply, Modifier.fillMaxWidth().padding(top = 12.dp), enabled = enabled)
         }
     }
 }
