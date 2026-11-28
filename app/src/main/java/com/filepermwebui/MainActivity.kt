@@ -262,7 +262,8 @@ class MainActivity : ComponentActivity() {
         var translationEnabled by remember { mutableStateOf(translations.translationEnabled()) }
         var targetLanguage by remember { mutableStateOf(translations.targetLanguage()) }
         var fontName by remember { mutableStateOf(translations.fontName()) }
-        var runtimeInspection by remember(rootMode, activeName, activeVersion, translationEnabled, targetLanguage.id) {
+        var activePackRevision by remember { mutableIntStateOf(0) }
+        var runtimeInspection by remember(rootMode, activeName, activeVersion, translationEnabled, targetLanguage.id, activePackRevision) {
             mutableStateOf(RuntimeInspection())
         }
         val scopeStatus by ModernApp.scopeStatus.collectAsState()
@@ -381,14 +382,16 @@ class MainActivity : ComponentActivity() {
             }
         }
         val game = remember(resumeRevision) { gameInfo() }
+        fun refreshActivePack() {
+            activeName = translations.activeName()
+            activeScript = translations.activeScript()
+            activeVersion = translations.activeVersion()
+            activePackPath = translations.activePackPath()
+            translationEnabled = translations.translationEnabled()
+            // Reapplying the same pack also invalidates the previous runtime check.
+            activePackRevision++
+        }
         DisposableEffect(translations) {
-            fun refreshActivePack() {
-                activeName = translations.activeName()
-                activeScript = translations.activeScript()
-                activeVersion = translations.activeVersion()
-                activePackPath = translations.activePackPath()
-                translationEnabled = translations.translationEnabled()
-            }
             val stopObserving = translations.observeActivePack(::refreshActivePack)
             refreshActivePack()
             onDispose { stopObserving() }
@@ -625,6 +628,7 @@ class MainActivity : ComponentActivity() {
             taskState.launchTask {
                 try {
                     translations.apply(pack) { value -> withContext(Dispatchers.Main.immediate) { localApplyProgress = value } }
+                    refreshActivePack()
                     taskState.success("已套用，重啟遊戲後生效")
                 } catch (error: kotlinx.coroutines.CancellationException) {
                     throw error
@@ -652,14 +656,14 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(page, resumeRevision, applying, installingEntryKey, rootMode) {
             if (!applying && installingEntryKey == null) {
-                if (!rootMode || page == DOWNLOAD || page == DOWNLOADED || page == CONVERSION) {
+                if (!rootMode || page == OVERVIEW || page == DOWNLOAD || page == DOWNLOADED || page == CONVERSION) {
                     downloadedPacks = translations.downloaded()
                 }
             }
         }
         val inspectionInProgress = rootMode && page == OVERVIEW && !applying
         var checkingRuntime by remember { mutableStateOf(false) }
-        LaunchedEffect(inspectionInProgress, resumeRevision, rootStatus, activeName, activeVersion, translationEnabled, targetLanguage.id) {
+        LaunchedEffect(inspectionInProgress, resumeRevision, rootStatus, activeName, activeVersion, translationEnabled, targetLanguage.id, activePackRevision) {
             if (!rootMode) runtimeInspection = RuntimeInspection()
             if (inspectionInProgress) {
                 checkingRuntime = true
@@ -802,11 +806,10 @@ class MainActivity : ComponentActivity() {
                             return@launchTask
                         }
                         localApplying = true
-                        activeName = translations.apply(downloaded) { value ->
+                        translations.apply(downloaded) { value ->
                             withContext(Dispatchers.Main.immediate) { localApplyProgress = value }
                         }
-                        activeScript = translations.activeScript()
-                        translationEnabled = translations.translationEnabled()
+                        refreshActivePack()
                         transfer = null
                         taskState.success("已套用，重啟遊戲後生效")
                     } catch (error: Throwable) {
@@ -965,6 +968,9 @@ class MainActivity : ComponentActivity() {
                                     safePackName(it.name) == activeName &&
                                         isNewerPackVersion(it.version, runtimeInspection.version ?: activeVersion)
                                 },
+                                downloadedUpdate = if (rootMode) pendingDownloadedUpdate(downloadedPacks,
+                                    activePackPath, activeName, runtimeInspection.version ?: activeVersion) else null,
+                                onApplyUpdate = ::applySavedPack,
                                 packMenu = {
                                     SystemPackMenu(packMenuOpen, downloadedPacks, packMenuLoading, activePackPath, activeName,
                                         runtimeInspection.version ?: activeVersion, onDismiss = { packMenuOpen = false },
@@ -1055,6 +1061,7 @@ class MainActivity : ComponentActivity() {
                                 activeName = activeName,
                                 activePath = activePackPath,
                                 installedVersion = runtimeInspection.version ?: activeVersion,
+                                onApply = ::applySavedPack,
                                 deleteMode = packDeleteMode,
                                 selectedForDeletion = packDeleteSelection.toSet(),
                                 onToggleDelete = { path ->
@@ -1253,14 +1260,15 @@ class MainActivity : ComponentActivity() {
         targetLanguage: OverrideLanguage, runtimeInspection: RuntimeInspection, activeVersion: String?, checkingRuntime: Boolean,
         onDownload: () -> Unit, onDownloaded: () -> Unit, onLaunch: () -> Unit, loadReady: Boolean, workProgress: ApplyProgress?,
         waitingForGame: Boolean, onChoosePack: () -> Unit, selectedPack: DownloadedTranslation?,
-        hasPackUpdate: Boolean, packMenu: @Composable () -> Unit
+        hasPackUpdate: Boolean, downloadedUpdate: DownloadedTranslation?, onApplyUpdate: (DownloadedTranslation) -> Unit,
+        packMenu: @Composable () -> Unit
     ) {
         val state = OverviewUiState(activeName, activeScript, targetLanguage.label, translationEnabled,
             rootMode, game.installed, game.version, busy, scopeStatus, rootStatus, loadStatus,
             runtimeInspection.ready, runtimeInspection.fontReady, runtimeInspection.jsonFiles, translations.pcCoverageSummary(),
             if (rootMode) runtimeInspection.version ?: activeVersion else activeVersion, loadReady, checkingRuntime)
         item { SystemTranslationPanel(state, onTranslationEnabled, onLaunch, onDownload, workProgress, selectedPack, waitingForGame,
-            onChoosePack, hasPackUpdate, packMenu) }
+            onChoosePack, hasPackUpdate, packMenu, downloadedUpdate, onApplyUpdate) }
         item { SystemQuickActions(onDownload, onDownloaded) }
         item { SystemSectionLabel("運作狀態") }
         item { SystemEnvironmentPanel(state, onCheckScope, onRequestRoot, onAuthorize, loadAction) }
@@ -1555,14 +1563,15 @@ class MainActivity : ComponentActivity() {
 
     private fun LazyListScope.downloadedPage(
         entries: List<DownloadedTranslation>, applying: Boolean, activeName: String, activePath: String?,
-        installedVersion: String?, deleteMode: Boolean, selectedForDeletion: Set<String>, onToggleDelete: (String) -> Unit
+        installedVersion: String?, onApply: (DownloadedTranslation) -> Unit,
+        deleteMode: Boolean, selectedForDeletion: Set<String>, onToggleDelete: (String) -> Unit
     ) {
         if (entries.isEmpty()) item { InfoCard("尚無已下載漢化", "請先從「下載漢化」取得漢化包。") }
         items(entries, key = { it.path }) { entry ->
             SystemDownloadedPackCard(
                 entry.name, entry.version, applied = isCurrentPack(entry, activePath, activeName, installedVersion),
                 checked = entry.path in selectedForDeletion, enabled = !applying, batchMode = deleteMode,
-                onToggle = { onToggleDelete(entry.path) }
+                onToggle = { onToggleDelete(entry.path) }, onApply = { onApply(entry) }
             )
         }
     }

@@ -347,6 +347,7 @@ class TranslationRepository(private val context: Context) {
         val inspection = inspectRuntime()
         require(inspection.ready) { "遊戲快取驗證失敗：找不到 ${targetLanguage().prefix} 漢化文件" }
         require(inspection.fontReady) { "遊戲快取驗證失敗：中文字型未寫入" }
+        requireAppliedPackVersion(installedVersion, inspection.version)
         progress(ApplyProgress("套用完成", 1, 1))
         prefs.edit().putString("active_name", displayName).putString("active_script", script).putString("active_version",installedVersion).putString("active_source_path",prefs.getString("applying_source_path",null)).apply()
         LogRepository.append(context, "INFO", "translation.applied", "已套用 $displayName")
@@ -621,8 +622,7 @@ class TranslationRepository(private val context: Context) {
             jsonFiles = counts.getOrNull(0)?.trim()?.toIntOrNull() ?: 0,
             matchingFiles = counts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0,
             fontBytes = counts.getOrNull(2)?.trim()?.toLongOrNull() ?: 0,
-            version = installedPackVersion(evidence.firstOrNull()?.trim(), null) ?: activeVersion()
-                ?: installedPackVersion(null, evidence.getOrNull(1))
+            version = installedPackVersion(evidence.firstOrNull()?.trim(), evidence.getOrNull(1))
         )
     }
 
